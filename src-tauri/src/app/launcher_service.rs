@@ -6,7 +6,9 @@ use crate::{
     domain::{
         java::{java_detector::find_compatible_java, java_requirement::determine_required_java},
         models::{
-            instance::{CreateInstancePayload, CreateInstanceResult, InstanceMetadata},
+            instance::{
+                CreateInstancePayload, CreateInstanceResult, InstanceMetadata, InstanceSummary,
+            },
             java::JavaRuntime,
         },
     },
@@ -24,6 +26,68 @@ pub fn create_instance(
     payload: CreateInstancePayload,
 ) -> Result<CreateInstanceResult, String> {
     create_instance_impl(app, payload)
+}
+
+#[tauri::command]
+pub fn list_instances(app: AppHandle) -> Result<Vec<InstanceSummary>, String> {
+    list_instances_impl(app)
+}
+
+fn list_instances_impl(app: AppHandle) -> AppResult<Vec<InstanceSummary>> {
+    let launcher_root = resolve_launcher_root(&app)?;
+    let instances_root = launcher_root.join("instances");
+
+    if !instances_root.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut instances: Vec<InstanceSummary> = Vec::new();
+
+    let entries = fs::read_dir(&instances_root).map_err(|err| {
+        format!(
+            "No se pudo leer el directorio de instancias ({}): {}",
+            instances_root.display(),
+            err
+        )
+    })?;
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let metadata_path = path.join(".instance.json");
+        if !metadata_path.exists() {
+            continue;
+        }
+
+        let metadata_raw = match fs::read_to_string(&metadata_path) {
+            Ok(raw) => raw,
+            Err(_) => continue,
+        };
+
+        let metadata: InstanceMetadata = match serde_json::from_str(&metadata_raw) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+
+        instances.push(InstanceSummary {
+            id: metadata.internal_uuid,
+            name: metadata.name,
+            group: metadata.group,
+            instance_root: path.display().to_string(),
+        });
+    }
+
+    instances.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+
+    Ok(instances)
 }
 
 fn create_instance_impl(
@@ -120,8 +184,10 @@ fn create_instance_impl(
     })
 }
 
-
-fn validate_instance_constraints(launcher_root: &std::path::Path, payload: &CreateInstancePayload) -> AppResult<()> {
+fn validate_instance_constraints(
+    launcher_root: &std::path::Path,
+    payload: &CreateInstancePayload,
+) -> AppResult<()> {
     let sanitized_name =
         crate::infrastructure::filesystem::paths::sanitize_path_segment(&payload.name);
     let instance_root = launcher_root.join("instances").join(&sanitized_name);

@@ -16,6 +16,7 @@ pub fn run() {
         )
         .invoke_handler(tauri::generate_handler![
             app::launcher_service::create_instance,
+            app::launcher_service::list_instances,
             app::instance_service::open_instance_folder
         ])
         .run(tauri::generate_context!())
