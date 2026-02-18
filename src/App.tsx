@@ -866,6 +866,11 @@ function App() {
     }
 
     const cleanGroup = groupName.trim() || defaultGroup
+
+    if (!authSession) {
+      setCreationConsoleLogs(['Error: Debes iniciar sesión con una cuenta oficial para crear instancias (sin Demo).'])
+      return
+    }
     const diskEstimateMb = 1024
     const requiredJava = toJavaMajorOrUndefined(selectedMinecraftDetail.javaVersion?.majorVersion) ?? 17
 
@@ -895,6 +900,11 @@ function App() {
           requiredJavaMajor: requiredJava,
           ramMb: 4096,
           javaArgs: ['-XX:+UseG1GC'],
+          authSession: {
+            profileId: authSession.profileId,
+            profileName: authSession.profileName,
+            minecraftAccessToken: authSession.minecraftAccessToken,
+          },
         },
       })
 
@@ -935,10 +945,21 @@ function App() {
 
   const appendRuntimeSummary = async () => {
     if (!selectedCard?.instanceRoot || !selectedMinecraftVersion) return
+    if (!authSession) {
+      setRuntimeConsole([
+        makeConsoleEntry('ERROR', 'launcher', 'Debes iniciar sesión con cuenta oficial para validar lanzamiento (sin Demo).'),
+      ])
+      return
+    }
 
     try {
       const prepared = await invoke<LaunchValidationResult>('validate_and_prepare_launch', {
         instanceRoot: selectedCard.instanceRoot,
+        authSession: {
+          profileId: authSession.profileId,
+          profileName: authSession.profileName,
+          minecraftAccessToken: authSession.minecraftAccessToken,
+        },
       })
 
       setLaunchPreparation(prepared)
@@ -963,6 +984,10 @@ function App() {
 
   const startInstanceProcess = async () => {
     if (!selectedCard?.instanceRoot) return
+    if (!authSession) {
+      appendRuntime(makeConsoleEntry('ERROR', 'launcher', 'Debes iniciar sesión con cuenta oficial para iniciar (sin Demo).'))
+      return
+    }
     if (isStartingInstance || isInstanceRunning) {
       appendRuntime(makeConsoleEntry('WARN', 'launcher', 'La instancia ya está en ejecución o iniciándose.'))
       return
@@ -974,6 +999,11 @@ function App() {
     try {
       const result = await invoke<StartInstanceResult>('start_instance', {
         instanceRoot: selectedCard.instanceRoot,
+        authSession: {
+          profileId: authSession.profileId,
+          profileName: authSession.profileName,
+          minecraftAccessToken: authSession.minecraftAccessToken,
+        },
       })
 
       setRuntimeConsole((prev) => {

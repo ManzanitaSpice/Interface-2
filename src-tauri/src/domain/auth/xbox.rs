@@ -11,6 +11,7 @@ const XSTS_AUTH_URL: &str = "https://xsts.auth.xboxlive.com/xsts/authorize";
 const MINECRAFT_LOGIN_URL: &str =
     "https://api.minecraftservices.com/authentication/login_with_xbox";
 const MINECRAFT_PROFILE_URL: &str = "https://api.minecraftservices.com/minecraft/profile";
+const MINECRAFT_ENTITLEMENTS_URL: &str = "https://api.minecraftservices.com/entitlements/mcstore";
 
 #[derive(Debug, Serialize)]
 struct XstsProperties<'a> {
@@ -186,6 +187,40 @@ pub async fn login_minecraft_with_xbox(
         .json::<MinecraftLoginResponse>()
         .await
         .map_err(|err| format!("No se pudo leer access token de Minecraft: {err}"))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct MinecraftEntitlementsResponse {
+    #[serde(default)]
+    items: Vec<serde_json::Value>,
+}
+
+pub async fn has_minecraft_license(
+    client: &reqwest::Client,
+    minecraft_access_token: &str,
+) -> Result<bool, String> {
+    let response = client
+        .get(MINECRAFT_ENTITLEMENTS_URL)
+        .header("Authorization", format!("Bearer {minecraft_access_token}"))
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|err| format!("No se pudo consultar entitlements de Minecraft: {err}"))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "La API de entitlements de Minecraft devolvió error HTTP: {status}. Body completo: {body}"
+        ));
+    }
+
+    let entitlements = response
+        .json::<MinecraftEntitlementsResponse>()
+        .await
+        .map_err(|err| format!("No se pudo leer entitlements de Minecraft: {err}"))?;
+
+    Ok(!entitlements.items.is_empty())
 }
 
 pub async fn read_minecraft_profile(

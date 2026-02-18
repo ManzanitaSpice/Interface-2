@@ -1,5 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchAuthSession {
+    pub profile_id: String,
+    pub profile_name: String,
+    pub minecraft_access_token: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateInstancePayload {
@@ -11,6 +19,7 @@ pub struct CreateInstancePayload {
     pub required_java_major: Option<u32>,
     pub ram_mb: u32,
     pub java_args: Vec<String>,
+    pub auth_session: LaunchAuthSession,
 }
 
 #[derive(Debug, Serialize)]

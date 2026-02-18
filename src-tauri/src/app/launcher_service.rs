@@ -8,6 +8,7 @@ use crate::{
         models::{
             instance::{
                 CreateInstancePayload, CreateInstanceResult, InstanceMetadata, InstanceSummary,
+                LaunchAuthSession,
             },
             java::JavaRuntime,
         },
@@ -149,6 +150,10 @@ fn create_instance_impl(
 
     validate_payload(&payload)?;
 
+    let mut auth_logs = Vec::new();
+    validate_official_minecraft_auth(&payload.auth_session, &mut auth_logs)?;
+    logs.extend(auth_logs);
+
     let launcher_root = resolve_launcher_root(&app)?;
     validate_instance_constraints(&launcher_root, &payload)?;
     logs.push(format!("Base launcher: {}", launcher_root.display()));
@@ -278,6 +283,107 @@ fn validate_payload(payload: &CreateInstancePayload) -> AppResult<()> {
     if payload.minecraft_version.trim().is_empty() {
         return Err("La versión de Minecraft es obligatoria.".to_string());
     }
+
+    if payload
+        .auth_session
+        .minecraft_access_token
+        .trim()
+        .is_empty()
+    {
+        return Err("Debes iniciar sesión con cuenta oficial de Minecraft para crear instancias (sin Demo).".to_string());
+    }
+
+    Ok(())
+}
+
+fn validate_official_minecraft_auth(
+    auth_session: &LaunchAuthSession,
+    logs: &mut Vec<String>,
+) -> AppResult<()> {
+    if auth_session.minecraft_access_token.trim().is_empty() {
+        return Err(
+            "No hay access token de Minecraft válido; no se permite crear instancia en modo Demo."
+                .to_string(),
+        );
+    }
+
+    let client = reqwest::blocking::Client::new();
+
+    let entitlements_response = client
+        .get("https://api.minecraftservices.com/entitlements/mcstore")
+        .header(
+            "Authorization",
+            format!("Bearer {}", auth_session.minecraft_access_token),
+        )
+        .header("Accept", "application/json")
+        .send()
+        .map_err(|err| format!("No se pudo consultar entitlements de Minecraft: {err}"))?;
+
+    let entitlements_status = entitlements_response.status();
+    if !entitlements_status.is_success() {
+        let body = entitlements_response.text().unwrap_or_default();
+        return Err(format!(
+            "La API de entitlements de Minecraft devolvió error HTTP: {entitlements_status}. Body completo: {body}"
+        ));
+    }
+
+    let entitlements_json = entitlements_response
+        .json::<serde_json::Value>()
+        .map_err(|err| format!("No se pudo leer entitlements de Minecraft: {err}"))?;
+
+    let has_license = entitlements_json
+        .get("items")
+        .and_then(serde_json::Value::as_array)
+        .map(|items| !items.is_empty())
+        .unwrap_or(false);
+
+    if !has_license {
+        return Err("La cuenta no tiene licencia de Minecraft".to_string());
+    }
+
+    let profile_response = client
+        .get("https://api.minecraftservices.com/minecraft/profile")
+        .header(
+            "Authorization",
+            format!("Bearer {}", auth_session.minecraft_access_token),
+        )
+        .header("Accept", "application/json")
+        .send()
+        .map_err(|err| format!("No se pudo consultar perfil de Minecraft: {err}"))?;
+
+    let profile_status = profile_response.status();
+    if !profile_status.is_success() {
+        let body = profile_response.text().unwrap_or_default();
+        return Err(format!(
+            "La API de perfil de Minecraft devolvió error HTTP: {profile_status}. Body completo: {body}"
+        ));
+    }
+
+    let profile_json = profile_response
+        .json::<serde_json::Value>()
+        .map_err(|err| format!("No se pudo leer perfil de Minecraft: {err}"))?;
+
+    let profile_id = profile_json
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let profile_name = profile_json
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+
+    if profile_id != auth_session.profile_id || profile_name != auth_session.profile_name {
+        return Err(
+            "El perfil de Minecraft no coincide con la sesión actual; token inválido o vencido."
+                .to_string(),
+        );
+    }
+
+    logs.push("Licencia oficial de Minecraft verificada (entitlements/mcstore).".to_string());
+    logs.push(format!(
+        "Perfil oficial verificado: {} ({})",
+        profile_name, profile_id
+    ));
 
     Ok(())
 }

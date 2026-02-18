@@ -23,7 +23,7 @@ use crate::{
             },
             rule_engine::RuleContext,
         },
-        models::instance::InstanceMetadata,
+        models::instance::{InstanceMetadata, LaunchAuthSession},
         models::java::JavaRuntime,
     },
     services::java_installer::ensure_embedded_java,
@@ -159,6 +159,7 @@ pub fn get_instance_metadata(instance_root: String) -> Result<InstanceMetadata, 
 #[tauri::command]
 pub fn validate_and_prepare_launch(
     instance_root: String,
+    auth_session: LaunchAuthSession,
 ) -> Result<LaunchValidationResult, String> {
     let instance_path = Path::new(&instance_root);
     if !instance_path.exists() {
@@ -169,6 +170,8 @@ pub fn validate_and_prepare_launch(
 
     let metadata = get_instance_metadata(instance_root.clone())?;
     logs.push("✔ .instance.json leído correctamente".to_string());
+
+    validate_official_minecraft_auth(&auth_session, &mut logs)?;
 
     let embedded_java = ensure_instance_embedded_java(instance_path, &metadata, &mut logs)?;
     let java_path = PathBuf::from(&embedded_java);
@@ -336,10 +339,10 @@ pub fn validate_and_prepare_launch(
         natives_dir: natives_dir.display().to_string(),
         launcher_name: "Interface-2".to_string(),
         launcher_version: env!("CARGO_PKG_VERSION").to_string(),
-        auth_player_name: "Player".to_string(),
-        auth_uuid: uuid::Uuid::new_v4().to_string(),
-        auth_access_token: "0".to_string(),
-        user_type: "offline".to_string(),
+        auth_player_name: auth_session.profile_name.clone(),
+        auth_uuid: auth_session.profile_id.clone(),
+        auth_access_token: auth_session.minecraft_access_token.clone(),
+        user_type: "msa".to_string(),
         user_properties: "{}".to_string(),
         version_name: metadata.minecraft_version.clone(),
         game_directory: mc_root.display().to_string(),
@@ -427,7 +430,10 @@ pub fn validate_and_prepare_launch(
 }
 
 #[tauri::command]
-pub fn start_instance(instance_root: String) -> Result<StartInstanceResult, String> {
+pub fn start_instance(
+    instance_root: String,
+    auth_session: LaunchAuthSession,
+) -> Result<StartInstanceResult, String> {
     {
         let mut registry = runtime_registry()
             .lock()
@@ -450,7 +456,7 @@ pub fn start_instance(instance_root: String) -> Result<StartInstanceResult, Stri
         );
     }
 
-    let prepared = match validate_and_prepare_launch(instance_root.clone()) {
+    let prepared = match validate_and_prepare_launch(instance_root.clone(), auth_session) {
         Ok(value) => value,
         Err(err) => {
             if let Ok(mut registry) = runtime_registry().lock() {
@@ -587,6 +593,102 @@ fn ensure_instance_embedded_java(
     }
 
     Ok(java_exec.display().to_string())
+}
+
+fn validate_official_minecraft_auth(
+    auth_session: &LaunchAuthSession,
+    logs: &mut Vec<String>,
+) -> Result<(), String> {
+    if auth_session.minecraft_access_token.trim().is_empty() {
+        return Err(
+            "No hay access token de Minecraft válido; no se permite iniciar en modo Demo."
+                .to_string(),
+        );
+    }
+
+    if auth_session.profile_name.trim().is_empty() || auth_session.profile_id.trim().is_empty() {
+        return Err(
+            "No hay perfil oficial de Minecraft (name/uuid); no se permite iniciar en modo Demo."
+                .to_string(),
+        );
+    }
+
+    let client = reqwest::blocking::Client::new();
+
+    let entitlements_response = client
+        .get("https://api.minecraftservices.com/entitlements/mcstore")
+        .header(
+            "Authorization",
+            format!("Bearer {}", auth_session.minecraft_access_token),
+        )
+        .header("Accept", "application/json")
+        .send()
+        .map_err(|err| format!("No se pudo consultar entitlements de Minecraft: {err}"))?;
+
+    let entitlements_status = entitlements_response.status();
+    if !entitlements_status.is_success() {
+        let body = entitlements_response.text().unwrap_or_default();
+        return Err(format!(
+            "La API de entitlements de Minecraft devolvió error HTTP: {entitlements_status}. Body completo: {body}"
+        ));
+    }
+
+    let entitlements_json = entitlements_response
+        .json::<serde_json::Value>()
+        .map_err(|err| format!("No se pudo leer entitlements de Minecraft: {err}"))?;
+
+    let has_license = entitlements_json
+        .get("items")
+        .and_then(serde_json::Value::as_array)
+        .map(|items| !items.is_empty())
+        .unwrap_or(false);
+
+    if !has_license {
+        return Err("La cuenta no tiene licencia de Minecraft. Se bloquea creación/lanzamiento para evitar modo Demo.".to_string());
+    }
+
+    let profile_response = client
+        .get("https://api.minecraftservices.com/minecraft/profile")
+        .header(
+            "Authorization",
+            format!("Bearer {}", auth_session.minecraft_access_token),
+        )
+        .header("Accept", "application/json")
+        .send()
+        .map_err(|err| format!("No se pudo consultar perfil de Minecraft: {err}"))?;
+
+    let profile_status = profile_response.status();
+    if !profile_status.is_success() {
+        let body = profile_response.text().unwrap_or_default();
+        return Err(format!(
+            "La API de perfil de Minecraft devolvió error HTTP: {profile_status}. Body completo: {body}"
+        ));
+    }
+
+    let profile = profile_response
+        .json::<serde_json::Value>()
+        .map_err(|err| format!("No se pudo leer perfil de Minecraft: {err}"))?;
+
+    let profile_id = profile
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let profile_name = profile
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+
+    if profile_id != auth_session.profile_id || profile_name != auth_session.profile_name {
+        return Err("El perfil de Minecraft no coincide con la sesión actual; token inválido o vencido. Se bloquea para evitar modo Demo.".to_string());
+    }
+
+    logs.push("✔ Licencia oficial verificada en entitlements/mcstore (sin Demo).".to_string());
+    logs.push(format!(
+        "✔ Perfil oficial verificado: {} ({})",
+        profile_name, profile_id
+    ));
+
+    Ok(())
 }
 
 fn collect_library_jars(libraries_root: &Path) -> Result<Vec<String>, String> {
