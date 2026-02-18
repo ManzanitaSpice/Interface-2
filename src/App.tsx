@@ -79,6 +79,12 @@ type LaunchValidationResult = {
   logs: string[]
 }
 
+type StartInstanceResult = {
+  pid: number
+  javaPath: string
+  logs: string[]
+}
+
 type ManifestVersion = {
   id: string
   type: string
@@ -280,6 +286,43 @@ function App() {
       cancelled = true
     }
   }, [activePage, selectedCard])
+
+  useEffect(() => {
+    const onEscapePress = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+
+      if (activePage === 'Editar Instancia') {
+        if (selectedEditSection === 'Configuración' && selectedSettingsTab !== 'General') {
+          setSelectedSettingsTab('General')
+          return
+        }
+        if (selectedEditSection !== 'Ejecución') {
+          setSelectedEditSection('Ejecución')
+          return
+        }
+        setActivePage('Mis Modpacks')
+        return
+      }
+
+      if (activePage === 'Creador de Instancias') {
+        setActivePage('Mis Modpacks')
+        return
+      }
+
+      if (activePage === 'Mis Modpacks' && selectedCard) {
+        setSelectedCard(null)
+        return
+      }
+
+      if (activePage !== 'Mis Modpacks') {
+        setActivePage('Mis Modpacks')
+      }
+    }
+
+    window.addEventListener('keydown', onEscapePress)
+    return () => window.removeEventListener('keydown', onEscapePress)
+  }, [activePage, selectedCard, selectedEditSection, selectedSettingsTab])
 
 
   useEffect(() => {
@@ -669,6 +712,27 @@ function App() {
     }
   }
 
+  const startInstanceProcess = async () => {
+    if (!selectedCard?.instanceRoot) return
+
+    await appendRuntimeSummary()
+
+    try {
+      const result = await invoke<StartInstanceResult>('start_instance', {
+        instanceRoot: selectedCard.instanceRoot,
+      })
+
+      setRuntimeConsole((prev) => [
+        ...prev,
+        makeConsoleEntry('INFO', 'launcher', `Proceso de Minecraft iniciado (PID ${result.pid}) con Java ${result.javaPath}`),
+        ...result.logs.map((line) => makeConsoleEntry('INFO', 'launcher', line)),
+      ])
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      appendRuntime(makeConsoleEntry('ERROR', 'launcher', `No se pudo iniciar el proceso de la instancia: ${message}`))
+    }
+  }
+
   const pushRuntimeStream = () => {
     const demoLines = [
       '[STDOUT] Loading world renderer...',
@@ -741,7 +805,7 @@ const onTopNavClick = (item: TopNavItem) => {
 
     if (action === 'Iniciar') {
       openEditor()
-      appendRuntimeSummary()
+      startInstanceProcess()
       return
     }
 
@@ -806,12 +870,10 @@ const onTopNavClick = (item: TopNavItem) => {
 
   return (
     <div className="app-shell">
-      {activePage !== 'Creador de Instancias' && activePage !== 'Editar Instancia' && <PrincipalTopBar />}
+      <PrincipalTopBar />
       {activePage !== 'Creador de Instancias' && activePage !== 'Editar Instancia' && (
         <SecondaryTopBar activePage={activePage} onNavigate={onTopNavClick} />
       )}
-
-      {activePage === 'Creador de Instancias' && <PrincipalTopBar />}
 
       {activePage === 'Inicio' && (
         <main className="content content-padded">
@@ -1056,7 +1118,7 @@ const onTopNavClick = (item: TopNavItem) => {
               <section className="execution-view execution-view-full">
                 <div className="execution-toolbar">
                   <div className="execution-primary-actions">
-                    <button className="primary launch-btn" onClick={appendRuntimeSummary}>
+                    <button className="primary launch-btn" onClick={startInstanceProcess}>
                       ▶ Iniciar instancia
                     </button>
                     <button className="danger ghost-btn">■ Forzar cierre</button>
@@ -1077,10 +1139,9 @@ const onTopNavClick = (item: TopNavItem) => {
                     <option value="launcher">Launcher</option>
                     <option value="game">Juego</option>
                   </select>
-                  <label>
-                    <input type="checkbox" checked={autoScrollConsole} onChange={(event) => setAutoScrollConsole(event.target.checked)} />
-                    AutoScroll
-                  </label>
+                  <button className={`ghost-btn toolbar-toggle-btn ${autoScrollConsole ? 'active' : ''}`} onClick={() => setAutoScrollConsole((prev) => !prev)}>
+                    AutoScroll {autoScrollConsole ? 'ON' : 'OFF'}
+                  </button>
                   <input
                     type="search"
                     value={logSearch}

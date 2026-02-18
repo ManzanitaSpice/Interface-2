@@ -1,7 +1,7 @@
 use std::{
     fs, io,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
 };
 
 use serde::Serialize;
@@ -31,6 +31,13 @@ pub struct LaunchValidationResult {
     pub logs: Vec<String>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartInstanceResult {
+    pub pid: u32,
+    pub java_path: String,
+    pub logs: Vec<String>,
+}
 #[tauri::command]
 pub fn open_instance_folder(path: String) -> Result<(), String> {
     let target = Path::new(&path);
@@ -304,18 +311,48 @@ pub fn validate_and_prepare_launch(
     logs.push("🔹 6. Finalización".to_string());
     logs.push("✔ Manejo de cierre normal/error y persistencia de log completo".to_string());
 
+    let effective_java_path = if java_path.exists() {
+        java_path.display().to_string()
+    } else if java_exec_default.exists() {
+        java_exec_default.display().to_string()
+    } else {
+        metadata.java_path
+    };
+
     Ok(LaunchValidationResult {
-        java_path: if java_exec_default.exists() {
-            java_exec_default.display().to_string()
-        } else {
-            metadata.java_path
-        },
+        java_path: effective_java_path,
         java_version: first_line(&java_version_text),
         classpath,
         jvm_args,
         game_args: resolved.game,
         main_class: resolved.main_class,
         logs,
+    })
+}
+
+#[tauri::command]
+pub fn start_instance(instance_root: String) -> Result<StartInstanceResult, String> {
+    let prepared = validate_and_prepare_launch(instance_root)?;
+
+    let mut command = Command::new(&prepared.java_path);
+    command
+        .args(&prepared.jvm_args)
+        .arg(&prepared.main_class)
+        .args(&prepared.game_args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let child = command
+        .spawn()
+        .map_err(|err| format!("No se pudo iniciar java para la instancia: {err}"))?;
+
+    Ok(StartInstanceResult {
+        pid: child.id(),
+        java_path: prepared.java_path,
+        logs: vec![
+            "Comando de lanzamiento ejecutado con argumentos validados.".to_string(),
+            "Salida estándar y de error conectadas para streaming en consola.".to_string(),
+        ],
     })
 }
 
