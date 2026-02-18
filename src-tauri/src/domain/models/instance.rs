@@ -34,7 +34,7 @@ pub struct InstanceSummary {
     pub instance_root: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InstanceMetadata {
     pub name: String,

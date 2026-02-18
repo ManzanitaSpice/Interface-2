@@ -133,6 +133,11 @@ fn resolve_argument_section(
     args
 }
 
+pub fn replace_launch_variables(raw: &str, launch: &LaunchContext) -> String {
+    let replacements = replacement_map(launch);
+    replace_variables(raw, &replacements)
+}
+
 fn replacement_map(launch: &LaunchContext) -> HashMap<String, String> {
     let mut map = HashMap::new();
     map.insert("classpath".to_string(), launch.classpath.clone());
