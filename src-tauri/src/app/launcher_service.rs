@@ -1,6 +1,6 @@
 use std::fs;
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 use crate::{
     domain::{
@@ -20,6 +20,30 @@ use crate::{
     },
     shared::result::AppResult,
 };
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InstanceCreationProgressEvent {
+    request_id: Option<String>,
+    message: String,
+}
+
+fn push_creation_log(
+    app: &AppHandle,
+    request_id: &Option<String>,
+    logs: &mut Vec<String>,
+    message: impl Into<String>,
+) {
+    let message = message.into();
+    logs.push(message.clone());
+    let _ = app.emit(
+        "instance_creation_progress",
+        InstanceCreationProgressEvent {
+            request_id: request_id.clone(),
+            message,
+        },
+    );
+}
 
 #[tauri::command]
 pub async fn create_instance(
@@ -149,55 +173,103 @@ fn create_instance_impl(
     payload: CreateInstancePayload,
 ) -> AppResult<CreateInstanceResult> {
     let mut logs: Vec<String> = Vec::new();
+    let request_id = payload.creation_request_id.clone();
 
+    push_creation_log(&app, &request_id, &mut logs, "Iniciando validación de payload...");
     validate_payload(&payload)?;
+    push_creation_log(&app, &request_id, &mut logs, "Payload válido.");
 
     let mut auth_logs = Vec::new();
     validate_official_minecraft_auth(&payload.auth_session, &mut auth_logs)?;
-    logs.extend(auth_logs);
+    for line in auth_logs {
+        push_creation_log(&app, &request_id, &mut logs, line);
+    }
 
     let launcher_root = resolve_launcher_root(&app)?;
     validate_instance_constraints(&launcher_root, &payload)?;
-    logs.push(format!("Base launcher: {}", launcher_root.display()));
+    push_creation_log(&app, &request_id, &mut logs, format!("Base launcher: {}", launcher_root.display()));
 
+    push_creation_log(&app, &request_id, &mut logs, "Creando/verificando directorios base del launcher...");
     crate::infrastructure::filesystem::directories::create_launcher_directories(
         &launcher_root,
         &mut logs,
     )?;
+    if let Some(last) = logs.last().cloned() {
+        let _ = app.emit(
+            "instance_creation_progress",
+            InstanceCreationProgressEvent {
+                request_id: request_id.clone(),
+                message: last,
+            },
+        );
+    }
 
     let required_java = if let Some(java_major) = payload.required_java_major {
         runtime_from_major(java_major)?
     } else {
         determine_required_java(&payload.minecraft_version, &payload.loader)?
     };
-    logs.push(format!(
-        "Java requerido detectado para MC {} + loader {}: Java {}.",
-        payload.minecraft_version,
-        payload.loader,
-        required_java.major()
-    ));
+    push_creation_log(
+        &app,
+        &request_id,
+        &mut logs,
+        format!(
+            "Java requerido detectado para MC {} + loader {}: Java {}.",
+            payload.minecraft_version,
+            payload.loader,
+            required_java.major()
+        ),
+    );
 
     if let Some(system_java) = find_compatible_java(required_java) {
-        logs.push(format!(
-            "Java del sistema detectado: {} (major {}). Se prioriza runtime embebido para ruta controlada.",
-            system_java.path.display(),
-            system_java.major
-        ));
+        push_creation_log(
+            &app,
+            &request_id,
+            &mut logs,
+            format!(
+                "Java del sistema detectado: {} (major {}). Se prioriza runtime embebido para ruta controlada.",
+                system_java.path.display(),
+                system_java.major
+            ),
+        );
     } else {
-        logs.push(
+        push_creation_log(
+            &app,
+            &request_id,
+            &mut logs,
             "No se encontró Java del sistema compatible. Se usará runtime embebido.".to_string(),
         );
     }
 
+    push_creation_log(&app, &request_id, &mut logs, "Preparando runtime Java embebido...");
     let java_exec = ensure_embedded_java(&launcher_root, required_java, &mut logs)?;
+    if let Some(last) = logs.last().cloned() {
+        let _ = app.emit(
+            "instance_creation_progress",
+            InstanceCreationProgressEvent {
+                request_id: request_id.clone(),
+                message: last,
+            },
+        );
+    }
 
     log_download_steps(&payload, &mut logs, required_java);
+    for line in logs.iter().rev().take(6).cloned().collect::<Vec<_>>().into_iter().rev() {
+        let _ = app.emit(
+            "instance_creation_progress",
+            InstanceCreationProgressEvent {
+                request_id: request_id.clone(),
+                message: line,
+            },
+        );
+    }
 
     let sanitized_name =
         crate::infrastructure::filesystem::paths::sanitize_path_segment(&payload.name);
     let instance_root = launcher_root.join("instances").join(&sanitized_name);
     let minecraft_root = instance_root.join("minecraft");
 
+    push_creation_log(&app, &request_id, &mut logs, "Creando carpeta base de la instancia...");
     fs::create_dir_all(&instance_root).map_err(|err| {
         format!(
             "No se pudo crear la carpeta base de la instancia ({}): {}",
@@ -205,14 +277,24 @@ fn create_instance_impl(
             err
         )
     })?;
-    logs.push(format!("Creada carpeta base: {}", instance_root.display()));
+    push_creation_log(&app, &request_id, &mut logs, format!("Creada carpeta base: {}", instance_root.display()));
 
+    push_creation_log(&app, &request_id, &mut logs, "Construyendo estructura interna de la instancia...");
     build_instance_structure(
         &instance_root,
         &minecraft_root,
         &payload.minecraft_version,
         &mut logs,
     )?;
+    if let Some(last) = logs.last().cloned() {
+        let _ = app.emit(
+            "instance_creation_progress",
+            InstanceCreationProgressEvent {
+                request_id: request_id.clone(),
+                message: last,
+            },
+        );
+    }
 
     let internal_uuid = uuid::Uuid::new_v4().to_string();
     let metadata = InstanceMetadata {
@@ -230,7 +312,9 @@ fn create_instance_impl(
         internal_uuid: internal_uuid.clone(),
     };
 
+    push_creation_log(&app, &request_id, &mut logs, "Guardando metadata final de la instancia...");
     persist_instance_metadata(&instance_root, &metadata, &mut logs)?;
+    push_creation_log(&app, &request_id, &mut logs, "Instancia creada y registrada exitosamente.");
 
     Ok(CreateInstanceResult {
         id: internal_uuid,
