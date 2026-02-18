@@ -1,5 +1,3 @@
-use std::process::Command;
-
 use serde::Serialize;
 
 use crate::domain::auth::{
@@ -62,51 +60,9 @@ async fn finalize_microsoft_tokens(
 }
 
 fn browser_candidates() -> Vec<(&'static str, &'static str)> {
-    vec![
-        ("default", "Navegador predeterminado"),
-        ("chrome", "Google Chrome"),
-        ("chromium", "Chromium"),
-        ("firefox", "Mozilla Firefox"),
-        ("edge", "Microsoft Edge"),
-        ("brave", "Brave"),
-        ("opera", "Opera"),
-        ("vivaldi", "Vivaldi"),
-    ]
+    vec![("default", "Navegador predeterminado")]
 }
 
-#[cfg(target_os = "linux")]
-fn browser_is_available(browser_id: &str) -> bool {
-    if browser_id == "default" {
-        return true;
-    }
-
-    let commands: &[&str] = match browser_id {
-        "chrome" => &["google-chrome", "google-chrome-stable"],
-        "chromium" => &["chromium", "chromium-browser"],
-        "firefox" => &["firefox"],
-        "edge" => &["microsoft-edge", "microsoft-edge-stable"],
-        "brave" => &["brave-browser", "brave"],
-        "opera" => &["opera"],
-        "vivaldi" => &["vivaldi"],
-        _ => &[],
-    };
-
-    commands.iter().any(|command| {
-        Command::new("sh")
-            .arg("-c")
-            .arg(format!("command -v {command}"))
-            .status()
-            .map(|status| status.success())
-            .unwrap_or(false)
-    })
-}
-
-#[cfg(target_os = "windows")]
-fn browser_is_available(_browser_id: &str) -> bool {
-    true
-}
-
-#[cfg(target_os = "macos")]
 fn browser_is_available(_browser_id: &str) -> bool {
     true
 }
@@ -123,104 +79,10 @@ pub fn list_available_browsers() -> Vec<BrowserOption> {
         .collect()
 }
 
-#[cfg(target_os = "linux")]
-fn open_with_browser_command(browser_id: &str, url: &str) -> Result<(), String> {
-    let spawn_named = |commands: &[&str]| {
-        commands
-            .iter()
-            .find_map(|command| Command::new(command).arg(url).spawn().ok())
-    };
-
-    let opened = match browser_id {
-        "default" => Command::new("xdg-open").arg(url).spawn().ok(),
-        "chrome" => spawn_named(&["google-chrome", "google-chrome-stable", "chromium"]),
-        "chromium" => spawn_named(&["chromium", "chromium-browser", "google-chrome"]),
-        "firefox" => spawn_named(&["firefox"]),
-        "edge" => spawn_named(&["microsoft-edge", "microsoft-edge-stable"]),
-        "brave" => spawn_named(&["brave-browser", "brave"]),
-        "opera" => spawn_named(&["opera"]),
-        "vivaldi" => spawn_named(&["vivaldi"]),
-        _ => None,
-    };
-
-    if opened.is_some() {
-        return Ok(());
-    }
-
-    Command::new("xdg-open")
-        .arg(url)
-        .spawn()
+fn open_with_browser_command(url: &str) -> Result<(), String> {
+    webbrowser::open(url)
         .map(|_| ())
-        .map_err(|err| {
-            format!("No se pudo abrir navegador '{browser_id}' ni fallback predeterminado: {err}")
-        })
-}
-
-#[cfg(target_os = "windows")]
-fn open_with_browser_command(browser_id: &str, url: &str) -> Result<(), String> {
-    let status = match browser_id {
-        "default" => Command::new("cmd").args(["/C", "start", "", url]).status(),
-        "chrome" => Command::new("cmd")
-            .args(["/C", "start", "", "chrome", url])
-            .status(),
-        "firefox" => Command::new("cmd")
-            .args(["/C", "start", "", "firefox", url])
-            .status(),
-        "edge" => Command::new("cmd")
-            .args(["/C", "start", "", "msedge", url])
-            .status(),
-        "brave" => Command::new("cmd")
-            .args(["/C", "start", "", "brave", url])
-            .status(),
-        _ => Command::new("cmd").args(["/C", "start", "", url]).status(),
-    };
-
-    status
-        .map_err(|err| format!("No se pudo abrir navegador '{browser_id}': {err}"))
-        .and_then(|exit| {
-            if exit.success() {
-                Ok(())
-            } else {
-                Err(format!(
-                    "No se pudo abrir navegador '{browser_id}', código de salida {:?}",
-                    exit.code()
-                ))
-            }
-        })
-}
-
-#[cfg(target_os = "macos")]
-fn open_with_browser_command(browser_id: &str, url: &str) -> Result<(), String> {
-    let status = match browser_id {
-        "default" => Command::new("open").arg(url).status(),
-        "chrome" => Command::new("open")
-            .args(["-a", "Google Chrome", url])
-            .status(),
-        "chromium" => Command::new("open").args(["-a", "Chromium", url]).status(),
-        "firefox" => Command::new("open").args(["-a", "Firefox", url]).status(),
-        "edge" => Command::new("open")
-            .args(["-a", "Microsoft Edge", url])
-            .status(),
-        "brave" => Command::new("open")
-            .args(["-a", "Brave Browser", url])
-            .status(),
-        "opera" => Command::new("open").args(["-a", "Opera", url]).status(),
-        "vivaldi" => Command::new("open").args(["-a", "Vivaldi", url]).status(),
-        _ => Command::new("open").arg(url).status(),
-    };
-
-    status
-        .map_err(|err| format!("No se pudo abrir navegador '{browser_id}': {err}"))
-        .and_then(|exit| {
-            if exit.success() {
-                Ok(())
-            } else {
-                Err(format!(
-                    "No se pudo abrir navegador '{browser_id}', código de salida {:?}",
-                    exit.code()
-                ))
-            }
-        })
+        .map_err(|err| format!("No se pudo abrir el navegador del sistema: {err}"))
 }
 
 #[tauri::command]
@@ -234,7 +96,9 @@ pub fn open_url_in_browser(url: String, browser_id: String) -> Result<(), String
         return Err("La URL OAuth debe comenzar con http:// o https://.".to_string());
     }
 
-    open_with_browser_command(&browser_id, &normalized_url)
+    let _ = browser_id;
+    println!("Microsoft OAuth authorize URL: {normalized_url}");
+    open_with_browser_command(&normalized_url)
 }
 
 #[tauri::command]
