@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import './App.css'
 
@@ -47,6 +48,11 @@ type CreateInstanceResult = {
   group: string
   instanceRoot: string
   logs: string[]
+}
+
+type InstanceCreationProgressEvent = {
+  requestId?: string
+  message: string
 }
 
 type InstanceSummary = {
@@ -880,6 +886,8 @@ function App() {
     }
 
     setIsCreating(true)
+    const requestId = `create-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    let unlistenCreationProgress: UnlistenFn | null = null
     setCreationConsoleLogs([
       'FASE 2 iniciada al presionar OK.',
       'Validación ✓ nombre no vacío.',
@@ -887,9 +895,17 @@ function App() {
       `Validación ✓ espacio mínimo estimado (${diskEstimateMb} MB).`,
       `Preparación ✓ Java requerido: ${requiredJava}.`,
       'Preparación ✓ no se realizaron descargas pesadas durante la selección.',
+      'Creación iniciada: esperando eventos del backend...',
     ])
 
     try {
+      unlistenCreationProgress = await listen<InstanceCreationProgressEvent>('instance_creation_progress', (event) => {
+        if (event.payload.requestId && event.payload.requestId !== requestId) {
+          return
+        }
+        setCreationConsoleLogs((prev) => [...prev, event.payload.message])
+      })
+
       const result = await invoke<CreateInstanceResult>('create_instance', {
         payload: {
           name: cleanName,
@@ -905,6 +921,7 @@ function App() {
             profileName: authSession.profileName,
             minecraftAccessToken: authSession.minecraftAccessToken,
           },
+          creationRequestId: requestId,
         },
       })
 
@@ -912,7 +929,7 @@ function App() {
       setCards((prev) => [...prev, created])
       setInstanceDrafts((prev) => ({ ...prev, [created.id]: created }))
       setSelectedCard(created)
-      setCreationConsoleLogs(result.logs)
+      setCreationConsoleLogs((prev) => [...prev, ...result.logs, '✅ Instancia creada correctamente.'])
       setInstanceName('')
       setGroupName(defaultGroup)
       setActivePage('Mis Modpacks')
@@ -920,6 +937,9 @@ function App() {
       const message = error instanceof Error ? error.message : String(error)
       setCreationConsoleLogs((prev) => [...prev, `Error: ${message}`])
     } finally {
+      if (unlistenCreationProgress) {
+        unlistenCreationProgress()
+      }
       setIsCreating(false)
     }
   }

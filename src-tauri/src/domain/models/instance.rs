@@ -20,6 +20,8 @@ pub struct CreateInstancePayload {
     pub ram_mb: u32,
     pub java_args: Vec<String>,
     pub auth_session: LaunchAuthSession,
+    #[serde(default)]
+    pub creation_request_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
