@@ -1,5 +1,5 @@
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -34,6 +34,7 @@ pub struct MicrosoftAuthResult {
     pub xsts_token: String,
     pub uhs: String,
     pub minecraft_access_token: String,
+    pub minecraft_access_token_expires_at: Option<u64>,
     pub profile: MinecraftProfile,
     pub premium_verified: bool,
 }
@@ -62,6 +63,13 @@ async fn finalize_microsoft_tokens(
     }
     let profile = read_minecraft_profile(client, &minecraft.access_token).await?;
 
+    let minecraft_access_token_expires_at = minecraft.expires_in.and_then(|expires_in| {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()
+            .map(|now| now.as_millis() as u64 + expires_in.saturating_mul(1000))
+    });
+
     Ok(MicrosoftAuthResult {
         microsoft_access_token: microsoft_tokens.access_token,
         microsoft_refresh_token: microsoft_tokens.refresh_token,
@@ -69,6 +77,7 @@ async fn finalize_microsoft_tokens(
         xsts_token: xsts.token,
         uhs: xsts.uhs,
         minecraft_access_token: minecraft.access_token,
+        minecraft_access_token_expires_at,
         profile,
         premium_verified: true,
     })

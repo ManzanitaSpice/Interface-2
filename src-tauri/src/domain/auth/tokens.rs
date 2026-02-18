@@ -28,4 +28,5 @@ pub struct XboxUserClaim {
 #[derive(Debug, Deserialize)]
 pub struct MinecraftLoginResponse {
     pub access_token: String,
+    pub expires_in: Option<u64>,
 }
