@@ -22,11 +22,13 @@ use crate::{
 };
 
 #[tauri::command]
-pub fn create_instance(
+pub async fn create_instance(
     app: AppHandle,
     payload: CreateInstancePayload,
 ) -> Result<CreateInstanceResult, String> {
-    create_instance_impl(app, payload)
+    tauri::async_runtime::spawn_blocking(move || create_instance_impl(app, payload))
+        .await
+        .map_err(|err| format!("Falló la tarea de creación de instancia: {err}"))?
 }
 
 #[tauri::command]
