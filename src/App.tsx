@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type CSSProperties, type Dispatch, type SetStateAction } from 'react'
 import './App.css'
 
 type TopNavItem = 'Mis Modpacks' | 'Novedades' | 'Explorador' | 'Servers' | 'Configuración Global'
@@ -74,29 +74,8 @@ const editSections: EditSection[] = [
   'Avanzado',
 ]
 
-const rightSidebarContent: Record<CreatorSection, string[]> = {
-  Personalizado: ['Resumen', 'Compatibilidad', 'Dependencias', 'Perfil', 'Presets', 'Ayuda'],
-  Vanilla: ['Versionado', 'Java', 'Optimización', 'Recursos', 'Notas', 'Exportar'],
-  Forge: ['Instalador', 'Canales', 'Librerías', 'Mods base', 'Logs', 'Guía'],
-  Fabric: ['Loader', 'API', 'Rendimiento', 'Assets', 'Sincronizar', 'Tips'],
-  Quilt: ['QSL', 'Parámetros', 'Migración', 'Entorno', 'Paquetes', 'Wiki'],
-  NeoForge: ['Core', 'Parcheado', 'Versiones', 'Plantillas', 'Pruebas', 'Estado'],
-  Snapshot: ['Snapshots', 'Historial', 'Comparador', 'Cambios', 'Riesgos', 'Backups'],
-  Importar: ['Origen', 'Metadatos', 'Validación', 'Conflictos', 'Preview', 'Importar'],
-}
-
-const groups = ['Survival', 'PvP', 'Técnico', 'Aventura', 'Sin grupo']
-const instanceActions = [
-  'Iniciar',
-  'Forzar Cierre',
-  'Editar',
-  'Cambiar Grupo',
-  'Carpeta',
-  'Exportar',
-  'Copiar',
-  'Borrar',
-  'Crear atajo',
-]
+const groups = ['Sin grupo']
+const instanceActions = ['Iniciar', 'Forzar Cierre', 'Editar', 'Cambiar Grupo', 'Carpeta', 'Exportar', 'Copiar', 'Crear atajo']
 
 function App() {
   const [activePage, setActivePage] = useState<MainPage>('Inicio')
@@ -110,6 +89,8 @@ function App() {
   const [selectedCard, setSelectedCard] = useState<InstanceCard | null>(null)
   const [selectedEditSection, setSelectedEditSection] = useState<EditSection>('Ejecución')
   const [logSearch, setLogSearch] = useState('')
+  const [creatorSidebarWidth, setCreatorSidebarWidth] = useState(168)
+  const [editSidebarWidth, setEditSidebarWidth] = useState(168)
 
   const filteredCards = useMemo(() => {
     const term = instanceSearch.trim().toLowerCase()
@@ -152,6 +133,16 @@ function App() {
 
     setSelectedEditSection('Ejecución')
     setActivePage('Editar Instancia')
+  }
+
+  const resizeSidebar = (
+    setter: Dispatch<SetStateAction<number>>,
+    direction: 'narrower' | 'wider',
+  ) => {
+    setter((prev) => {
+      const delta = direction === 'wider' ? 16 : -16
+      return Math.max(144, Math.min(280, prev + delta))
+    })
   }
 
   return (
@@ -259,8 +250,12 @@ function App() {
         )}
 
       {activePage === 'Creador de Instancias' && (
-        <main className="creator-layout">
+        <main className="creator-layout" style={{ '--sidebar-width': `${creatorSidebarWidth}px` } as CSSProperties}>
           <aside className="compact-sidebar left">
+            <div className="sidebar-resize-actions">
+              <button onClick={() => resizeSidebar(setCreatorSidebarWidth, 'narrower')}>−</button>
+              <button onClick={() => resizeSidebar(setCreatorSidebarWidth, 'wider')}>+</button>
+            </div>
             {creatorSections.map((section) => (
               <button
                 key={section}
@@ -331,18 +326,16 @@ function App() {
               <button onClick={() => setActivePage('Mis Modpacks')}>Cancelar</button>
             </footer>
           </section>
-
-          <aside className="compact-sidebar right">
-            {rightSidebarContent[selectedCreatorSection].map((item) => (
-              <button key={item}>{item}</button>
-            ))}
-          </aside>
         </main>
       )}
 
       {activePage === 'Editar Instancia' && selectedCard && (
-        <main className="edit-instance-layout">
+        <main className="edit-instance-layout" style={{ '--sidebar-width': `${editSidebarWidth}px` } as CSSProperties}>
           <aside className="edit-left-sidebar">
+            <div className="sidebar-resize-actions">
+              <button onClick={() => resizeSidebar(setEditSidebarWidth, 'narrower')}>−</button>
+              <button onClick={() => resizeSidebar(setEditSidebarWidth, 'wider')}>+</button>
+            </div>
             {editSections.map((section) => (
               <button
                 key={section}

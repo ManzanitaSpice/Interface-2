@@ -1,0 +1,73 @@
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.top-bar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.top-bar.principal {
+  justify-content: space-between;
+  background: var(--bg-surface);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.top-bar.secondary {
+  background: var(--bg-surface-muted);
+  flex-wrap: wrap;
+}
+
+.top-bar.secondary button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.content {
+  flex: 1;
+}
+
+.content-padded {
+  padding: 1rem;
+}
+
+.page-title {
+  margin: 0 0 0.75rem;
+}
+
+.creator-layout {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  gap: 0;
+  min-height: calc(100vh - 56px);
+}
+
+.creator-main,
+.edit-main-content {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 56px);
+}
+
+.edit-instance-layout {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  min-height: calc(100vh - 56px);
+}
+
+.third-top-bar,
+.edit-top-bar,
+.fourth-top-bar,
+.creator-footer-actions,
+.execution-actions {
+  border-color: var(--border);
+  background: var(--bg-surface);
+}

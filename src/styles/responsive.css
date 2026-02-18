@@ -1,0 +1,27 @@
+@media (max-width: 980px) {
+  .creator-layout,
+  .edit-instance-layout {
+    --sidebar-width: 144px;
+  }
+
+  .instances-workspace.with-right-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .instance-right-panel {
+    position: static;
+  }
+
+  .list-interface-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .mini-right-sidebar {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .mini-right-sidebar button {
+    flex: 1 1 110px;
+  }
+}
