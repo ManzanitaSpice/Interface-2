@@ -21,7 +21,7 @@ use crate::{
     shared::result::AppResult,
 };
 
-#[derive(serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct InstanceCreationProgressEvent {
     request_id: Option<String>,
