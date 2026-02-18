@@ -1,5 +1,5 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -40,34 +40,15 @@ fn generate_code_challenge(verifier: &str) -> String {
    AUTHORIZE URL
 ========================================================= */
 
-#[derive(Serialize)]
-struct AuthorizeQuery<'a> {
-    response_type: &'a str,
-    response_mode: &'a str,
-    client_id: &'a str,
-    redirect_uri: &'a str,
-    scope: &'a str,
-    code_challenge: String,
-    code_challenge_method: &'a str,
-}
-
 pub fn build_authorize_url(code_verifier: &str) -> Result<String, String> {
     validate_verifier(code_verifier)?;
 
-    let query = AuthorizeQuery {
-        response_type: "code",
-        response_mode: "query",
-        client_id: MICROSOFT_CLIENT_ID,
-        redirect_uri: MICROSOFT_REDIRECT_URI,
-        scope: MICROSOFT_SCOPES,
-        code_challenge: generate_code_challenge(code_verifier),
-        code_challenge_method: "S256",
-    };
-
-    let encoded = serde_urlencoded::to_string(query)
-        .map_err(|e| format!("Error construyendo authorize URL: {e}"))?;
-
-    Ok(format!("{AUTHORIZE_ENDPOINT}?{encoded}"))
+    Ok(format!(
+        "{AUTHORIZE_ENDPOINT}?client_id={}&response_type=code&redirect_uri={}&response_mode=query&scope=XboxLive.signin%20offline_access&code_challenge={}&code_challenge_method=S256",
+        MICROSOFT_CLIENT_ID,
+        urlencoding::encode(MICROSOFT_REDIRECT_URI),
+        generate_code_challenge(code_verifier)
+    ))
 }
 
 /* =========================================================
@@ -161,10 +142,11 @@ mod tests {
         let url = build_authorize_url(&verifier).unwrap();
 
         assert!(url.starts_with(AUTHORIZE_ENDPOINT));
+        assert!(!url.contains('\n'));
         assert!(url.contains("response_type=code"));
         assert!(url.contains("response_mode=query"));
         assert!(url.contains("client_id=7ce1b3e8-48d7-4a9d-9329-7e11f988df39"));
-        assert!(url.contains("scope=XboxLive.signin+offline_access"));
+        assert!(url.contains("scope=XboxLive.signin%20offline_access"));
         assert!(url.contains("code_challenge_method=S256"));
     }
 
