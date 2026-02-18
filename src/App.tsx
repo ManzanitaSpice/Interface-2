@@ -17,6 +17,7 @@ type InstanceCard = {
   id: string
   name: string
   group: string
+  instanceRoot?: string
 }
 
 type CreatorSection =
@@ -46,6 +47,7 @@ type CreateInstanceResult = {
   id: string
   name: string
   group: string
+  instanceRoot: string
   logs: string[]
 }
 
@@ -67,7 +69,7 @@ type MinecraftVersionDetail = {
 }
 
 type LoaderKey = 'none' | 'neoforge' | 'forge' | 'fabric' | 'quilit'
-type MinecraftFilter = 'Snapshots' | 'Betas' | 'Alfas' | 'Experimentales'
+type MinecraftFilter = 'Releases' | 'Snapshots' | 'Betas' | 'Alfas' | 'Experimentales'
 
 type LoaderVersionItem = {
   version: string
@@ -75,6 +77,8 @@ type LoaderVersionItem = {
   source: string
   downloadUrl?: string
 }
+
+type LoaderChannelFilter = 'Todos' | 'Stable' | 'Latest' | 'Maven'
 
 const topNavItems: TopNavItem[] = ['Mis Modpacks', 'Novedades', 'Explorador', 'Servers', 'Configuración Global']
 
@@ -139,7 +143,7 @@ function App() {
   const [manifestVersions, setManifestVersions] = useState<ManifestVersion[]>([])
   const [manifestLoading, setManifestLoading] = useState(false)
   const [manifestError, setManifestError] = useState('')
-  const [selectedMcFilter, setSelectedMcFilter] = useState<MinecraftFilter>('Snapshots')
+  const [selectedMcFilter, setSelectedMcFilter] = useState<MinecraftFilter>('Releases')
   const [selectedLoader, setSelectedLoader] = useState<LoaderKey>('none')
   const [selectedMinecraftVersion, setSelectedMinecraftVersion] = useState<ManifestVersion | null>(null)
   const [selectedMinecraftDetail, setSelectedMinecraftDetail] = useState<MinecraftVersionDetail | null>(null)
@@ -147,6 +151,7 @@ function App() {
   const [loaderVersions, setLoaderVersions] = useState<LoaderVersionItem[]>([])
   const [loaderLoading, setLoaderLoading] = useState(false)
   const [loaderError, setLoaderError] = useState('')
+  const [selectedLoaderFilter, setSelectedLoaderFilter] = useState<LoaderChannelFilter>('Todos')
 
   useEffect(() => {
     let cancelled = false
@@ -339,6 +344,7 @@ function App() {
     const searchTerm = minecraftSearch.trim().toLowerCase()
     return manifestVersions
       .filter((version) => {
+        if (selectedMcFilter === 'Releases') return version.type === 'release'
         if (selectedMcFilter === 'Snapshots') return version.type === 'snapshot'
         if (selectedMcFilter === 'Betas') return version.type === 'old_beta'
         if (selectedMcFilter === 'Alfas') return version.type === 'old_alpha'
@@ -351,9 +357,15 @@ function App() {
   const loaderRows = useMemo<[string, string, string][]>(() => {
     const searchTerm = loaderSearch.trim().toLowerCase()
     return loaderVersions
+      .filter((entry) => {
+        if (selectedLoaderFilter === 'Todos') return true
+        if (selectedLoaderFilter === 'Stable') return entry.source === 'stable'
+        if (selectedLoaderFilter === 'Latest') return entry.source === 'latest'
+        return entry.source === 'maven'
+      })
       .filter((entry) => !searchTerm || entry.version.toLowerCase().includes(searchTerm))
       .map((entry) => [entry.version, entry.publishedAt, entry.source])
-  }, [loaderSearch, loaderVersions])
+  }, [loaderSearch, loaderVersions, selectedLoaderFilter])
 
   const createInstance = async () => {
     const cleanName = instanceName.trim()
@@ -379,7 +391,7 @@ function App() {
         },
       })
 
-      const created = { id: result.id, name: result.name, group: result.group }
+      const created = { id: result.id, name: result.name, group: result.group, instanceRoot: result.instanceRoot }
       setCards((prev) => [...prev, created])
       setSelectedCard(created)
       setCreationConsoleLogs(result.logs)
@@ -410,6 +422,29 @@ function App() {
 
     setSelectedEditSection('Ejecución')
     setActivePage('Editar Instancia')
+  }
+
+  const handleInstanceAction = async (action: string) => {
+    if (!selectedCard) return
+
+    if (action === 'Editar') {
+      openEditor()
+      return
+    }
+
+    if (action !== 'Carpeta') return
+
+    if (!selectedCard.instanceRoot) {
+      setCreationConsoleLogs((prev) => [...prev, `No hay ruta registrada para la instancia ${selectedCard.name}.`])
+      return
+    }
+
+    try {
+      await invoke('open_instance_folder', { path: selectedCard.instanceRoot })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setCreationConsoleLogs((prev) => [...prev, `No se pudo abrir la carpeta de la instancia: ${message}`])
+    }
   }
 
   const startSidebarDrag = (
@@ -520,7 +555,7 @@ function App() {
                   </header>
                   <div className="instance-right-actions">
                     {instanceActions.map((action) => (
-                      <button key={action} className={action === 'Editar' ? 'primary' : ''} onClick={action === 'Editar' ? openEditor : undefined}>
+                      <button key={action} className={action === 'Editar' ? 'primary' : ''} onClick={() => handleInstanceAction(action)}>
                         {action}
                       </button>
                     ))}
@@ -603,7 +638,7 @@ function App() {
                       setSelectedMinecraftVersion(found)
                     }
                   }}
-                  rightActions={['Snapshots', 'Betas', 'Alfas', 'Experimentales']}
+                  rightActions={['Releases', 'Snapshots', 'Betas', 'Alfas', 'Experimentales']}
                   selectedAction={selectedMcFilter}
                   onActionSelect={(value) => setSelectedMcFilter(value as MinecraftFilter)}
                   metaLine={
@@ -626,9 +661,12 @@ function App() {
                       setSelectedLoaderVersion(found)
                     }
                   }}
-                  rightActions={['Ninguno', 'Neoforge', 'Forge', 'Fabric', 'Quilit']}
-                  selectedAction={{ none: 'Ninguno', neoforge: 'Neoforge', forge: 'Forge', fabric: 'Fabric', quilit: 'Quilit' }[selectedLoader]}
-                  onActionSelect={(value) => {
+                  rightActions={['Todos', 'Stable', 'Latest', 'Maven']}
+                  selectedAction={selectedLoaderFilter}
+                  onActionSelect={(value) => setSelectedLoaderFilter(value as LoaderChannelFilter)}
+                  loaderActions={['Ninguno', 'Neoforge', 'Forge', 'Fabric', 'Quilit']}
+                  selectedLoaderAction={{ none: 'Ninguno', neoforge: 'Neoforge', forge: 'Forge', fabric: 'Fabric', quilit: 'Quilit' }[selectedLoader]}
+                  onLoaderActionSelect={(value) => {
                     const normalized = value.toLowerCase()
                     if (normalized === 'ninguno') setSelectedLoader('none')
                     else if (normalized === 'neoforge') setSelectedLoader('neoforge')
@@ -760,6 +798,9 @@ type ListInterfaceProps = {
   rightActions: string[]
   selectedAction: string
   onActionSelect: (action: string) => void
+  loaderActions?: string[]
+  selectedLoaderAction?: string
+  onLoaderActionSelect?: (action: string) => void
   selectedKey: string | null
   onSelectRow: (key: string) => void
   metaLine?: string
@@ -773,6 +814,9 @@ function ListInterface({
   rightActions,
   selectedAction,
   onActionSelect,
+  loaderActions,
+  selectedLoaderAction,
+  onLoaderActionSelect,
   selectedKey,
   onSelectRow,
   metaLine,
@@ -797,16 +841,28 @@ function ListInterface({
             <span>Fecha</span>
             <span>Tipo</span>
           </div>
-          {rows.map((row) => (
-            <button className={`table-row table-row-button ${selectedKey === row[0] ? 'active' : ''}`} key={`${title}-${row[0]}`} onClick={() => onSelectRow(row[0])}>
-              <span>{row[0]}</span>
-              <span>{row[1]}</span>
-              <span>{row[2]}</span>
-            </button>
-          ))}
+          <div className="table-body-scroll">
+            {rows.map((row) => (
+              <button className={`table-row table-row-button ${selectedKey === row[0] ? 'active' : ''}`} key={`${title}-${row[0]}`} onClick={() => onSelectRow(row[0])}>
+                <span>{row[0]}</span>
+                <span>{row[1]}</span>
+                <span>{row[2]}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
         <aside className="mini-right-sidebar buttons-only">
+          {loaderActions?.map((action) => (
+            <button
+              key={`${title}-loader-${action}`}
+              className={selectedLoaderAction === action ? 'active' : ''}
+              onClick={() => onLoaderActionSelect?.(action)}
+            >
+              {action}
+            </button>
+          ))}
+          {loaderActions && <hr className="sidebar-divider" />}
           {rightActions.map((action) => (
             <button key={`${title}-${action}`} className={selectedAction === action ? 'active' : ''} onClick={() => onActionSelect(action)}>
               {action}
