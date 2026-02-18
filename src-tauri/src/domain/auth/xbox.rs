@@ -36,7 +36,6 @@ fn build_xsts_request(xbox_token: &str) -> XstsRequest<'_> {
             sandbox_id: "RETAIL",
             user_tokens: vec![xbox_token],
         },
-        // Tiene que ser exactamente este relying party para Minecraft Java.
         relying_party: "rp://api.minecraftservices.com/",
         token_type: "JWT",
     }
@@ -44,26 +43,6 @@ fn build_xsts_request(xbox_token: &str) -> XstsRequest<'_> {
 
 fn build_minecraft_identity_token(uhs: &str, xsts_token: &str) -> String {
     format!("XBL3.0 x={uhs};{xsts_token}")
-}
-
-fn extract_error_detail(body: &str) -> String {
-    let parsed = serde_json::from_str::<serde_json::Value>(body).ok();
-    let Some(json_body) = parsed else {
-        return body.trim().to_string();
-    };
-
-    [
-        "error",
-        "errorType",
-        "errorMessage",
-        "path",
-        "developerMessage",
-    ]
-    .iter()
-    .filter_map(|key| json_body.get(*key).and_then(|value| value.as_str()))
-    .map(ToString::to_string)
-    .collect::<Vec<String>>()
-    .join(" | ")
 }
 
 #[derive(Debug)]
@@ -78,7 +57,9 @@ pub struct XstsToken {
     pub uhs: String,
 }
 
-pub fn authenticate_with_xbox_live(microsoft_access_token: &str) -> Result<XboxLiveToken, String> {
+pub async fn authenticate_with_xbox_live(
+    microsoft_access_token: &str,
+) -> Result<XboxLiveToken, String> {
     let payload = json!({
         "Properties": {
             "AuthMethod": "RPS",
@@ -89,16 +70,26 @@ pub fn authenticate_with_xbox_live(microsoft_access_token: &str) -> Result<XboxL
         "TokenType": "JWT"
     });
 
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::Client::new();
     let response = client
         .post(XBOX_AUTH_URL)
         .header("Accept", "application/json")
         .json(&payload)
         .send()
-        .map_err(|err| format!("No se pudo autenticar en Xbox Live: {err}"))?
-        .error_for_status()
-        .map_err(|err| format!("Xbox Live devolvió error HTTP: {err}"))?
+        .await
+        .map_err(|err| format!("No se pudo autenticar en Xbox Live: {err}"))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "Xbox Live devolvió error HTTP: {status}. Body completo: {body}"
+        ));
+    }
+
+    let response = response
         .json::<XboxAuthResponse>()
+        .await
         .map_err(|err| format!("No se pudo leer token de Xbox Live: {err}"))?;
 
     let uhs = response
@@ -114,19 +105,29 @@ pub fn authenticate_with_xbox_live(microsoft_access_token: &str) -> Result<XboxL
     })
 }
 
-pub fn authorize_xsts(xbox_token: &str) -> Result<XstsToken, String> {
+pub async fn authorize_xsts(xbox_token: &str) -> Result<XstsToken, String> {
     let payload = build_xsts_request(xbox_token);
 
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::Client::new();
     let response = client
         .post(XSTS_AUTH_URL)
         .header("Accept", "application/json")
         .json(&payload)
         .send()
-        .map_err(|err| format!("No se pudo autorizar XSTS: {err}"))?
-        .error_for_status()
-        .map_err(|err| format!("XSTS devolvió error HTTP: {err}"))?
+        .await
+        .map_err(|err| format!("No se pudo autorizar XSTS: {err}"))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "XSTS devolvió error HTTP: {status}. Body completo: {body}"
+        ));
+    }
+
+    let response = response
         .json::<XboxAuthResponse>()
+        .await
         .map_err(|err| format!("No se pudo leer token XSTS: {err}"))?;
 
     let uhs = response
@@ -142,7 +143,7 @@ pub fn authorize_xsts(xbox_token: &str) -> Result<XstsToken, String> {
     })
 }
 
-pub fn login_minecraft_with_xbox(
+pub async fn login_minecraft_with_xbox(
     uhs: &str,
     xsts_token: &str,
 ) -> Result<MinecraftLoginResponse, String> {
@@ -156,37 +157,59 @@ pub fn login_minecraft_with_xbox(
         identity_token: build_minecraft_identity_token(uhs, xsts_token),
     };
 
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::Client::new();
     let response = client
         .post(MINECRAFT_LOGIN_URL)
         .header("Accept", "application/json")
         .json(&payload)
         .send()
+        .await
         .map_err(|err| format!("No se pudo autenticar en Minecraft Services: {err}"))?;
 
     let status = response.status();
     if !status.is_success() {
-        let body = response.text().unwrap_or_default();
-        let details = extract_error_detail(&body);
-        let owned_hint = if details.contains("NOT_OWNED") {
-            " La cuenta no tiene licencia de Minecraft Java en este usuario de Microsoft."
-        } else {
-            ""
-        };
-        let under_age_hint = if details.contains("UNDER_18") {
-            " La cuenta tiene restricciones de edad/privacidad (Xbox)."
-        } else {
-            ""
-        };
+        let body = response.text().await.unwrap_or_default();
+        if status.as_u16() == 403 {
+            return Err(format!(
+                "Minecraft Services 403 Forbidden. Body completo: {body}"
+            ));
+        }
 
         return Err(format!(
-            "Minecraft Services devolvió error HTTP: {status}. Detalle: {details}.{owned_hint}{under_age_hint}"
+            "Minecraft Services devolvió error HTTP: {status}. Body completo: {body}"
         ));
     }
 
     response
         .json::<MinecraftLoginResponse>()
+        .await
         .map_err(|err| format!("No se pudo leer access token de Minecraft: {err}"))
+}
+
+pub async fn read_minecraft_profile(
+    minecraft_access_token: &str,
+) -> Result<MinecraftProfile, String> {
+    let client = reqwest::Client::new();
+    let response = client
+        .get(MINECRAFT_PROFILE_URL)
+        .header("Authorization", format!("Bearer {minecraft_access_token}"))
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|err| format!("No se pudo consultar perfil de Minecraft: {err}"))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "La API de perfil de Minecraft devolvió error HTTP: {status}. Body completo: {body}"
+        ));
+    }
+
+    response
+        .json::<MinecraftProfile>()
+        .await
+        .map_err(|err| format!("No se pudo leer perfil de Minecraft: {err}"))
 }
 
 #[cfg(test)]
@@ -210,18 +233,4 @@ mod tests {
         let token = build_minecraft_identity_token("user-hash", "xsts-token");
         assert_eq!(token, "XBL3.0 x=user-hash;xsts-token");
     }
-}
-
-pub fn read_minecraft_profile(minecraft_access_token: &str) -> Result<MinecraftProfile, String> {
-    let client = reqwest::blocking::Client::new();
-    client
-        .get(MINECRAFT_PROFILE_URL)
-        .header("Authorization", format!("Bearer {minecraft_access_token}"))
-        .header("Accept", "application/json")
-        .send()
-        .map_err(|err| format!("No se pudo consultar perfil de Minecraft: {err}"))?
-        .error_for_status()
-        .map_err(|err| format!("La API de perfil de Minecraft devolvió error HTTP: {err}"))?
-        .json::<MinecraftProfile>()
-        .map_err(|err| format!("No se pudo leer perfil de Minecraft: {err}"))
 }

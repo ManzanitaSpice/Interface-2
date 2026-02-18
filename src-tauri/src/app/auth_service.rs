@@ -4,8 +4,8 @@ use serde::Serialize;
 
 use crate::domain::auth::{
     microsoft::{
-        build_authorize_url, exchange_authorization_code, exchange_device_code,
-        generate_code_verifier, start_device_code_flow,
+        build_authorize_url, exchange_authorization_code, generate_code_verifier,
+        MICROSOFT_REDIRECT_URI,
     },
     profile::MinecraftProfile,
     xbox::{
@@ -20,18 +20,6 @@ pub struct MicrosoftAuthStart {
     pub authorize_url: String,
     pub code_verifier: String,
     pub redirect_uri: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MicrosoftDeviceCodeStart {
-    pub device_code: String,
-    pub user_code: String,
-    pub verification_uri: String,
-    pub verification_uri_complete: Option<String>,
-    pub expires_in: u64,
-    pub interval: u64,
-    pub message: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -53,15 +41,13 @@ pub struct BrowserOption {
     pub name: String,
 }
 
-pub const MICROSOFT_REDIRECT_URI: &str = "https://login.live.com/oauth20_desktop.srf";
-
-fn finalize_microsoft_tokens(
+async fn finalize_microsoft_tokens(
     microsoft_tokens: crate::domain::auth::tokens::MicrosoftTokenResponse,
 ) -> Result<MicrosoftAuthResult, String> {
-    let xbox = authenticate_with_xbox_live(&microsoft_tokens.access_token)?;
-    let xsts = authorize_xsts(&xbox.token)?;
-    let minecraft = login_minecraft_with_xbox(&xsts.uhs, &xsts.token)?;
-    let profile = read_minecraft_profile(&minecraft.access_token)?;
+    let xbox = authenticate_with_xbox_live(&microsoft_tokens.access_token).await?;
+    let xsts = authorize_xsts(&xbox.token).await?;
+    let minecraft = login_minecraft_with_xbox(&xsts.uhs, &xsts.token).await?;
+    let profile = read_minecraft_profile(&minecraft.access_token).await?;
 
     Ok(MicrosoftAuthResult {
         microsoft_access_token: microsoft_tokens.access_token,
@@ -140,12 +126,14 @@ pub fn list_available_browsers() -> Vec<BrowserOption> {
 fn open_with_browser_command(browser_id: &str, url: &str) -> Result<(), String> {
     let spawn_result = match browser_id {
         "default" => Command::new("xdg-open").arg(url).spawn(),
-        "chrome" => Command::new("google-chrome").arg(url).spawn().or_else(|_| {
-            Command::new("google-chrome-stable").arg(url).spawn()
-        }),
-        "chromium" => Command::new("chromium").arg(url).spawn().or_else(|_| {
-            Command::new("chromium-browser").arg(url).spawn()
-        }),
+        "chrome" => Command::new("google-chrome")
+            .arg(url)
+            .spawn()
+            .or_else(|_| Command::new("google-chrome-stable").arg(url).spawn()),
+        "chromium" => Command::new("chromium")
+            .arg(url)
+            .spawn()
+            .or_else(|_| Command::new("chromium-browser").arg(url).spawn()),
         "firefox" => Command::new("firefox").arg(url).spawn(),
         "edge" => Command::new("microsoft-edge")
             .arg(url)
@@ -168,9 +156,7 @@ fn open_with_browser_command(browser_id: &str, url: &str) -> Result<(), String> 
 #[cfg(target_os = "windows")]
 fn open_with_browser_command(browser_id: &str, url: &str) -> Result<(), String> {
     let status = match browser_id {
-        "default" => Command::new("cmd")
-            .args(["/C", "start", "", url])
-            .status(),
+        "default" => Command::new("cmd").args(["/C", "start", "", url]).status(),
         "chrome" => Command::new("cmd")
             .args(["/C", "start", "", "chrome", url])
             .status(),
@@ -183,9 +169,7 @@ fn open_with_browser_command(browser_id: &str, url: &str) -> Result<(), String> 
         "brave" => Command::new("cmd")
             .args(["/C", "start", "", "brave", url])
             .status(),
-        _ => Command::new("cmd")
-            .args(["/C", "start", "", url])
-            .status(),
+        _ => Command::new("cmd").args(["/C", "start", "", url]).status(),
     };
 
     status
@@ -214,7 +198,9 @@ fn open_with_browser_command(browser_id: &str, url: &str) -> Result<(), String> 
         "edge" => Command::new("open")
             .args(["-a", "Microsoft Edge", url])
             .status(),
-        "brave" => Command::new("open").args(["-a", "Brave Browser", url]).status(),
+        "brave" => Command::new("open")
+            .args(["-a", "Brave Browser", url])
+            .status(),
         "opera" => Command::new("open").args(["-a", "Opera", url]).status(),
         "vivaldi" => Command::new("open").args(["-a", "Vivaldi", url]).status(),
         _ => Command::new("open").arg(url).status(),
@@ -255,30 +241,7 @@ pub fn start_microsoft_auth() -> Result<MicrosoftAuthStart, String> {
 }
 
 #[tauri::command]
-pub fn start_microsoft_device_auth() -> Result<MicrosoftDeviceCodeStart, String> {
-    let device = start_device_code_flow()?;
-    Ok(MicrosoftDeviceCodeStart {
-        device_code: device.device_code,
-        user_code: device.user_code,
-        verification_uri: device.verification_uri,
-        verification_uri_complete: device.verification_uri_complete,
-        expires_in: device.expires_in,
-        interval: device.interval,
-        message: device.message,
-    })
-}
-
-#[tauri::command]
-pub fn complete_microsoft_device_auth(device_code: String) -> Result<MicrosoftAuthResult, String> {
-    if device_code.trim().is_empty() {
-        return Err("El device_code de Microsoft está vacío.".to_string());
-    }
-    let tokens = exchange_device_code(&device_code)?;
-    finalize_microsoft_tokens(tokens)
-}
-
-#[tauri::command]
-pub fn complete_microsoft_auth(
+pub async fn complete_microsoft_auth(
     code: String,
     code_verifier: String,
 ) -> Result<MicrosoftAuthResult, String> {
@@ -287,6 +250,6 @@ pub fn complete_microsoft_auth(
     }
 
     let microsoft_tokens =
-        exchange_authorization_code(&code, &code_verifier, MICROSOFT_REDIRECT_URI)?;
-    finalize_microsoft_tokens(microsoft_tokens)
+        exchange_authorization_code(&code, &code_verifier, MICROSOFT_REDIRECT_URI).await?;
+    finalize_microsoft_tokens(microsoft_tokens).await
 }
