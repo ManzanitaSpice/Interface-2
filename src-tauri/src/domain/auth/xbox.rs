@@ -12,18 +12,58 @@ const MINECRAFT_LOGIN_URL: &str =
     "https://api.minecraftservices.com/authentication/login_with_xbox";
 const MINECRAFT_PROFILE_URL: &str = "https://api.minecraftservices.com/minecraft/profile";
 
+#[derive(Debug, Serialize)]
+struct XstsProperties<'a> {
+    #[serde(rename = "SandboxId")]
+    sandbox_id: &'static str,
+    #[serde(rename = "UserTokens")]
+    user_tokens: Vec<&'a str>,
+}
+
+#[derive(Debug, Serialize)]
+struct XstsRequest<'a> {
+    #[serde(rename = "Properties")]
+    properties: XstsProperties<'a>,
+    #[serde(rename = "RelyingParty")]
+    relying_party: &'static str,
+    #[serde(rename = "TokenType")]
+    token_type: &'static str,
+}
+
+fn build_xsts_request(xbox_token: &str) -> XstsRequest<'_> {
+    XstsRequest {
+        properties: XstsProperties {
+            sandbox_id: "RETAIL",
+            user_tokens: vec![xbox_token],
+        },
+        // Tiene que ser exactamente este relying party para Minecraft Java.
+        relying_party: "rp://api.minecraftservices.com/",
+        token_type: "JWT",
+    }
+}
+
+fn build_minecraft_identity_token(uhs: &str, xsts_token: &str) -> String {
+    format!("XBL3.0 x={uhs};{xsts_token}")
+}
+
 fn extract_error_detail(body: &str) -> String {
     let parsed = serde_json::from_str::<serde_json::Value>(body).ok();
     let Some(json_body) = parsed else {
         return body.trim().to_string();
     };
 
-    ["error", "errorType", "errorMessage", "path", "developerMessage"]
-        .iter()
-        .filter_map(|key| json_body.get(*key).and_then(|value| value.as_str()))
-        .map(ToString::to_string)
-        .collect::<Vec<String>>()
-        .join(" | ")
+    [
+        "error",
+        "errorType",
+        "errorMessage",
+        "path",
+        "developerMessage",
+    ]
+    .iter()
+    .filter_map(|key| json_body.get(*key).and_then(|value| value.as_str()))
+    .map(ToString::to_string)
+    .collect::<Vec<String>>()
+    .join(" | ")
 }
 
 #[derive(Debug)]
@@ -75,14 +115,7 @@ pub fn authenticate_with_xbox_live(microsoft_access_token: &str) -> Result<XboxL
 }
 
 pub fn authorize_xsts(xbox_token: &str) -> Result<XstsToken, String> {
-    let payload = json!({
-        "Properties": {
-            "SandboxId": "RETAIL",
-            "UserTokens": [xbox_token]
-        },
-        "RelyingParty": "rp://api.minecraftservices.com/",
-        "TokenType": "JWT"
-    });
+    let payload = build_xsts_request(xbox_token);
 
     let client = reqwest::blocking::Client::new();
     let response = client
@@ -120,7 +153,7 @@ pub fn login_minecraft_with_xbox(
     }
 
     let payload = MinecraftLoginRequest {
-        identity_token: format!("XBL3.0 x={uhs};{xsts_token}"),
+        identity_token: build_minecraft_identity_token(uhs, xsts_token),
     };
 
     let client = reqwest::blocking::Client::new();
@@ -154,6 +187,29 @@ pub fn login_minecraft_with_xbox(
     response
         .json::<MinecraftLoginResponse>()
         .map_err(|err| format!("No se pudo leer access token de Minecraft: {err}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_minecraft_identity_token, build_xsts_request};
+
+    #[test]
+    fn build_xsts_request_uses_minecraft_relying_party() {
+        let payload = serde_json::to_value(build_xsts_request("xbl-token")).unwrap();
+
+        assert_eq!(
+            payload["RelyingParty"],
+            serde_json::Value::String("rp://api.minecraftservices.com/".to_string())
+        );
+        assert_eq!(payload["Properties"]["SandboxId"], "RETAIL");
+        assert_eq!(payload["Properties"]["UserTokens"][0], "xbl-token");
+    }
+
+    #[test]
+    fn minecraft_identity_token_has_expected_format() {
+        let token = build_minecraft_identity_token("user-hash", "xsts-token");
+        assert_eq!(token, "XBL3.0 x=user-hash;xsts-token");
+    }
 }
 
 pub fn read_minecraft_profile(minecraft_access_token: &str) -> Result<MinecraftProfile, String> {
