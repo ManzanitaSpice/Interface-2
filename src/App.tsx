@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import './App.css'
 
 type TopNavItem = 'Mis Modpacks' | 'Novedades' | 'Explorador' | 'Servers' | 'Configuración Global'
@@ -140,10 +140,6 @@ type MicrosoftAuthStart = {
   redirectUri: string
 }
 
-type BrowserOption = {
-  id: string
-  name: string
-}
 
 type MicrosoftAuthResult = {
   minecraftAccessToken: string
@@ -178,22 +174,6 @@ const sidebarMaxWidth = 320
 const mojangManifestUrl = 'https://launchermeta.mojang.com/mc/game/version_manifest.json'
 const authSessionKey = 'launcher_microsoft_auth_session_v1'
 const authCodeRegenerateCooldownMs = 10_000
-
-function extractAuthorizationCode(input: string): string {
-  const trimmed = input.trim()
-  if (!trimmed) return ''
-
-  if (/^https?:\/\//i.test(trimmed)) {
-    try {
-      const parsed = new URL(trimmed)
-      return parsed.searchParams.get('code')?.trim() ?? ''
-    } catch {
-      return trimmed
-    }
-  }
-
-  return trimmed
-}
 
 function nowTimestamp() {
   return new Date().toLocaleTimeString('es-ES', { hour12: false })
@@ -299,13 +279,8 @@ function App() {
   const [isAuthenticating, setIsAuthenticating] = useState(false)
   const [authRetryAt, setAuthRetryAt] = useState(0)
   const [nowTick, setNowTick] = useState(() => Date.now())
-  const [authorizationCodeInput, setAuthorizationCodeInput] = useState('')
   const [authStatus, setAuthStatus] = useState('')
   const [authError, setAuthError] = useState('')
-  const [pendingMicrosoftCodeVerifier, setPendingMicrosoftCodeVerifier] = useState('')
-  const [pendingAuthorizeUrl, setPendingAuthorizeUrl] = useState('')
-  const [availableBrowsers, setAvailableBrowsers] = useState<BrowserOption[]>([])
-  const [selectedBrowserId, setSelectedBrowserId] = useState('default')
   const creationIconInputRef = useRef<HTMLInputElement | null>(null)
   const runtimeConsoleRef = useRef<HTMLDivElement | null>(null)
 
@@ -337,63 +312,20 @@ function App() {
     if (Date.now() < authRetryAt) return
     setIsAuthenticating(true)
     setAuthError('')
-    setAuthStatus('Preparando autenticación con Microsoft...')
+    setAuthStatus('Abriendo login de Microsoft dentro del launcher...')
 
-    let startedFlow = false
     try {
       const authStart = await invoke<MicrosoftAuthStart>('start_microsoft_auth')
-      setPendingMicrosoftCodeVerifier(authStart.codeVerifier)
-      setPendingAuthorizeUrl(authStart.authorizeUrl)
-      startedFlow = true
 
-      const browserToUse = selectedBrowserId || 'default'
-      await invoke('open_url_in_browser', { url: authStart.authorizeUrl, browserId: browserToUse })
-      setAuthStatus(
-        `Se abrió el navegador (${browserToUse}). Autoriza la app y luego pega aquí el parámetro code de la URL de redirección.`,
-      )
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const code = await invoke<string>('authorize_microsoft_in_launcher', {
+        authorizeUrl: authStart.authorizeUrl,
+      })
 
-      if (startedFlow) {
-        setAuthError(`${message}. Puedes continuar el flujo abriendo el enlace manualmente.`)
-        setAuthStatus('No se pudo abrir el navegador automáticamente, pero el enlace de inicio de sesión sigue disponible.')
-      } else {
-        setAuthError(message)
-        setAuthStatus('')
-        setPendingMicrosoftCodeVerifier('')
-        setPendingAuthorizeUrl('')
-        setAuthRetryAt(Date.now() + authCodeRegenerateCooldownMs)
-      }
-    } finally {
-      setIsAuthenticating(false)
-    }
-  }
+      setAuthStatus('Código de autorización recibido. Completando login...')
 
-  const authRetrySeconds = Math.max(0, Math.ceil((authRetryAt - nowTick) / 1000))
-  const isAuthCooldown = authRetrySeconds > 0
-
-  const completeMicrosoftLogin = async () => {
-    const code = extractAuthorizationCode(authorizationCodeInput)
-    const codeVerifier = pendingMicrosoftCodeVerifier.trim()
-
-    if (!codeVerifier) {
-      setAuthError('Primero inicia el flujo con "Continuar con Microsoft" para generar PKCE.')
-      return
-    }
-
-    if (!code) {
-      setAuthError('Pega el parámetro code que devolvió Microsoft para completar el login.')
-      return
-    }
-
-    setIsAuthenticating(true)
-    setAuthError('')
-    setAuthStatus('Completando autorización con Microsoft...')
-
-    try {
       const result = await invoke<MicrosoftAuthResult>('complete_microsoft_auth', {
         code,
-        codeVerifier,
+        codeVerifier: authStart.codeVerifier,
       })
 
       const session: AuthSession = {
@@ -407,9 +339,6 @@ function App() {
 
       setAuthSession(session)
       persistAuthSession(session)
-      setAuthorizationCodeInput('')
-      setPendingMicrosoftCodeVerifier('')
-      setPendingAuthorizeUrl('')
       setAuthStatus(`Sesión iniciada como ${session.profileName}.`)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -421,27 +350,17 @@ function App() {
     }
   }
 
+  const authRetrySeconds = Math.max(0, Math.ceil((authRetryAt - nowTick) / 1000))
+  const isAuthCooldown = authRetrySeconds > 0
+
+
+
 
   const iconButtonStyle = instanceIconPreview.startsWith('data:image')
     ? ({ backgroundImage: `url(${instanceIconPreview})`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'transparent' } as CSSProperties)
     : undefined
 
-  const loadAvailableBrowsers = useCallback(async () => {
-    try {
-      const browsers = await invoke<BrowserOption[]>('list_available_browsers')
-      setAvailableBrowsers(browsers)
-      if (browsers.length > 0) {
-        setSelectedBrowserId((current) => (browsers.some((item) => item.id === current) ? current : browsers[0].id))
-      }
-    } catch {
-      setAvailableBrowsers([{ id: 'default', name: 'Navegador predeterminado' }])
-      setSelectedBrowserId('default')
-    }
-  }, [])
 
-  useEffect(() => {
-    void loadAvailableBrowsers()
-  }, [loadAvailableBrowsers])
 
   useEffect(() => {
     const stored = localStorage.getItem(authSessionKey)
@@ -1258,79 +1177,14 @@ const onTopNavClick = (item: TopNavItem) => {
             {authStatus && <p className="auth-feedback auth-feedback-status">{authStatus}</p>}
             {authError && <p className="auth-feedback auth-feedback-error">{authError}</p>}
             {isAuthCooldown && <p className="auth-feedback auth-feedback-warn">Espera {authRetrySeconds}s antes de generar un nuevo código de inicio de sesión.</p>}
-            <label className="auth-field">
-              <span>Selecciona navegador para el login</span>
-              <select value={selectedBrowserId} onChange={(event) => setSelectedBrowserId(event.target.value)} disabled={isAuthenticating || isAuthCooldown}>
-                {availableBrowsers.map((browser) => (
-                  <option key={browser.id} value={browser.id}>
-                    {browser.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {pendingAuthorizeUrl && (
-              <div className="auth-browser-hint">
-                <span>
-                  Si el navegador no se abrió, continúa manualmente sin exponer datos técnicos del flujo.
-                </span>
-                <ol className="auth-step-list">
-                  <li>
-                    Abre el enlace completo en un navegador. <strong>No pegues parámetros sueltos en CMD o PowerShell.</strong>
-                  </li>
-                  <li>Inicia sesión y autoriza la app con tu cuenta Microsoft.</li>
-                  <li>
-                    Copia el valor de <code>?code=...</code> (o pega la URL completa de redirección) en el cuadro inferior.
-                  </li>
-                  <li>Pulsa <strong>Completar login</strong> para que el launcher haga el intercambio del token automáticamente.</li>
-                </ol>
-                <div className="auth-manual-actions">
-                  <button
-                    onClick={() => {
-                      void invoke('open_url_in_browser', { url: pendingAuthorizeUrl, browserId: selectedBrowserId || 'default' }).catch((error) => {
-                        const message = error instanceof Error ? error.message : String(error)
-                        setAuthError(message)
-                      })
-                    }}
-                    disabled={isAuthenticating || isAuthCooldown}
-                  >
-                    Reintentar abrir navegador
-                  </button>
-                  <button
-                    onClick={() => void navigator.clipboard.writeText(pendingAuthorizeUrl)}
-                    disabled={isAuthenticating}
-                  >
-                    Copiar enlace de acceso
-                  </button>
-                </div>
-              </div>
-            )}
-            <label className="auth-field auth-field-spaced">
-              <span>Pega aquí el parámetro <code>code</code> del redirect de Microsoft</span>
-              <textarea
-                value={authorizationCodeInput}
-                onChange={(event) => setAuthorizationCodeInput(event.target.value)}
-                disabled={isAuthenticating || isAuthCooldown}
-                placeholder="Ejemplo: M.R3_BAY.1234abcd..."
-                rows={3}
-              />
-            </label>
+            <p className="auth-feedback auth-feedback-status">Se abrirá una ventana segura del launcher para iniciar sesión y elegir cuenta.</p>
             <div className="floating-modal-actions auth-actions">
-              <button onClick={() => void loadAvailableBrowsers()} disabled={isAuthenticating || isAuthCooldown}>
-                Actualizar navegadores
-              </button>
               <button className="primary" onClick={() => void startMicrosoftLogin()} disabled={isAuthenticating || isAuthCooldown}>
                 {isAuthenticating
                   ? 'Conectando...'
                   : isAuthCooldown
                     ? `Espera ${authRetrySeconds}s`
                     : 'Continuar con Microsoft'}
-              </button>
-              <button
-                className="primary"
-                onClick={() => void completeMicrosoftLogin()}
-                disabled={isAuthenticating || isAuthCooldown || !pendingMicrosoftCodeVerifier}
-              >
-                Completar login
               </button>
             </div>
           </section>

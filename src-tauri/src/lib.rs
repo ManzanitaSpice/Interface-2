@@ -20,6 +20,7 @@ pub fn run() {
             app::launcher_service::delete_instance,
             app::auth_service::list_available_browsers,
             app::auth_service::open_url_in_browser,
+            app::auth_service::authorize_microsoft_in_launcher,
             app::auth_service::start_microsoft_auth,
             app::auth_service::complete_microsoft_auth,
             app::auth_service::start_microsoft_device_auth,

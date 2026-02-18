@@ -44,7 +44,7 @@ pub fn build_authorize_url(code_verifier: &str) -> Result<String, String> {
     validate_verifier(code_verifier)?;
 
     Ok(format!(
-        "{AUTHORIZE_ENDPOINT}?client_id={}&response_type=code&redirect_uri={}&response_mode=query&scope=XboxLive.signin%20offline_access&code_challenge={}&code_challenge_method=S256",
+        "{AUTHORIZE_ENDPOINT}?client_id={}&response_type=code&redirect_uri={}&response_mode=query&scope=XboxLive.signin%20offline_access&code_challenge={}&code_challenge_method=S256&prompt=select_account",
         MICROSOFT_CLIENT_ID,
         urlencoding::encode(MICROSOFT_REDIRECT_URI),
         generate_code_challenge(code_verifier)
@@ -148,6 +148,7 @@ mod tests {
         assert!(url.contains("client_id=7ce1b3e8-48d7-4a9d-9329-7e11f988df39"));
         assert!(url.contains("scope=XboxLive.signin%20offline_access"));
         assert!(url.contains("code_challenge_method=S256"));
+        assert!(url.contains("prompt=select_account"));
     }
 
     #[test]
