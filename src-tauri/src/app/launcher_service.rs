@@ -167,6 +167,7 @@ fn create_instance_impl(
         java_args: payload.java_args,
         java_path: java_exec.display().to_string(),
         java_runtime: runtime_name(required_java).to_string(),
+        java_version: format!("{}.0.x", required_java.major()),
         last_used: None,
         internal_uuid: internal_uuid.clone(),
     };

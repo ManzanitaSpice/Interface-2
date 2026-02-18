@@ -43,14 +43,14 @@
 
 .instance-card {
   min-height: 138px;
-  background: linear-gradient(165deg, #0f172a 0%, #1e293b 88%);
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
-  border-radius: 0.9rem;
-  padding: 0.85rem;
+  background: linear-gradient(170deg, #0f0f16 0%, #161624 100%);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  padding: 0.9rem;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  box-shadow: 0 16px 30px -28px #38bdf8;
+  box-shadow: none;
 }
 
 .instance-card.clickable {
@@ -59,7 +59,7 @@
 
 .instance-card.active {
   border-color: var(--accent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 70%, transparent);
 }
 
 .instance-card.placeholder {
@@ -117,7 +117,7 @@
 
 .compact-sidebar button.active,
 .edit-left-sidebar button.active {
-  background: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
   border-color: var(--accent);
 }
 
@@ -487,11 +487,6 @@
   background: var(--bg-surface);
 }
 
-.settings-tabs-bar button.active {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
 .settings-pane-grid {
   padding: 0.85rem;
   display: grid;
@@ -521,4 +516,30 @@
   width: 100%;
   min-height: 140px;
   resize: vertical;
+}
+
+
+.execution-primary-actions,
+.execution-secondary-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.execution-primary-actions {
+  margin-right: 0.2rem;
+}
+
+.launch-btn {
+  min-width: 180px;
+}
+
+.ghost-btn {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+}
+
+.settings-tabs-bar button.active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: var(--accent);
 }

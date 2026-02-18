@@ -46,6 +46,8 @@ pub struct InstanceMetadata {
     pub java_args: Vec<String>,
     pub java_path: String,
     pub java_runtime: String,
+    #[serde(default)]
+    pub java_version: String,
     pub last_used: Option<String>,
     pub internal_uuid: String,
 }

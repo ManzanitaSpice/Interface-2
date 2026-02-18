@@ -66,6 +66,17 @@ type InstanceMetadataView = {
   javaArgs: string[]
   javaPath: string
   javaRuntime: string
+  javaVersion: string
+}
+
+type LaunchValidationResult = {
+  javaPath: string
+  javaVersion: string
+  classpath: string
+  jvmArgs: string[]
+  gameArgs: string[]
+  mainClass: string
+  logs: string[]
 }
 
 type ManifestVersion = {
@@ -210,6 +221,7 @@ function App() {
   const [loaderError, setLoaderError] = useState('')
   const [selectedLoaderFilter, setSelectedLoaderFilter] = useState<LoaderChannelFilter>('Todos')
   const [runtimeConsole, setRuntimeConsole] = useState<ConsoleEntry[]>([])
+  const [launchPreparation, setLaunchPreparation] = useState<LaunchValidationResult | null>(null)
   const [consoleLevelFilter, setConsoleLevelFilter] = useState<'Todos' | ConsoleLevel>('Todos')
   const [launcherLogFilter, setLauncherLogFilter] = useState<'Todos' | ConsoleSource>('Todos')
   const [autoScrollConsole, setAutoScrollConsole] = useState(true)
@@ -629,28 +641,32 @@ function App() {
     reader.readAsDataURL(file)
   }
 
-  const appendRuntimeSummary = () => {
-    if (!selectedCard || !selectedMinecraftVersion) return
+  const appendRuntimeSummary = async () => {
+    if (!selectedCard?.instanceRoot || !selectedMinecraftVersion) return
 
-    const loaderName = selectedLoader === 'none' ? 'vanilla' : selectedLoader
-    const libs = selectedMinecraftDetail?.libraries?.length ?? 0
-    const javaMajor = toJavaMajorOrUndefined(selectedMinecraftDetail?.javaVersion?.majorVersion) ?? 17
+    try {
+      const prepared = await invoke<LaunchValidationResult>('validate_and_prepare_launch', {
+        instanceRoot: selectedCard.instanceRoot,
+      })
 
-    const entries: ConsoleEntry[] = [
-      makeConsoleEntry('INFO', 'launcher', `Inicio del proceso para ${selectedCard.name}`),
-      makeConsoleEntry('INFO', 'launcher', `java_path embebido: /runtime/java-${javaMajor}/bin/java`),
-      makeConsoleEntry('INFO', 'launcher', `java -version detectado: ${javaMajor}.0.x`),
-      makeConsoleEntry('INFO', 'launcher', `Minecraft ${selectedMinecraftVersion.id} | Loader ${loaderName}`),
-      makeConsoleEntry('INFO', 'launcher', 'Memoria asignada: Xms500m / Xmx4096m'),
-      makeConsoleEntry('INFO', 'launcher', `Classpath construido correctamente (${libs} libraries)`),
-      makeConsoleEntry('INFO', 'launcher', 'Assets y libraries validados con integridad OK'),
-      makeConsoleEntry('INFO', 'launcher', 'Argumentos JVM aplicados: -Xms500m -Xmx4096m -XX:+UseG1GC'),
-      makeConsoleEntry('INFO', 'launcher', 'Argumentos game aplicados (sensibles ocultos)'),
-      makeConsoleEntry('INFO', 'launcher', 'Estado de autenticación: offline'),
-      makeConsoleEntry('INFO', 'game', 'LWJGL/OpenGL inicializados sin fallos'),
-      makeConsoleEntry('INFO', 'game', 'Minecraft client started'),
-    ]
-    setRuntimeConsole(entries)
+      setLaunchPreparation(prepared)
+      const entries: ConsoleEntry[] = [
+        makeConsoleEntry('INFO', 'launcher', `Inicio del proceso para ${selectedCard.name}`),
+        makeConsoleEntry('INFO', 'launcher', `java_path efectivo: ${prepared.javaPath}`),
+        makeConsoleEntry('INFO', 'launcher', `java -version detectado: ${prepared.javaVersion}`),
+        makeConsoleEntry('INFO', 'launcher', `MainClass: ${prepared.mainClass}`),
+        makeConsoleEntry('INFO', 'launcher', `Classpath válido (${prepared.classpath.split(/[:;]/).length} entradas)`),
+        makeConsoleEntry('INFO', 'launcher', `JVM args: ${prepared.jvmArgs.length} | Game args: ${prepared.gameArgs.length}`),
+        ...prepared.logs.map((line) => makeConsoleEntry('INFO', 'launcher', line)),
+        makeConsoleEntry('INFO', 'game', 'Proceso listo para ejecución real con orden JVM -> mainClass -> game args'),
+      ]
+      setRuntimeConsole(entries)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setRuntimeConsole([
+        makeConsoleEntry('ERROR', 'launcher', `Validación de lanzamiento falló: ${message}`),
+      ])
+    }
   }
 
   const pushRuntimeStream = () => {
@@ -1039,11 +1055,16 @@ const onTopNavClick = (item: TopNavItem) => {
             {selectedEditSection === 'Ejecución' ? (
               <section className="execution-view execution-view-full">
                 <div className="execution-toolbar">
-                  <button className="primary" onClick={appendRuntimeSummary}>
-                    Iniciar
-                  </button>
-                  <button onClick={pushRuntimeStream}>Simular stream</button>
-                  <button onClick={exportRuntimeLog}>Exportar .log</button>
+                  <div className="execution-primary-actions">
+                    <button className="primary launch-btn" onClick={appendRuntimeSummary}>
+                      ▶ Iniciar instancia
+                    </button>
+                    <button className="danger ghost-btn">■ Forzar cierre</button>
+                  </div>
+                  <div className="execution-secondary-actions">
+                    <button className="ghost-btn" onClick={pushRuntimeStream}>Simular stream</button>
+                    <button className="ghost-btn" onClick={exportRuntimeLog}>Exportar .log</button>
+                  </div>
                   <select value={consoleLevelFilter} onChange={(event) => setConsoleLevelFilter(event.target.value as 'Todos' | ConsoleLevel)}>
                     <option value="Todos">Nivel: Todos</option>
                     <option value="INFO">INFO</option>
@@ -1109,7 +1130,8 @@ const onTopNavClick = (item: TopNavItem) => {
                     <article>
                       <h3>Instalación de Java</h3>
                       <p><strong>Runtime:</strong> {selectedInstanceMetadata?.javaRuntime ?? '-'}</p>
-                      <p><strong>Ruta Java:</strong> {selectedInstanceMetadata?.javaPath ?? '-'}</p>
+                      <p><strong>Ruta Java real:</strong> {launchPreparation?.javaPath ?? selectedInstanceMetadata?.javaPath ?? '-'}</p>
+                      <p><strong>Versión Java real:</strong> {launchPreparation?.javaVersion ?? selectedInstanceMetadata?.javaVersion ?? '-'}</p>
                     </article>
                     <article>
                       <h3>Memoria</h3>
@@ -1119,7 +1141,7 @@ const onTopNavClick = (item: TopNavItem) => {
                       <h3>Argumentos de Java</h3>
                       <textarea
                         readOnly
-                        value={(selectedInstanceMetadata?.javaArgs ?? []).join(' ')}
+                        value={launchPreparation ? [...launchPreparation.jvmArgs, launchPreparation.mainClass, ...launchPreparation.gameArgs].join(' ') : (selectedInstanceMetadata?.javaArgs ?? []).join(' ')}
                         placeholder="Sin argumentos personalizados"
                       />
                     </article>
