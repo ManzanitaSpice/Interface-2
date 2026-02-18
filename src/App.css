@@ -117,11 +117,26 @@ button.primary {
   font-weight: 600;
 }
 
-.cards-grid {
+.instances-workspace {
   margin-top: 0.75rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.8rem;
+}
+
+.instances-workspace.with-right-panel {
+  grid-template-columns: minmax(0, 1fr) 255px;
+  align-items: start;
+}
+
+.cards-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
   gap: 0.8rem;
+}
+
+.instances-grid-area {
+  margin-top: 0;
 }
 
 .instance-card {
@@ -135,11 +150,45 @@ button.primary {
   justify-content: space-between;
 }
 
+.instance-card.clickable {
+  cursor: pointer;
+}
+
+.instance-card.active {
+  border-color: #6b8ef8;
+  box-shadow: 0 0 0 1px rgba(107, 142, 248, 0.6);
+}
+
 .instance-card.placeholder {
   border-style: dashed;
   justify-content: center;
   align-items: center;
   color: #b9c2e3;
+}
+
+.instance-right-panel {
+  background: #121d3a;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  position: sticky;
+  top: 0.75rem;
+}
+
+.instance-right-panel header {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0.7rem;
+}
+
+.instance-right-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.instance-right-actions button {
+  text-align: left;
 }
 
 .creator-layout {
@@ -300,9 +349,107 @@ button.primary {
   gap: 0.55rem;
 }
 
+.edit-instance-layout {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  min-height: calc(100vh - 56px);
+}
+
+.edit-left-sidebar {
+  background: #0f1832;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0.45rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.edit-left-sidebar button {
+  font-size: 0.66rem;
+  padding: 0.32rem 0.2rem;
+  line-height: 1.1;
+}
+
+.edit-left-sidebar button.active {
+  background: #5a76c9;
+}
+
+.edit-main-content {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 56px);
+}
+
+.edit-top-bar {
+  min-height: 52px;
+  background: #161f41;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.8rem;
+}
+
+.execution-view {
+  flex: 1;
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  min-height: 0;
+}
+
+.fourth-top-bar {
+  min-height: 48px;
+  background: #1a2a56;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.8rem;
+}
+
+.execution-log-console {
+  background: #090d1d;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0.75rem;
+  overflow: auto;
+  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+}
+
+.execution-log-console p {
+  margin: 0 0 0.28rem;
+  color: #a9bfd9;
+}
+
+.execution-view input {
+  margin: 0.65rem;
+}
+
+.execution-actions {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: #131f3e;
+  padding: 0.65rem;
+  display: flex;
+  gap: 0.45rem;
+  justify-content: flex-end;
+}
+
 @media (max-width: 980px) {
   .creator-layout {
     grid-template-columns: 76px 1fr 76px;
+  }
+
+  .edit-instance-layout {
+    grid-template-columns: 76px minmax(0, 1fr);
+  }
+
+  .instances-workspace.with-right-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .instance-right-panel {
+    position: static;
   }
 
   .list-interface-layout {

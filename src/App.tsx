@@ -2,7 +2,15 @@ import { useMemo, useState } from 'react'
 import './App.css'
 
 type TopNavItem = 'Mis Modpacks' | 'Novedades' | 'Explorador' | 'Servers' | 'Configuración Global'
-type MainPage = 'Inicio' | 'Mis Modpacks' | 'Novedades' | 'Explorador' | 'Servers' | 'Configuración Global' | 'Creador de Instancias'
+type MainPage =
+  | 'Inicio'
+  | 'Mis Modpacks'
+  | 'Novedades'
+  | 'Explorador'
+  | 'Servers'
+  | 'Configuración Global'
+  | 'Creador de Instancias'
+  | 'Editar Instancia'
 
 type InstanceCard = {
   id: number
@@ -19,6 +27,19 @@ type CreatorSection =
   | 'NeoForge'
   | 'Snapshot'
   | 'Importar'
+
+type EditSection =
+  | 'Ejecución'
+  | 'Información'
+  | 'Versiones'
+  | 'Mods'
+  | 'Recursos'
+  | 'Java'
+  | 'Backups'
+  | 'Logs'
+  | 'Red'
+  | 'Permisos'
+  | 'Avanzado'
 
 const topNavItems: TopNavItem[] = [
   'Mis Modpacks',
@@ -39,6 +60,20 @@ const creatorSections: CreatorSection[] = [
   'Importar',
 ]
 
+const editSections: EditSection[] = [
+  'Ejecución',
+  'Información',
+  'Versiones',
+  'Mods',
+  'Recursos',
+  'Java',
+  'Backups',
+  'Logs',
+  'Red',
+  'Permisos',
+  'Avanzado',
+]
+
 const rightSidebarContent: Record<CreatorSection, string[]> = {
   Personalizado: ['Resumen', 'Compatibilidad', 'Dependencias', 'Perfil', 'Presets', 'Ayuda'],
   Vanilla: ['Versionado', 'Java', 'Optimización', 'Recursos', 'Notas', 'Exportar'],
@@ -51,6 +86,17 @@ const rightSidebarContent: Record<CreatorSection, string[]> = {
 }
 
 const groups = ['Survival', 'PvP', 'Técnico', 'Aventura', 'Sin grupo']
+const instanceActions = [
+  'Iniciar',
+  'Forzar Cierre',
+  'Editar',
+  'Cambiar Grupo',
+  'Carpeta',
+  'Exportar',
+  'Copiar',
+  'Borrar',
+  'Crear atajo',
+]
 
 function App() {
   const [activePage, setActivePage] = useState<MainPage>('Inicio')
@@ -61,6 +107,9 @@ function App() {
   const [instanceSearch, setInstanceSearch] = useState('')
   const [minecraftSearch, setMinecraftSearch] = useState('')
   const [loaderSearch, setLoaderSearch] = useState('')
+  const [selectedCard, setSelectedCard] = useState<InstanceCard | null>(null)
+  const [selectedEditSection, setSelectedEditSection] = useState<EditSection>('Ejecución')
+  const [logSearch, setLogSearch] = useState('')
 
   const filteredCards = useMemo(() => {
     const term = instanceSearch.trim().toLowerCase()
@@ -79,13 +128,16 @@ function App() {
       return
     }
 
-    setCards((prev) => [...prev, { id: Date.now(), name: cleanName, group: groupName }])
+    const created = { id: Date.now(), name: cleanName, group: groupName }
+    setCards((prev) => [...prev, created])
+    setSelectedCard(created)
     setInstanceName('')
     setGroupName(groups[0])
     setActivePage('Mis Modpacks')
   }
 
   const onTopNavClick = (item: TopNavItem) => {
+    setSelectedCard(null)
     if (item === 'Mis Modpacks') {
       setActivePage('Mis Modpacks')
       return
@@ -93,14 +145,23 @@ function App() {
     setActivePage(item)
   }
 
+  const openEditor = () => {
+    if (!selectedCard) {
+      return
+    }
+
+    setSelectedEditSection('Ejecución')
+    setActivePage('Editar Instancia')
+  }
+
   return (
     <div className="app-shell">
-      {activePage !== 'Creador de Instancias' && <PrincipalTopBar />}
-      {activePage !== 'Creador de Instancias' && (
+      {activePage !== 'Creador de Instancias' && activePage !== 'Editar Instancia' && <PrincipalTopBar />}
+      {activePage !== 'Creador de Instancias' && activePage !== 'Editar Instancia' && (
         <SecondaryTopBar activePage={activePage} onNavigate={onTopNavClick} />
       )}
 
-      {activePage === 'Creador de Instancias' && <PrincipalTopBar />}
+      {(activePage === 'Creador de Instancias' || activePage === 'Editar Instancia') && <PrincipalTopBar />}
 
       {activePage === 'Inicio' && (
         <main className="content content-padded">
@@ -110,7 +171,11 @@ function App() {
             <div className="cards-grid">
               {cards.length === 0 && <article className="instance-card placeholder">Sin instancias creadas aún.</article>}
               {cards.map((card) => (
-                <article key={card.id} className="instance-card">
+                <article
+                  key={card.id}
+                  className={`instance-card clickable ${selectedCard?.id === card.id ? 'active' : ''}`}
+                  onClick={() => setSelectedCard(card)}
+                >
                   <strong>{card.name}</strong>
                   <span>{card.group}</span>
                 </article>
@@ -140,29 +205,58 @@ function App() {
             </header>
 
             <h2>Panel de Instancias</h2>
-            <div className="cards-grid">
-              {filteredCards.length === 0 && (
-                <article className="instance-card placeholder">No hay instancias para mostrar.</article>
+            <div className={`instances-workspace ${selectedCard ? 'with-right-panel' : ''}`}>
+              <div className="cards-grid instances-grid-area">
+                {filteredCards.length === 0 && (
+                  <article className="instance-card placeholder">No hay instancias para mostrar.</article>
+                )}
+                {filteredCards.map((card) => (
+                  <article
+                    key={card.id}
+                    className={`instance-card clickable ${selectedCard?.id === card.id ? 'active' : ''}`}
+                    onClick={() => setSelectedCard(card)}
+                  >
+                    <strong>{card.name}</strong>
+                    <span>Grupo: {card.group}</span>
+                  </article>
+                ))}
+              </div>
+
+              {selectedCard && (
+                <aside className="instance-right-panel">
+                  <header>
+                    <h3>{selectedCard.name}</h3>
+                    <small>Grupo: {selectedCard.group}</small>
+                  </header>
+                  <div className="instance-right-actions">
+                    {instanceActions.map((action) => (
+                      <button
+                        key={action}
+                        className={action === 'Editar' ? 'primary' : ''}
+                        onClick={action === 'Editar' ? openEditor : undefined}
+                      >
+                        {action}
+                      </button>
+                    ))}
+                  </div>
+                </aside>
               )}
-              {filteredCards.map((card) => (
-                <article key={card.id} className="instance-card">
-                  <strong>{card.name}</strong>
-                  <span>Grupo: {card.group}</span>
-                </article>
-              ))}
             </div>
           </section>
         </main>
       )}
 
-      {activePage !== 'Inicio' && activePage !== 'Mis Modpacks' && activePage !== 'Creador de Instancias' && (
-        <main className="content content-padded">
-          <section className="instances-panel">
-            <h1>{activePage}</h1>
-            <p>Sección en preparación.</p>
-          </section>
-        </main>
-      )}
+      {activePage !== 'Inicio' &&
+        activePage !== 'Mis Modpacks' &&
+        activePage !== 'Creador de Instancias' &&
+        activePage !== 'Editar Instancia' && (
+          <main className="content content-padded">
+            <section className="instances-panel">
+              <h1>{activePage}</h1>
+              <p>Sección en preparación.</p>
+            </section>
+          </main>
+        )}
 
       {activePage === 'Creador de Instancias' && (
         <main className="creator-layout">
@@ -243,6 +337,66 @@ function App() {
               <button key={item}>{item}</button>
             ))}
           </aside>
+        </main>
+      )}
+
+      {activePage === 'Editar Instancia' && selectedCard && (
+        <main className="edit-instance-layout">
+          <aside className="edit-left-sidebar">
+            {editSections.map((section) => (
+              <button
+                key={section}
+                className={selectedEditSection === section ? 'active' : ''}
+                onClick={() => setSelectedEditSection(section)}
+              >
+                {section}
+              </button>
+            ))}
+          </aside>
+
+          <section className="edit-main-content">
+            <header className="edit-top-bar">
+              <strong>Editar Instancia: {selectedCard.name}</strong>
+              <button onClick={() => setActivePage('Mis Modpacks')}>Volver a Mis Modpacks</button>
+            </header>
+
+            {selectedEditSection === 'Ejecución' ? (
+              <section className="execution-view">
+                <header className="fourth-top-bar">
+                  <strong>Ejecución</strong>
+                  <span>Panel de control de procesos</span>
+                </header>
+
+                <div className="execution-log-console" role="log" aria-label="Consola de logs">
+                  {[...Array(18)].map((_, index) => (
+                    <p key={`log-${index}`}>
+                      [{`12:${(index + 10).toString().padStart(2, '0')}:08`}] Instancia {selectedCard.name} - línea de log
+                      #{index + 1}
+                    </p>
+                  ))}
+                </div>
+
+                <input
+                  type="search"
+                  value={logSearch}
+                  onChange={(event) => setLogSearch(event.target.value)}
+                  placeholder="Buscar en consola"
+                  aria-label="Buscar en consola"
+                />
+
+                <footer className="execution-actions">
+                  <button className="primary">Iniciar</button>
+                  <button>Forzar Cierre</button>
+                  <button onClick={() => setActivePage('Mis Modpacks')}>Cerrar</button>
+                </footer>
+              </section>
+            ) : (
+              <section className="section-placeholder">
+                <h2>{selectedEditSection}</h2>
+                <p>Contenido acumulado e información de esta instancia.</p>
+              </section>
+            )}
+          </section>
         </main>
       )}
     </div>
