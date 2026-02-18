@@ -253,3 +253,16 @@ pub async fn complete_microsoft_auth(
         exchange_authorization_code(&code, &code_verifier, MICROSOFT_REDIRECT_URI).await?;
     finalize_microsoft_tokens(microsoft_tokens).await
 }
+
+#[tauri::command]
+pub fn start_microsoft_device_auth() -> Result<MicrosoftAuthStart, String> {
+    start_microsoft_auth()
+}
+
+#[tauri::command]
+pub async fn complete_microsoft_device_auth(
+    code: String,
+    code_verifier: String,
+) -> Result<MicrosoftAuthResult, String> {
+    complete_microsoft_auth(code, code_verifier).await
+}

@@ -134,14 +134,10 @@ type LoaderChannelFilter = 'Todos' | 'Stable' | 'Latest' | 'Maven'
 
 type InstanceSettingsTab = 'General' | 'Java' | 'Ajustes' | 'Comandos Personalizados' | 'Variables de Entorno'
 
-type MicrosoftDeviceCodeStart = {
-  deviceCode: string
-  userCode: string
-  verificationUri: string
-  verificationUriComplete?: string
-  expiresIn: number
-  interval: number
-  message?: string
+type MicrosoftAuthStart = {
+  authorizeUrl: string
+  codeVerifier: string
+  redirectUri: string
 }
 
 type BrowserOption = {
@@ -182,6 +178,22 @@ const sidebarMaxWidth = 320
 const mojangManifestUrl = 'https://launchermeta.mojang.com/mc/game/version_manifest.json'
 const authSessionKey = 'launcher_microsoft_auth_session_v1'
 const authCodeRegenerateCooldownMs = 10_000
+
+function extractAuthorizationCode(input: string): string {
+  const trimmed = input.trim()
+  if (!trimmed) return ''
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed)
+      return parsed.searchParams.get('code')?.trim() ?? ''
+    } catch {
+      return trimmed
+    }
+  }
+
+  return trimmed
+}
 
 function nowTimestamp() {
   return new Date().toLocaleTimeString('es-ES', { hour12: false })
@@ -287,8 +299,10 @@ function App() {
   const [isAuthenticating, setIsAuthenticating] = useState(false)
   const [authRetryAt, setAuthRetryAt] = useState(0)
   const [nowTick, setNowTick] = useState(() => Date.now())
+  const [authorizationCodeInput, setAuthorizationCodeInput] = useState('')
   const [authStatus, setAuthStatus] = useState('')
   const [authError, setAuthError] = useState('')
+  const [pendingMicrosoftCodeVerifier, setPendingMicrosoftCodeVerifier] = useState('')
   const [availableBrowsers, setAvailableBrowsers] = useState<BrowserOption[]>([])
   const [selectedBrowserId, setSelectedBrowserId] = useState('default')
   const creationIconInputRef = useRef<HTMLInputElement | null>(null)
@@ -325,55 +339,66 @@ function App() {
     setAuthStatus('Preparando autenticación con Microsoft...')
 
     try {
-      const device = await invoke<MicrosoftDeviceCodeStart>('start_microsoft_device_auth')
+      const authStart = await invoke<MicrosoftAuthStart>('start_microsoft_auth')
       const browserToUse = selectedBrowserId || 'default'
-      const targetUrl = device.verificationUriComplete ?? device.verificationUri
-      await invoke('open_url_in_browser', { url: targetUrl, browserId: browserToUse })
+      await invoke('open_url_in_browser', { url: authStart.authorizeUrl, browserId: browserToUse })
 
+      setPendingMicrosoftCodeVerifier(authStart.codeVerifier)
       setAuthStatus(
-        `Se abrió el navegador (${browserToUse}). Si Microsoft lo solicita, usa el código: ${device.userCode}`,
+        `Se abrió el navegador (${browserToUse}). Autoriza la app y luego pega aquí el parámetro code de la URL de redirección.`,
       )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setAuthError(message)
+      setAuthStatus('')
+      setPendingMicrosoftCodeVerifier('')
+      setAuthRetryAt(Date.now() + authCodeRegenerateCooldownMs)
+    } finally {
+      setIsAuthenticating(false)
+    }
+  }
 
-      const expiresAt = Date.now() + device.expiresIn * 1000
-      const intervalMs = Math.max(1500, device.interval * 1000)
+  const authRetrySeconds = Math.max(0, Math.ceil((authRetryAt - nowTick) / 1000))
+  const isAuthCooldown = authRetrySeconds > 0
 
-      while (Date.now() < expiresAt) {
-        try {
-          const result = await invoke<MicrosoftAuthResult>('complete_microsoft_device_auth', {
-            deviceCode: device.deviceCode,
-          })
+  const completeMicrosoftLogin = async () => {
+    const code = extractAuthorizationCode(authorizationCodeInput)
+    const codeVerifier = pendingMicrosoftCodeVerifier.trim()
 
-          const session: AuthSession = {
-            profileId: result.profile.id,
-            profileName: result.profile.name,
-            minecraftAccessToken: result.minecraftAccessToken,
-            microsoftAccessToken: result.microsoftAccessToken,
-            microsoftRefreshToken: result.microsoftRefreshToken,
-            loggedAt: Date.now(),
-          }
+    if (!codeVerifier) {
+      setAuthError('Primero inicia el flujo con "Continuar con Microsoft" para generar PKCE.')
+      return
+    }
 
-          setAuthSession(session)
-          persistAuthSession(session)
-          setAuthStatus(`Sesión iniciada como ${session.profileName}.`)
-          setAuthError('')
-          return
-        } catch (pollError) {
-          const pollMessage = pollError instanceof Error ? pollError.message : String(pollError)
-          if (pollMessage.includes('authorization_pending') || pollMessage.includes('slow_down')) {
-            await new Promise((resolve) => window.setTimeout(resolve, intervalMs))
-            continue
-          }
-          if (pollMessage.includes('authorization_declined')) {
-            throw new Error('Se canceló la autorización en Microsoft.')
-          }
-          if (pollMessage.includes('expired_token')) {
-            throw new Error('La autorización de Microsoft expiró. Inténtalo de nuevo.')
-          }
-          throw pollError
-        }
+    if (!code) {
+      setAuthError('Pega el parámetro code que devolvió Microsoft para completar el login.')
+      return
+    }
+
+    setIsAuthenticating(true)
+    setAuthError('')
+    setAuthStatus('Completando autorización con Microsoft...')
+
+    try {
+      const result = await invoke<MicrosoftAuthResult>('complete_microsoft_auth', {
+        code,
+        codeVerifier,
+      })
+
+      const session: AuthSession = {
+        profileId: result.profile.id,
+        profileName: result.profile.name,
+        minecraftAccessToken: result.minecraftAccessToken,
+        microsoftAccessToken: result.microsoftAccessToken,
+        microsoftRefreshToken: result.microsoftRefreshToken,
+        loggedAt: Date.now(),
       }
 
-      throw new Error('Tiempo de espera agotado al autenticar con Microsoft.')
+      setAuthSession(session)
+      persistAuthSession(session)
+      setAuthorizationCodeInput('')
+      setPendingMicrosoftCodeVerifier('')
+      setAuthStatus(`Sesión iniciada como ${session.profileName}.`)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setAuthError(message)
@@ -383,9 +408,6 @@ function App() {
       setIsAuthenticating(false)
     }
   }
-
-  const authRetrySeconds = Math.max(0, Math.ceil((authRetryAt - nowTick) / 1000))
-  const isAuthCooldown = authRetrySeconds > 0
 
 
   const iconButtonStyle = instanceIconPreview.startsWith('data:image')
@@ -1231,6 +1253,16 @@ const onTopNavClick = (item: TopNavItem) => {
                 ))}
               </select>
             </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', marginTop: '0.75rem' }}>
+              <span>Pega aquí el parámetro <code>code</code> del redirect de Microsoft</span>
+              <textarea
+                value={authorizationCodeInput}
+                onChange={(event) => setAuthorizationCodeInput(event.target.value)}
+                disabled={isAuthenticating || isAuthCooldown}
+                placeholder="Ejemplo: M.R3_BAY.1234abcd..."
+                rows={3}
+              />
+            </label>
             <div className="floating-modal-actions" style={{ justifyContent: 'space-between' }}>
               <button onClick={() => void loadAvailableBrowsers()} disabled={isAuthenticating || isAuthCooldown}>
                 Actualizar navegadores
@@ -1241,6 +1273,13 @@ const onTopNavClick = (item: TopNavItem) => {
                   : isAuthCooldown
                     ? `Espera ${authRetrySeconds}s`
                     : 'Continuar con Microsoft'}
+              </button>
+              <button
+                className="primary"
+                onClick={() => void completeMicrosoftLogin()}
+                disabled={isAuthenticating || isAuthCooldown || !pendingMicrosoftCodeVerifier}
+              >
+                Completar login
               </button>
             </div>
           </section>
