@@ -36,7 +36,7 @@ pub fn ensure_embedded_java(
         return Ok(java_exec);
     }
 
-    fs::create_dir_all(&runtime_root)?;
+    fs::create_dir_all(&runtime_root).map_err(|err| format!("Error creando directorio runtime: {err}"))?;
     logs.push(format!(
         "Java {} no encontrado. Iniciando descarga de runtime embebido oficial (Temurin).",
         runtime.major()
@@ -85,7 +85,8 @@ pub fn ensure_embedded_java(
             "status": "installed"
         })
         .to_string(),
-    )?;
+    )
+    .map_err(|err| format!("Error escribiendo marcador de instalación: {err}"))?;
 
     logs.push(format!(
         "Java {} instalado y marcado como listo en {}.",
