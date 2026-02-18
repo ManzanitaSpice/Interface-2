@@ -1,6 +1,8 @@
 use std::{
     collections::HashMap,
-    fs, io,
+    fs,
+    hash::{Hash, Hasher},
+    io,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -216,16 +218,15 @@ pub fn validate_and_prepare_launch(
         }
         fallback
     };
-    logs.push(format!("✔ jar ejecutable presente: {}", client_jar.display()));
+    logs.push(format!(
+        "✔ jar ejecutable presente: {}",
+        client_jar.display()
+    ));
 
     let rule_context = RuleContext::current();
     let mut resolved_libraries = resolve_libraries(&mc_root, &version_json, &rule_context);
     hydrate_missing_libraries(&resolved_libraries.missing_classpath_entries, &mut logs)?;
     resolved_libraries = resolve_libraries(&mc_root, &version_json, &rule_context);
-
-    if resolved_libraries.classpath_entries.is_empty() {
-        return Err("Classpath vacío: no hay librerías válidas para el OS/arch actual. Revisa rules, OS/arch y descarga de libraries/artifacts.".to_string());
-    }
 
     if !resolved_libraries.missing_classpath_entries.is_empty() {
         return Err(format!(
@@ -583,24 +584,28 @@ fn resolve_libraries(
             if Path::new(&cp_path).exists() {
                 resolved.classpath_entries.push(cp_path);
             } else {
-                resolved.missing_classpath_entries.push(MissingClasspathEntry {
-                    path: cp_path,
-                    url: lib
-                        .get("downloads")
-                        .and_then(|d| d.get("artifact"))
-                        .and_then(|a| a.get("url"))
-                        .and_then(Value::as_str)
-                        .map(ToString::to_string),
-                });
+                resolved
+                    .missing_classpath_entries
+                    .push(MissingClasspathEntry {
+                        path: cp_path,
+                        url: lib
+                            .get("downloads")
+                            .and_then(|d| d.get("artifact"))
+                            .and_then(|a| a.get("url"))
+                            .and_then(Value::as_str)
+                            .map(ToString::to_string),
+                    });
             }
         } else if let Some(fallback_path) = build_maven_library_path(mc_root, &lib) {
             if Path::new(&fallback_path).exists() {
                 resolved.classpath_entries.push(fallback_path);
             } else {
-                resolved.missing_classpath_entries.push(MissingClasspathEntry {
-                    path: fallback_path,
-                    url: None,
-                });
+                resolved
+                    .missing_classpath_entries
+                    .push(MissingClasspathEntry {
+                        path: fallback_path,
+                        url: None,
+                    });
             }
         }
 
@@ -724,19 +729,28 @@ fn hydrate_missing_libraries(
 
 fn build_maven_library_path(mc_root: &Path, lib: &Value) -> Option<String> {
     let name = lib.get("name").and_then(Value::as_str)?;
-    let segments: Vec<&str> = name.split(':').collect();
-    if segments.len() != 3 {
+    let (coordinate, extension) = name
+        .split_once('@')
+        .map_or((name, "jar"), |(c, ext)| (c, ext));
+    let segments: Vec<&str> = coordinate.split(':').collect();
+    if !(segments.len() == 3 || segments.len() == 4) {
         return None;
     }
     let group_path = segments[0].replace('.', "/");
     let artifact = segments[1];
     let version = segments[2];
+    let classifier_suffix = segments
+        .get(3)
+        .map(|classifier| format!("-{classifier}"))
+        .unwrap_or_default();
     let path = mc_root
         .join("libraries")
         .join(group_path)
         .join(artifact)
         .join(version)
-        .join(format!("{artifact}-{version}.jar"));
+        .join(format!(
+            "{artifact}-{version}{classifier_suffix}.{extension}"
+        ));
     Some(path.display().to_string())
 }
 
@@ -787,6 +801,14 @@ fn resolve_native_jar(
 }
 
 fn extract_natives(native_jars: &[NativeJar], natives_dir: &Path) -> Result<(), String> {
+    let marker = natives_dir.join(".native-jars.hash");
+    let fingerprint = natives_fingerprint(native_jars)?;
+    let should_reextract = should_reextract_natives(natives_dir, &marker, &fingerprint)?;
+
+    if !should_reextract {
+        return Ok(());
+    }
+
     if natives_dir.exists() {
         fs::remove_dir_all(natives_dir).map_err(|err| {
             format!(
@@ -860,7 +882,79 @@ fn extract_natives(native_jars: &[NativeJar], natives_dir: &Path) -> Result<(), 
         }
     }
 
+    fs::write(&marker, fingerprint).map_err(|err| {
+        format!(
+            "No se pudo guardar marcador de natives {}: {err}",
+            marker.display()
+        )
+    })?;
+
     Ok(())
+}
+
+fn should_reextract_natives(
+    natives_dir: &Path,
+    marker_path: &Path,
+    fingerprint: &str,
+) -> Result<bool, String> {
+    if !natives_dir.exists() {
+        return Ok(true);
+    }
+
+    let has_entries = fs::read_dir(natives_dir)
+        .map_err(|err| {
+            format!(
+                "No se pudo inspeccionar directorio de natives {}: {err}",
+                natives_dir.display()
+            )
+        })?
+        .next()
+        .transpose()
+        .map_err(|err| {
+            format!(
+                "No se pudo leer entradas de natives {}: {err}",
+                natives_dir.display()
+            )
+        })?
+        .is_some();
+
+    if !has_entries {
+        return Ok(true);
+    }
+
+    let existing_fingerprint = fs::read_to_string(marker_path).unwrap_or_default();
+    Ok(existing_fingerprint.trim() != fingerprint)
+}
+
+fn natives_fingerprint(native_jars: &[NativeJar]) -> Result<String, String> {
+    let mut parts = native_jars
+        .iter()
+        .map(|native| {
+            let metadata = fs::metadata(&native.path).map_err(|err| {
+                format!(
+                    "No se pudo leer metadata de native {}: {err}",
+                    native.path.display()
+                )
+            })?;
+            let modified = metadata
+                .modified()
+                .ok()
+                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|dur| dur.as_secs())
+                .unwrap_or(0);
+            Ok(format!(
+                "{}:{}:{}",
+                native.path.display(),
+                metadata.len(),
+                modified
+            ))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    parts.sort();
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    parts.hash(&mut hasher);
+    Ok(format!("{:x}", hasher.finish()))
 }
 
 fn should_skip_native_entry(entry_name: &str, excludes: &[String]) -> bool {
@@ -875,7 +969,40 @@ fn should_skip_native_entry(entry_name: &str, excludes: &[String]) -> bool {
 }
 
 fn contains_classpath_switch(jvm_args: &[String]) -> bool {
+    if jvm_args
+        .iter()
+        .any(|arg| arg.starts_with("-cp=") || arg.starts_with("-classpath="))
+    {
+        return true;
+    }
+
     jvm_args
         .windows(2)
         .any(|window| matches!(window, [flag, _value] if flag == "-cp" || flag == "-classpath"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_maven_library_path, contains_classpath_switch};
+    use serde_json::json;
+    use std::path::Path;
+
+    #[test]
+    fn maven_fallback_supports_classifier_and_extension() {
+        let lib = json!({"name": "org.lwjgl:lwjgl:3.3.1:natives-linux@zip"});
+
+        let path = build_maven_library_path(Path::new("/tmp/mc"), &lib).unwrap();
+
+        assert_eq!(
+            path,
+            "/tmp/mc/libraries/org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1-natives-linux.zip"
+        );
+    }
+
+    #[test]
+    fn classpath_switch_detects_equals_style_flags() {
+        let jvm_args = vec!["-Xmx2G".to_string(), "-classpath=/tmp/cp".to_string()];
+
+        assert!(contains_classpath_switch(&jvm_args));
+    }
 }
