@@ -670,6 +670,70 @@ function App() {
       .map((entry) => [entry.version, entry.publishedAt, entry.source])
   }, [loaderSearch, loaderVersions, selectedLoaderFilter])
 
+
+  const loaderLabel = selectedLoader === 'none' ? 'vanilla' : selectedLoader
+  const selectedJavaMajor = toJavaMajorOrUndefined(selectedMinecraftDetail?.javaVersion?.majorVersion) ?? 17
+  const instanceRootLabel = selectedCard?.instanceRoot ?? 'Sin ruta de instancia todavía'
+  const minecraftRootLabel = selectedCard?.instanceRoot ? `${selectedCard.instanceRoot}/minecraft` : 'Sin ruta minecraft todavía'
+
+  const creatorSectionRows = useMemo<[string, string][]>(() => {
+    const loaderVersionLabel = selectedLoaderVersion?.version ?? 'sin selección'
+    const mcVersionLabel = selectedMinecraftVersion?.id ?? 'sin selección'
+
+    if (selectedCreatorSection === 'CurseForge') {
+      return [
+        ['Ruta del manifiesto CF', `${minecraftRootLabel}/modpack/manifest.json`],
+        ['Versión MC asignada', mcVersionLabel],
+        ['Loader asignado', `${loaderLabel} ${loaderVersionLabel}`],
+        ['Carpeta de mods objetivo', `${minecraftRootLabel}/mods`],
+      ]
+    }
+
+    if (selectedCreatorSection === 'Modrinth') {
+      return [
+        ['Ruta del índice Modrinth', `${minecraftRootLabel}/modrinth.index.json`],
+        ['Versión MC asignada', mcVersionLabel],
+        ['Loader asignado', `${loaderLabel} ${loaderVersionLabel}`],
+        ['Carpeta de overrides', `${minecraftRootLabel}/config`],
+      ]
+    }
+
+    return [
+      ['Ruta base de instancia', instanceRootLabel],
+      ['Ruta de minecraft', minecraftRootLabel],
+      ['Versión MC asignada', mcVersionLabel],
+      ['Java asignado', `Java ${selectedJavaMajor}`],
+      ['Loader asignado', `${loaderLabel} ${loaderVersionLabel}`],
+      ['RAM objetivo', '4096 MiB'],
+    ]
+  }, [instanceRootLabel, loaderLabel, minecraftRootLabel, selectedCreatorSection, selectedJavaMajor, selectedLoaderVersion?.version, selectedMinecraftVersion?.id])
+
+  const classpathPreviewRows = useMemo<[string, string][]>(() => {
+    const effectiveClasspath = launchPreparation?.classpath ?? ''
+    if (!effectiveClasspath.trim()) {
+      return [['Classpath', 'Aún no preparado. Inicia validación para obtener rutas reales.']]
+    }
+
+    return effectiveClasspath
+      .split(/[:;]/)
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .slice(0, 12)
+      .map((entry, index) => [`CP ${index + 1}`, entry])
+  }, [launchPreparation?.classpath])
+
+  const envRows = useMemo<[string, string][]>(() => {
+    const gameDir = selectedCard?.instanceRoot ? `${selectedCard.instanceRoot}/minecraft` : '-'
+    const natives = `${gameDir}/natives`
+    const assets = `${gameDir}/assets`
+    return [
+      ['GAME_DIR', gameDir],
+      ['MC_ASSETS_ROOT', assets],
+      ['JAVA_HOME', selectedInstanceMetadata?.javaPath ?? launchPreparation?.javaPath ?? '-'],
+      ['NATIVES_DIR', natives],
+    ]
+  }, [launchPreparation?.javaPath, selectedCard?.instanceRoot, selectedInstanceMetadata?.javaPath])
+
   const createInstance = async () => {
     const cleanName = instanceName.trim()
     if (!cleanName || isCreating || !selectedMinecraftVersion || !selectedMinecraftDetail) {
@@ -1155,7 +1219,15 @@ const onTopNavClick = (item: TopNavItem) => {
             ) : (
               <section className="section-placeholder">
                 <h2>{selectedCreatorSection}</h2>
-                <p>Configuración específica para esta sección del creador.</p>
+                <p>Asignaciones activas para esta sección del creador.</p>
+                <div className="settings-pane-grid">
+                  <article>
+                    <h3>Rutas y asignaciones reales</h3>
+                    {creatorSectionRows.map(([label, value]) => (
+                      <p key={`${selectedCreatorSection}-${label}`}><strong>{label}:</strong> {value}</p>
+                    ))}
+                  </article>
+                </div>
               </section>
             )}
 
@@ -1281,11 +1353,51 @@ const onTopNavClick = (item: TopNavItem) => {
                   </div>
                 )}
 
-                {(selectedSettingsTab === 'Ajustes' || selectedSettingsTab === 'Comandos Personalizados' || selectedSettingsTab === 'Variables de Entorno') && (
-                  <section className="section-placeholder">
-                    <h2>{selectedSettingsTab}</h2>
-                    <p>Opciones reales de esta instancia cargadas por defecto tras su creación.</p>
-                  </section>
+                {selectedSettingsTab === 'Ajustes' && (
+                  <div className="settings-pane-grid">
+                    <article>
+                      <h3>Classpath efectivo</h3>
+                      {classpathPreviewRows.map(([label, value]) => (
+                        <p key={`cp-${label}`}><strong>{label}:</strong> {value}</p>
+                      ))}
+                    </article>
+                    <article>
+                      <h3>Rutas de la instancia</h3>
+                      <p><strong>Instance Root:</strong> {selectedCard.instanceRoot ?? '-'}</p>
+                      <p><strong>Minecraft Root:</strong> {selectedCard.instanceRoot ? `${selectedCard.instanceRoot}/minecraft` : '-'}</p>
+                      <p><strong>Version JSON:</strong> {selectedInstanceMetadata?.minecraftVersion ? `${selectedCard.instanceRoot}/minecraft/versions/${selectedInstanceMetadata.minecraftVersion}/${selectedInstanceMetadata.minecraftVersion}.json` : '-'}</p>
+                    </article>
+                  </div>
+                )}
+
+                {selectedSettingsTab === 'Comandos Personalizados' && (
+                  <div className="settings-pane-grid">
+                    <article>
+                      <h3>Asignación de comando JVM</h3>
+                      <textarea
+                        readOnly
+                        value={launchPreparation ? [launchPreparation.javaPath, ...launchPreparation.jvmArgs, launchPreparation.mainClass].join(' ') : 'Aún no hay comando validado'}
+                      />
+                    </article>
+                    <article>
+                      <h3>Asignación de argumentos GAME</h3>
+                      <textarea
+                        readOnly
+                        value={launchPreparation ? launchPreparation.gameArgs.join(' ') : 'Aún no hay argumentos GAME validados'}
+                      />
+                    </article>
+                  </div>
+                )}
+
+                {selectedSettingsTab === 'Variables de Entorno' && (
+                  <div className="settings-pane-grid">
+                    <article>
+                      <h3>Variables efectivas</h3>
+                      {envRows.map(([key, value]) => (
+                        <p key={`env-${key}`}><strong>{key}:</strong> {value}</p>
+                      ))}
+                    </article>
+                  </div>
                 )}
               </section>
             ) : (

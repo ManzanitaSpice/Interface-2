@@ -184,27 +184,47 @@ pub fn validate_and_prepare_launch(
     ));
 
     let mc_root = instance_path.join("minecraft");
-    let versions_dir = mc_root.join("versions").join(&metadata.minecraft_version);
-    let client_jar = versions_dir.join(format!("{}.jar", &metadata.minecraft_version));
-    let version_json_path = versions_dir.join(format!("{}.json", &metadata.minecraft_version));
+    let version_json = load_merged_version_json(&mc_root, &metadata.minecraft_version)?;
 
-    if !client_jar.exists() {
-        return Err(format!("client.jar no existe: {}", client_jar.display()));
-    }
-    logs.push("✔ client.jar presente".to_string());
+    let executable_version_id = version_json
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or(&metadata.minecraft_version)
+        .to_string();
+    let executable_jar = mc_root
+        .join("versions")
+        .join(&executable_version_id)
+        .join(format!("{executable_version_id}.jar"));
 
-    let version_raw = fs::read_to_string(&version_json_path)
-        .map_err(|err| format!("No se pudo leer version.json: {err}"))?;
-    let version_json: Value = serde_json::from_str(&version_raw)
-        .map_err(|err| format!("version.json inválido: {err}"))?;
+    let client_jar = if executable_jar.exists() {
+        executable_jar
+    } else {
+        let fallback = mc_root
+            .join("versions")
+            .join(&metadata.minecraft_version)
+            .join(format!("{}.jar", &metadata.minecraft_version));
+        if !fallback.exists() {
+            return Err(format!(
+                "Jar ejecutable no existe ni en versión efectiva ni fallback: {} | {}",
+                mc_root
+                    .join("versions")
+                    .join(&executable_version_id)
+                    .join(format!("{executable_version_id}.jar"))
+                    .display(),
+                fallback.display()
+            ));
+        }
+        fallback
+    };
+    logs.push(format!("✔ jar ejecutable presente: {}", client_jar.display()));
 
     let rule_context = RuleContext::current();
-    let resolved_libraries = resolve_libraries(&mc_root, &version_json, &rule_context);
+    let mut resolved_libraries = resolve_libraries(&mc_root, &version_json, &rule_context);
+    hydrate_missing_libraries(&resolved_libraries.missing_classpath_entries, &mut logs)?;
+    resolved_libraries = resolve_libraries(&mc_root, &version_json, &rule_context);
 
     if resolved_libraries.classpath_entries.is_empty() {
-        return Err(
-            "Classpath vacío: no hay librerías válidas para el OS/arch actual.".to_string(),
-        );
+        return Err("Classpath vacío: no hay librerías válidas para el OS/arch actual. Revisa rules, OS/arch y descarga de libraries/artifacts.".to_string());
     }
 
     if !resolved_libraries.missing_classpath_entries.is_empty() {
@@ -215,7 +235,7 @@ pub fn validate_and_prepare_launch(
                 .missing_classpath_entries
                 .iter()
                 .take(3)
-                .cloned()
+                .map(|entry| entry.path.clone())
                 .collect::<Vec<_>>()
                 .join(" | ")
         ));
@@ -517,9 +537,15 @@ struct NativeJar {
 #[derive(Debug, Default)]
 struct ResolvedLibraries {
     classpath_entries: Vec<String>,
-    missing_classpath_entries: Vec<String>,
+    missing_classpath_entries: Vec<MissingClasspathEntry>,
     native_jars: Vec<NativeJar>,
     missing_native_entries: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct MissingClasspathEntry {
+    path: String,
+    url: Option<String>,
 }
 
 fn resolve_libraries(
@@ -557,13 +583,24 @@ fn resolve_libraries(
             if Path::new(&cp_path).exists() {
                 resolved.classpath_entries.push(cp_path);
             } else {
-                resolved.missing_classpath_entries.push(cp_path);
+                resolved.missing_classpath_entries.push(MissingClasspathEntry {
+                    path: cp_path,
+                    url: lib
+                        .get("downloads")
+                        .and_then(|d| d.get("artifact"))
+                        .and_then(|a| a.get("url"))
+                        .and_then(Value::as_str)
+                        .map(ToString::to_string),
+                });
             }
         } else if let Some(fallback_path) = build_maven_library_path(mc_root, &lib) {
             if Path::new(&fallback_path).exists() {
                 resolved.classpath_entries.push(fallback_path);
             } else {
-                resolved.missing_classpath_entries.push(fallback_path);
+                resolved.missing_classpath_entries.push(MissingClasspathEntry {
+                    path: fallback_path,
+                    url: None,
+                });
             }
         }
 
@@ -579,6 +616,110 @@ fn resolve_libraries(
     }
 
     resolved
+}
+
+fn load_merged_version_json(mc_root: &Path, version_id: &str) -> Result<Value, String> {
+    let mut chain = Vec::new();
+    let mut current = version_id.to_string();
+
+    loop {
+        let path = mc_root
+            .join("versions")
+            .join(&current)
+            .join(format!("{current}.json"));
+        let raw = fs::read_to_string(&path)
+            .map_err(|err| format!("No se pudo leer version.json {}: {err}", path.display()))?;
+        let json: Value = serde_json::from_str(&raw)
+            .map_err(|err| format!("version.json inválido en {}: {err}", path.display()))?;
+
+        let parent = json
+            .get("inheritsFrom")
+            .and_then(Value::as_str)
+            .map(ToString::to_string);
+        chain.push(json);
+
+        let Some(parent_id) = parent else {
+            break;
+        };
+        current = parent_id;
+    }
+
+    chain.reverse();
+    let mut merged = Value::Object(serde_json::Map::new());
+
+    for entry in chain {
+        merge_version_json(&mut merged, &entry);
+    }
+
+    Ok(merged)
+}
+
+fn merge_version_json(base: &mut Value, overlay: &Value) {
+    let (Some(base_obj), Some(overlay_obj)) = (base.as_object_mut(), overlay.as_object()) else {
+        return;
+    };
+
+    for (key, value) in overlay_obj {
+        if key == "libraries" {
+            let mut merged_libraries = base_obj
+                .get("libraries")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            merged_libraries.extend(value.as_array().cloned().unwrap_or_default());
+            base_obj.insert("libraries".to_string(), Value::Array(merged_libraries));
+            continue;
+        }
+
+        base_obj.insert(key.clone(), value.clone());
+    }
+}
+
+fn hydrate_missing_libraries(
+    missing_entries: &[MissingClasspathEntry],
+    logs: &mut Vec<String>,
+) -> Result<(), String> {
+    let downloadable = missing_entries
+        .iter()
+        .filter(|entry| entry.url.is_some())
+        .collect::<Vec<_>>();
+
+    if downloadable.is_empty() {
+        return Ok(());
+    }
+
+    logs.push(format!(
+        "↻ Faltan {} libraries en disco; intentando descarga automática de artifacts.",
+        downloadable.len()
+    ));
+
+    let client = reqwest::blocking::Client::new();
+    for entry in downloadable {
+        let url = entry.url.as_ref().expect("filtered as some");
+        let bytes = client
+            .get(url)
+            .send()
+            .and_then(|response| response.error_for_status())
+            .map_err(|err| format!("No se pudo descargar library {url}: {err}"))?
+            .bytes()
+            .map_err(|err| format!("Respuesta inválida al descargar library {url}: {err}"))?;
+
+        let path = Path::new(&entry.path);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|err| {
+                format!(
+                    "No se pudo crear directorio para library {}: {err}",
+                    parent.display()
+                )
+            })?;
+        }
+
+        fs::write(path, &bytes)
+            .map_err(|err| format!("No se pudo guardar library {}: {err}", path.display()))?;
+    }
+
+    logs.push("✔ Descarga automática de libraries finalizada.".to_string());
+    Ok(())
 }
 
 fn build_maven_library_path(mc_root: &Path, lib: &Value) -> Option<String> {
