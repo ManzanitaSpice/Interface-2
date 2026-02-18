@@ -159,53 +159,52 @@ pub async fn authorize_microsoft_in_launcher(
     let app_for_navigation = app.clone();
     let label_for_navigation = label.clone();
 
-    WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parsed_authorize_url))
-        .title("Iniciar sesión con Microsoft")
-        .inner_size(520.0, 720.0)
-        .center()
-        .resizable(true)
-        .on_navigation(move |navigation_url| {
-            let navigation = navigation_url.to_string();
-            if !navigation.starts_with(MICROSOFT_REDIRECT_URI) {
-                return true;
-            }
-
-            let auth_result = extract_code_from_redirect(&navigation);
-            if let Ok(mut tx_guard) = tx_for_navigation.lock() {
-                if let Some(sender) = tx_guard.take() {
-                    let _ = sender.send(auth_result);
-                }
-            }
-
-            if let Some(window) = app_for_navigation.get_webview_window(&label_for_navigation) {
-                let _ = window.close();
-            }
-
-            false
-        })
-        .on_window_event({
-            let tx_for_close = Arc::clone(&tx_holder);
-            let app_for_close = app.clone();
-            move |window, event| {
-                if !matches!(event, tauri::WindowEvent::Destroyed) {
-                    return;
+    let window =
+        WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parsed_authorize_url))
+            .title("Iniciar sesión con Microsoft")
+            .inner_size(520.0, 720.0)
+            .center()
+            .resizable(true)
+            .on_navigation(move |navigation_url| {
+                let navigation = navigation_url.to_string();
+                if !navigation.starts_with(MICROSOFT_REDIRECT_URI) {
+                    return true;
                 }
 
-                if let Ok(mut tx_guard) = tx_for_close.lock() {
+                let auth_result = extract_code_from_redirect(&navigation);
+                if let Ok(mut tx_guard) = tx_for_navigation.lock() {
                     if let Some(sender) = tx_guard.take() {
-                        let _ = sender.send(Err(
-                        "El inicio de sesión fue cancelado porque se cerró la ventana de Microsoft."
-                            .to_string(),
-                    ));
+                        let _ = sender.send(auth_result);
                     }
                 }
 
-                let _ =
-                    app_for_close.emit(MICROSOFT_AUTH_WINDOW_EVENT, format!("{}", window.label()));
+                if let Some(window) = app_for_navigation.get_webview_window(&label_for_navigation) {
+                    let _ = window.close();
+                }
+            })
+            .build()
+            .map_err(|err| format!("No se pudo abrir la ventana de login de Microsoft: {err}"))?;
+
+    window.on_window_event({
+        let tx_for_close = Arc::clone(&tx_holder);
+        let app_for_close = app.clone();
+        move |event| {
+            if !matches!(event, tauri::WindowEvent::Destroyed) {
+                return;
             }
-        })
-        .build()
-        .map_err(|err| format!("No se pudo abrir la ventana de login de Microsoft: {err}"))?;
+
+            if let Ok(mut tx_guard) = tx_for_close.lock() {
+                if let Some(sender) = tx_guard.take() {
+                    let _ = sender.send(Err(
+                        "El inicio de sesión fue cancelado porque se cerró la ventana de Microsoft."
+                            .to_string(),
+                    ));
+                }
+            }
+
+            let _ = app_for_close.emit(MICROSOFT_AUTH_WINDOW_EVENT, window.label().to_string());
+        }
+    });
 
     match tokio::time::timeout(Duration::from_secs(MICROSOFT_AUTH_TIMEOUT_SECS), rx).await {
         Ok(Ok(result)) => result,
