@@ -12,6 +12,20 @@ const MINECRAFT_LOGIN_URL: &str =
     "https://api.minecraftservices.com/authentication/login_with_xbox";
 const MINECRAFT_PROFILE_URL: &str = "https://api.minecraftservices.com/minecraft/profile";
 
+fn extract_error_detail(body: &str) -> String {
+    let parsed = serde_json::from_str::<serde_json::Value>(body).ok();
+    let Some(json_body) = parsed else {
+        return body.trim().to_string();
+    };
+
+    ["error", "errorType", "errorMessage", "path", "developerMessage"]
+        .iter()
+        .filter_map(|key| json_body.get(*key).and_then(|value| value.as_str()))
+        .map(ToString::to_string)
+        .collect::<Vec<String>>()
+        .join(" | ")
+}
+
 #[derive(Debug)]
 pub struct XboxLiveToken {
     pub token: String,
@@ -110,14 +124,34 @@ pub fn login_minecraft_with_xbox(
     };
 
     let client = reqwest::blocking::Client::new();
-    client
+    let response = client
         .post(MINECRAFT_LOGIN_URL)
         .header("Accept", "application/json")
         .json(&payload)
         .send()
-        .map_err(|err| format!("No se pudo autenticar en Minecraft Services: {err}"))?
-        .error_for_status()
-        .map_err(|err| format!("Minecraft Services devolvió error HTTP: {err}"))?
+        .map_err(|err| format!("No se pudo autenticar en Minecraft Services: {err}"))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().unwrap_or_default();
+        let details = extract_error_detail(&body);
+        let owned_hint = if details.contains("NOT_OWNED") {
+            " La cuenta no tiene licencia de Minecraft Java en este usuario de Microsoft."
+        } else {
+            ""
+        };
+        let under_age_hint = if details.contains("UNDER_18") {
+            " La cuenta tiene restricciones de edad/privacidad (Xbox)."
+        } else {
+            ""
+        };
+
+        return Err(format!(
+            "Minecraft Services devolvió error HTTP: {status}. Detalle: {details}.{owned_hint}{under_age_hint}"
+        ));
+    }
+
+    response
         .json::<MinecraftLoginResponse>()
         .map_err(|err| format!("No se pudo leer access token de Minecraft: {err}"))
 }
