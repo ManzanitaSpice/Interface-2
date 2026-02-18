@@ -1,5 +1,7 @@
 use std::{fs, path::Path};
 
+use sha1::{Digest, Sha1};
+
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -18,6 +20,9 @@ use crate::{
 
 const MOJANG_MANIFEST_URL: &str = "https://launchermeta.mojang.com/mc/game/version_manifest.json";
 const MOJANG_RESOURCES_URL: &str = "https://resources.download.minecraft.net";
+const MOJANG_MANIFEST_HOST: &str = "launchermeta.mojang.com";
+const MOJANG_RESOURCE_HOST: &str = "resources.download.minecraft.net";
+const MOJANG_LIBRARIES_HOST: &str = "libraries.minecraft.net";
 
 pub fn build_instance_structure(
     _instance_root: &Path,
@@ -181,6 +186,27 @@ pub fn build_instance_structure(
     Ok(())
 }
 
+fn ensure_official_url(url: &str) -> AppResult<()> {
+    let parsed = reqwest::Url::parse(url)
+        .map_err(|err| format!("URL oficial inválida: {url}. Error: {err}"))?;
+    let host = parsed.host_str().unwrap_or_default();
+    let allowed = [
+        MOJANG_MANIFEST_HOST,
+        MOJANG_RESOURCE_HOST,
+        MOJANG_LIBRARIES_HOST,
+    ];
+    if !allowed.contains(&host) {
+        return Err(format!("URL no oficial bloqueada: {url}"));
+    }
+    Ok(())
+}
+
+fn sha1_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha1::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
 fn download_version_json(minecraft_version: &str) -> AppResult<Value> {
     let manifest = reqwest::blocking::get(MOJANG_MANIFEST_URL)
         .map_err(|err| format!("No se pudo descargar version_manifest oficial: {err}"))?
@@ -192,10 +218,14 @@ fn download_version_json(minecraft_version: &str) -> AppResult<Value> {
     let version = manifest
         .versions
         .into_iter()
-        .find(|entry: &ManifestVersionEntry| entry.id == minecraft_version)
+        .find(|entry: &ManifestVersionEntry| {
+            entry.id == minecraft_version && entry.r#type == "release"
+        })
         .ok_or_else(|| {
             format!("No se encontró la versión {minecraft_version} en el manifest de Mojang.")
         })?;
+
+    ensure_official_url(&version.url)?;
 
     reqwest::blocking::get(version.url)
         .map_err(|err| format!("No se pudo descargar version.json oficial: {err}"))?
@@ -213,7 +243,14 @@ fn download_client_jar(version_json: &Value, jar_path: &Path) -> AppResult<()> {
         .and_then(Value::as_str)
         .ok_or_else(|| "version.json no incluye downloads.client.url".to_string())?;
 
-    download_binary(client_url, jar_path, true).map(|_| ())
+    let expected_sha1 = version_json
+        .get("downloads")
+        .and_then(|downloads| downloads.get("client"))
+        .and_then(|client| client.get("sha1"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| "version.json no incluye downloads.client.sha1".to_string())?;
+
+    download_binary(client_url, jar_path, true, Some(expected_sha1)).map(|_| ())
 }
 
 fn download_libraries(
@@ -243,9 +280,9 @@ fn download_libraries(
             continue;
         }
 
-        if let Some((url, path)) = artifact_download_entry(&library) {
+        if let Some((url, path, sha1)) = artifact_download_entry(&library) {
             let output_path = minecraft_root.join("libraries").join(path);
-            if download_binary(url, &output_path, false)? {
+            if download_binary(url, &output_path, false, Some(sha1))? {
                 downloaded += 1;
             }
             *completed_downloads += 1;
@@ -256,9 +293,9 @@ fn download_libraries(
             );
         }
 
-        if let Some((url, path)) = native_download_entry(&library, rule_context) {
+        if let Some((url, path, sha1)) = native_download_entry(&library, rule_context) {
             let output_path = minecraft_root.join("libraries").join(path);
-            if download_binary(url, &output_path, false)? {
+            if download_binary(url, &output_path, false, Some(sha1))? {
                 downloaded += 1;
             }
             *completed_downloads += 1;
@@ -276,18 +313,19 @@ fn download_libraries(
     Ok(downloaded)
 }
 
-fn artifact_download_entry(library: &Value) -> Option<(&str, &str)> {
+fn artifact_download_entry(library: &Value) -> Option<(&str, &str, &str)> {
     let artifact = library.get("downloads")?.get("artifact")?;
     Some((
         artifact.get("url")?.as_str()?,
         artifact.get("path")?.as_str()?,
+        artifact.get("sha1")?.as_str()?,
     ))
 }
 
 fn native_download_entry<'a>(
     library: &'a Value,
     rule_context: &RuleContext,
-) -> Option<(&'a str, &'a str)> {
+) -> Option<(&'a str, &'a str, &'a str)> {
     let os_key = match rule_context.os_name {
         crate::domain::minecraft::rule_engine::OsName::Windows => "windows",
         crate::domain::minecraft::rule_engine::OsName::Linux => "linux",
@@ -306,7 +344,11 @@ fn native_download_entry<'a>(
         .get("classifiers")?
         .get(classifier)?;
 
-    Some((entry.get("url")?.as_str()?, entry.get("path")?.as_str()?))
+    Some((
+        entry.get("url")?.as_str()?,
+        entry.get("path")?.as_str()?,
+        entry.get("sha1")?.as_str()?,
+    ))
 }
 
 fn download_assets(
@@ -338,7 +380,7 @@ fn download_assets(
     })?;
 
     let index_path = indexes_dir.join(format!("{index_id}.json"));
-    download_binary(index_url, &index_path, true)?;
+    download_binary(index_url, &index_path, true, None)?;
     *completed_downloads += 1;
     on_progress(
         *completed_downloads,
@@ -367,7 +409,7 @@ fn download_assets(
             .join(prefix)
             .join(&object.hash);
         let url = format!("{MOJANG_RESOURCES_URL}/{prefix}/{}", object.hash);
-        if download_binary(&url, &object_path, false)? {
+        if download_binary(&url, &object_path, false, Some(&object.hash))? {
             downloaded += 1;
         }
         *completed_downloads += 1;
@@ -432,7 +474,12 @@ fn planned_asset_downloads(version_json: &Value) -> AppResult<usize> {
     Ok(parsed_index.objects.len())
 }
 
-fn download_binary(url: &str, target_path: &Path, force: bool) -> AppResult<bool> {
+fn download_binary(
+    url: &str,
+    target_path: &Path,
+    force: bool,
+    expected_sha1: Option<&str>,
+) -> AppResult<bool> {
     if !force && target_path.exists() {
         return Ok(false);
     }
@@ -446,12 +493,24 @@ fn download_binary(url: &str, target_path: &Path, force: bool) -> AppResult<bool
         })?;
     }
 
+    ensure_official_url(url)?;
+
     let bytes = reqwest::blocking::get(url)
         .map_err(|err| format!("No se pudo descargar recurso oficial {url}: {err}"))?
         .error_for_status()
         .map_err(|err| format!("Recurso oficial devolvió error HTTP ({url}): {err}"))?
         .bytes()
         .map_err(|err| format!("No se pudo leer bytes descargados de {url}: {err}"))?;
+
+    if let Some(expected) = expected_sha1 {
+        let actual = sha1_hex(bytes.as_ref());
+        if !actual.eq_ignore_ascii_case(expected) {
+            return Err(format!(
+                "SHA1 inválido para {}. Esperado: {expected}, actual: {actual}",
+                url
+            ));
+        }
+    }
 
     write_placeholder_file(target_path, "")?;
     fs::write(target_path, &bytes).map_err(|err| {

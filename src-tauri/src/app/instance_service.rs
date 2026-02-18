@@ -14,6 +14,14 @@ use serde::Serialize;
 use serde_json::Value;
 use zip::ZipArchive;
 
+use crate::domain::auth::{
+    microsoft::refresh_microsoft_access_token,
+    xbox::{
+        authenticate_with_xbox_live, authorize_xsts, has_minecraft_license,
+        login_minecraft_with_xbox,
+    },
+};
+
 use crate::{
     domain::{
         minecraft::{
@@ -64,6 +72,14 @@ struct RuntimeState {
     running: bool,
     exit_code: Option<i32>,
     stderr_tail: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct VerifiedLaunchAuth {
+    profile_id: String,
+    profile_name: String,
+    minecraft_access_token: String,
+    premium_verified: bool,
 }
 
 static RUNTIME_REGISTRY: OnceLock<Mutex<HashMap<String, RuntimeState>>> = OnceLock::new();
@@ -171,7 +187,7 @@ pub fn validate_and_prepare_launch(
     let metadata = get_instance_metadata(instance_root.clone())?;
     logs.push("✔ .instance.json leído correctamente".to_string());
 
-    validate_official_minecraft_auth(&auth_session, &mut logs)?;
+    let verified_auth = validate_official_minecraft_auth(&auth_session, &mut logs)?;
 
     let embedded_java = ensure_instance_embedded_java(instance_path, &metadata, &mut logs)?;
     let java_path = PathBuf::from(&embedded_java);
@@ -321,7 +337,7 @@ pub fn validate_and_prepare_launch(
     } else {
         ":"
     };
-    let mut classpath_entries = collect_library_jars(&mc_root.join("libraries"))?;
+    let mut classpath_entries = resolved_libraries.classpath_entries.clone();
     classpath_entries.push(client_jar.display().to_string());
     let classpath = classpath_entries.join(sep);
     if classpath.trim().is_empty() {
@@ -339,20 +355,16 @@ pub fn validate_and_prepare_launch(
         natives_dir: natives_dir.display().to_string(),
         launcher_name: "Interface-2".to_string(),
         launcher_version: env!("CARGO_PKG_VERSION").to_string(),
-        auth_player_name: auth_session.profile_name.clone(),
-        auth_uuid: auth_session.profile_id.clone(),
-        auth_access_token: auth_session.minecraft_access_token.clone(),
+        auth_player_name: verified_auth.profile_name.clone(),
+        auth_uuid: verified_auth.profile_id.clone(),
+        auth_access_token: verified_auth.minecraft_access_token.clone(),
         user_type: "msa".to_string(),
         user_properties: "{}".to_string(),
         version_name: metadata.minecraft_version.clone(),
         game_directory: mc_root.display().to_string(),
         assets_root: mc_root.join("assets").display().to_string(),
         assets_index_name,
-        version_type: version_json
-            .get("type")
-            .and_then(Value::as_str)
-            .unwrap_or("release")
-            .to_string(),
+        version_type: "release".to_string(),
         resolution_width: "854".to_string(),
         resolution_height: "480".to_string(),
         clientid: String::new(),
@@ -417,6 +429,10 @@ pub fn validate_and_prepare_launch(
     );
     logs.push("🔹 6. Finalización".to_string());
     logs.push("✔ Manejo de cierre normal/error y persistencia de log completo".to_string());
+
+    if !verified_auth.premium_verified {
+        return Err("La cuenta no posee licencia oficial de Minecraft.".to_string());
+    }
 
     Ok(LaunchValidationResult {
         java_path: embedded_java,
@@ -598,7 +614,11 @@ fn ensure_instance_embedded_java(
 fn validate_official_minecraft_auth(
     auth_session: &LaunchAuthSession,
     logs: &mut Vec<String>,
-) -> Result<(), String> {
+) -> Result<VerifiedLaunchAuth, String> {
+    if !auth_session.premium_verified {
+        return Err("La cuenta no posee licencia oficial de Minecraft.".to_string());
+    }
+
     if auth_session.minecraft_access_token.trim().is_empty() {
         return Err(
             "No hay access token de Minecraft válido; no se permite iniciar en modo Demo."
@@ -614,48 +634,57 @@ fn validate_official_minecraft_auth(
     }
 
     let client = reqwest::blocking::Client::new();
+    let mut active_minecraft_token = auth_session.minecraft_access_token.clone();
 
-    let entitlements_response = client
-        .get("https://api.minecraftservices.com/entitlements/mcstore")
-        .header(
-            "Authorization",
-            format!("Bearer {}", auth_session.minecraft_access_token),
-        )
-        .header("Accept", "application/json")
-        .send()
-        .map_err(|err| format!("No se pudo consultar entitlements de Minecraft: {err}"))?;
-
-    let entitlements_status = entitlements_response.status();
-    if !entitlements_status.is_success() {
-        let body = entitlements_response.text().unwrap_or_default();
-        return Err(format!(
-            "La API de entitlements de Minecraft devolvió error HTTP: {entitlements_status}. Body completo: {body}"
-        ));
-    }
-
-    let entitlements_json = entitlements_response
-        .json::<serde_json::Value>()
-        .map_err(|err| format!("No se pudo leer entitlements de Minecraft: {err}"))?;
-
-    let has_license = entitlements_json
-        .get("items")
-        .and_then(serde_json::Value::as_array)
-        .map(|items| !items.is_empty())
-        .unwrap_or(false);
-
-    if !has_license {
-        return Err("La cuenta no tiene licencia de Minecraft. Se bloquea creación/lanzamiento para evitar modo Demo.".to_string());
-    }
-
-    let profile_response = client
+    let mut profile_response = client
         .get("https://api.minecraftservices.com/minecraft/profile")
         .header(
             "Authorization",
-            format!("Bearer {}", auth_session.minecraft_access_token),
+            format!("Bearer {}", active_minecraft_token),
         )
         .header("Accept", "application/json")
         .send()
         .map_err(|err| format!("No se pudo consultar perfil de Minecraft: {err}"))?;
+
+    if profile_response.status().as_u16() == 401 {
+        logs.push(
+            "⚠ access_token expirado; intentando refresh oficial Microsoft/Xbox/XSTS..."
+                .to_string(),
+        );
+        let refresh_token = auth_session
+            .microsoft_refresh_token
+            .clone()
+            .ok_or_else(|| {
+                "El access token expiró y no hay refresh token; ejecución bloqueada.".to_string()
+            })?;
+
+        let runtime = tokio::runtime::Runtime::new()
+            .map_err(|err| format!("No se pudo crear runtime para refresh de token: {err}"))?;
+
+        let refreshed_mc = runtime.block_on(async {
+            let ms =
+                refresh_microsoft_access_token(&reqwest::Client::new(), &refresh_token).await?;
+            let xbox =
+                authenticate_with_xbox_live(&reqwest::Client::new(), &ms.access_token).await?;
+            let xsts = authorize_xsts(&reqwest::Client::new(), &xbox.token).await?;
+            let mc =
+                login_minecraft_with_xbox(&reqwest::Client::new(), &xsts.uhs, &xsts.token).await?;
+            Ok::<String, String>(mc.access_token)
+        })?;
+
+        active_minecraft_token = refreshed_mc;
+        profile_response = client
+            .get("https://api.minecraftservices.com/minecraft/profile")
+            .header(
+                "Authorization",
+                format!("Bearer {}", active_minecraft_token),
+            )
+            .header("Accept", "application/json")
+            .send()
+            .map_err(|err| {
+                format!("No se pudo consultar perfil de Minecraft tras refresh: {err}")
+            })?;
+    }
 
     let profile_status = profile_response.status();
     if !profile_status.is_success() {
@@ -672,14 +701,32 @@ fn validate_official_minecraft_auth(
     let profile_id = profile
         .get("id")
         .and_then(serde_json::Value::as_str)
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .to_string();
     let profile_name = profile
         .get("name")
         .and_then(serde_json::Value::as_str)
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .to_string();
+
+    if profile_id.is_empty() || profile_name.is_empty() {
+        return Err(
+            "El perfil de Minecraft no devolvió id/name válidos; ejecución bloqueada.".to_string(),
+        );
+    }
 
     if profile_id != auth_session.profile_id || profile_name != auth_session.profile_name {
         return Err("El perfil de Minecraft no coincide con la sesión actual; token inválido o vencido. Se bloquea para evitar modo Demo.".to_string());
+    }
+
+    let runtime = tokio::runtime::Runtime::new()
+        .map_err(|err| format!("No se pudo crear runtime para validar entitlements: {err}"))?;
+    let has_license = runtime.block_on(async {
+        has_minecraft_license(&reqwest::Client::new(), &active_minecraft_token).await
+    })?;
+
+    if !has_license {
+        return Err("La cuenta no posee licencia oficial de Minecraft.".to_string());
     }
 
     logs.push("✔ Licencia oficial verificada en entitlements/mcstore (sin Demo).".to_string());
@@ -688,579 +735,11 @@ fn validate_official_minecraft_auth(
         profile_name, profile_id
     ));
 
-    Ok(())
-}
-
-fn collect_library_jars(libraries_root: &Path) -> Result<Vec<String>, String> {
-    if !libraries_root.exists() {
-        return Err(format!(
-            "No existe el directorio de libraries para classpath: {}",
-            libraries_root.display()
-        ));
-    }
-
-    let mut entries = Vec::new();
-    collect_library_jars_recursive(libraries_root, &mut entries)?;
-    entries.sort();
-
-    if entries.is_empty() {
-        return Err(format!(
-            "No se encontraron jars en libraries para classpath: {}",
-            libraries_root.display()
-        ));
-    }
-
-    Ok(entries)
-}
-
-fn collect_library_jars_recursive(dir: &Path, entries: &mut Vec<String>) -> Result<(), String> {
-    let read_dir = fs::read_dir(dir)
-        .map_err(|err| format!("No se pudo listar {} para classpath: {err}", dir.display()))?;
-
-    for item in read_dir {
-        let item = item.map_err(|err| {
-            format!(
-                "No se pudo leer entrada de {} para classpath: {err}",
-                dir.display()
-            )
-        })?;
-        let path = item.path();
-        if path.is_dir() {
-            collect_library_jars_recursive(&path, entries)?;
-            continue;
-        }
-
-        let is_jar = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ext.eq_ignore_ascii_case("jar"))
-            .unwrap_or(false);
-        if is_jar {
-            entries.push(path.display().to_string());
-        }
-    }
-
-    Ok(())
-}
-
-fn ensure_main_class_present_in_jar(jar_path: &Path, main_class: &str) -> Result<(), String> {
-    let target_entry = format!("{}.class", main_class.replace('.', "/"));
-    let file = fs::File::open(jar_path).map_err(|err| {
-        format!(
-            "No se pudo abrir jar {} para verificar mainClass: {err}",
-            jar_path.display()
-        )
-    })?;
-    let mut archive = ZipArchive::new(file)
-        .map_err(|err| format!("No se pudo leer jar {} como zip: {err}", jar_path.display()))?;
-
-    archive.by_name(&target_entry).map(|_| ()).map_err(|_| {
-        format!(
-            "La clase principal '{}' no existe en {} (entrada esperada: {}).",
-            main_class,
-            jar_path.display(),
-            target_entry
-        )
-    })
-}
-
-fn validate_jars_as_zip(jar_paths: &[PathBuf]) -> Result<(), String> {
-    for jar_path in jar_paths {
-        let file = fs::File::open(jar_path)
-            .map_err(|err| format!("No se pudo abrir jar {}: {err}", jar_path.display()))?;
-        ZipArchive::new(file)
-            .map_err(|err| format!("No se pudo leer jar {} como zip: {err}", jar_path.display()))?;
-    }
-
-    Ok(())
-}
-
-fn parse_runtime_from_metadata(metadata: &InstanceMetadata) -> Option<JavaRuntime> {
-    match metadata.java_runtime.trim().to_ascii_lowercase().as_str() {
-        "java8" => Some(JavaRuntime::Java8),
-        "java17" => Some(JavaRuntime::Java17),
-        "java21" => Some(JavaRuntime::Java21),
-        _ => parse_runtime_major(metadata.java_version.as_str())
-            .or_else(|| parse_runtime_major(metadata.java_path.as_str())),
-    }
-}
-
-fn parse_runtime_major(text: &str) -> Option<JavaRuntime> {
-    let major = text
-        .split(|c: char| !c.is_ascii_digit())
-        .find_map(|token| token.parse::<u32>().ok())?;
-
-    match major {
-        0..=8 => Some(JavaRuntime::Java8),
-        9..=17 => Some(JavaRuntime::Java17),
-        _ => Some(JavaRuntime::Java21),
-    }
-}
-
-fn persist_instance_java_path(
-    instance_path: &Path,
-    metadata: &InstanceMetadata,
-    java_exec: &Path,
-    logs: &mut Vec<String>,
-) -> Result<(), String> {
-    let metadata_path = instance_path.join(".instance.json");
-    let mut updated = metadata.clone();
-    updated.java_path = java_exec.display().to_string();
-
-    let serialized = serde_json::to_string_pretty(&updated)
-        .map_err(|err| format!("No se pudo serializar metadata actualizada: {err}"))?;
-
-    fs::write(&metadata_path, serialized).map_err(|err| {
-        format!(
-            "No se pudo actualizar java_path en metadata {}: {err}",
-            metadata_path.display()
-        )
-    })?;
-
-    logs.push(format!(
-        "✔ metadata migrada a java embebido: {}",
-        java_exec.display()
-    ));
-
-    Ok(())
-}
-
-#[derive(Debug, Clone)]
-struct NativeJar {
-    path: PathBuf,
-    excludes: Vec<String>,
-}
-
-#[derive(Debug, Default)]
-struct ResolvedLibraries {
-    classpath_entries: Vec<String>,
-    missing_classpath_entries: Vec<MissingClasspathEntry>,
-    native_jars: Vec<NativeJar>,
-    missing_native_entries: Vec<String>,
-}
-
-#[derive(Debug, Clone)]
-struct MissingClasspathEntry {
-    path: String,
-    url: Option<String>,
-}
-
-fn resolve_libraries(
-    mc_root: &Path,
-    version_json: &Value,
-    rule_context: &RuleContext,
-) -> ResolvedLibraries {
-    let mut resolved = ResolvedLibraries::default();
-
-    let libraries = version_json
-        .get("libraries")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-
-    for lib in libraries {
-        let rules = lib
-            .get("rules")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        if !crate::domain::minecraft::rule_engine::evaluate_rules(&rules, rule_context) {
-            continue;
-        }
-
-        let artifact_path = lib
-            .get("downloads")
-            .and_then(|d| d.get("artifact"))
-            .and_then(|a| a.get("path"))
-            .and_then(Value::as_str)
-            .map(|p| mc_root.join("libraries").join(p).display().to_string());
-
-        if artifact_path.is_some() {
-            let cp_path = artifact_path.expect("artifact_path checked as some");
-            if Path::new(&cp_path).exists() {
-                resolved.classpath_entries.push(cp_path);
-            } else {
-                resolved
-                    .missing_classpath_entries
-                    .push(MissingClasspathEntry {
-                        path: cp_path,
-                        url: lib
-                            .get("downloads")
-                            .and_then(|d| d.get("artifact"))
-                            .and_then(|a| a.get("url"))
-                            .and_then(Value::as_str)
-                            .map(ToString::to_string),
-                    });
-            }
-        } else if let Some(fallback_path) = build_maven_library_path(mc_root, &lib) {
-            if Path::new(&fallback_path).exists() {
-                resolved.classpath_entries.push(fallback_path);
-            } else {
-                resolved
-                    .missing_classpath_entries
-                    .push(MissingClasspathEntry {
-                        path: fallback_path,
-                        url: None,
-                    });
-            }
-        }
-
-        if let Some(native) = resolve_native_jar(mc_root, &lib, rule_context) {
-            if native.path.exists() {
-                resolved.native_jars.push(native);
-            } else {
-                resolved
-                    .missing_native_entries
-                    .push(native.path.display().to_string());
-            }
-        }
-    }
-
-    resolved
-}
-
-fn load_merged_version_json(mc_root: &Path, version_id: &str) -> Result<Value, String> {
-    let mut chain = Vec::new();
-    let mut current = version_id.to_string();
-
-    loop {
-        let path = mc_root
-            .join("versions")
-            .join(&current)
-            .join(format!("{current}.json"));
-        let raw = fs::read_to_string(&path)
-            .map_err(|err| format!("No se pudo leer version.json {}: {err}", path.display()))?;
-        let json: Value = serde_json::from_str(&raw)
-            .map_err(|err| format!("version.json inválido en {}: {err}", path.display()))?;
-
-        let parent = json
-            .get("inheritsFrom")
-            .and_then(Value::as_str)
-            .map(ToString::to_string);
-        chain.push(json);
-
-        let Some(parent_id) = parent else {
-            break;
-        };
-        current = parent_id;
-    }
-
-    chain.reverse();
-    let mut merged = Value::Object(serde_json::Map::new());
-
-    for entry in chain {
-        merge_version_json(&mut merged, &entry);
-    }
-
-    Ok(merged)
-}
-
-fn merge_version_json(base: &mut Value, overlay: &Value) {
-    let (Some(base_obj), Some(overlay_obj)) = (base.as_object_mut(), overlay.as_object()) else {
-        return;
-    };
-
-    for (key, value) in overlay_obj {
-        if key == "libraries" {
-            let mut merged_libraries = base_obj
-                .get("libraries")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            merged_libraries.extend(value.as_array().cloned().unwrap_or_default());
-            base_obj.insert("libraries".to_string(), Value::Array(merged_libraries));
-            continue;
-        }
-
-        base_obj.insert(key.clone(), value.clone());
-    }
-}
-
-fn hydrate_missing_libraries(
-    missing_entries: &[MissingClasspathEntry],
-    logs: &mut Vec<String>,
-) -> Result<(), String> {
-    let downloadable = missing_entries
-        .iter()
-        .filter(|entry| entry.url.is_some())
-        .collect::<Vec<_>>();
-
-    if downloadable.is_empty() {
-        return Ok(());
-    }
-
-    logs.push(format!(
-        "↻ Faltan {} libraries en disco; intentando descarga automática de artifacts.",
-        downloadable.len()
-    ));
-
-    let client = reqwest::blocking::Client::new();
-    for entry in downloadable {
-        let url = entry.url.as_ref().expect("filtered as some");
-        let bytes = client
-            .get(url)
-            .send()
-            .and_then(|response| response.error_for_status())
-            .map_err(|err| format!("No se pudo descargar library {url}: {err}"))?
-            .bytes()
-            .map_err(|err| format!("Respuesta inválida al descargar library {url}: {err}"))?;
-
-        let path = Path::new(&entry.path);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|err| {
-                format!(
-                    "No se pudo crear directorio para library {}: {err}",
-                    parent.display()
-                )
-            })?;
-        }
-
-        fs::write(path, &bytes)
-            .map_err(|err| format!("No se pudo guardar library {}: {err}", path.display()))?;
-    }
-
-    logs.push("✔ Descarga automática de libraries finalizada.".to_string());
-    Ok(())
-}
-
-fn build_maven_library_path(mc_root: &Path, lib: &Value) -> Option<String> {
-    let name = lib.get("name").and_then(Value::as_str)?;
-    let (coordinate, extension) = name
-        .split_once('@')
-        .map_or((name, "jar"), |(c, ext)| (c, ext));
-    let segments: Vec<&str> = coordinate.split(':').collect();
-    if !(segments.len() == 3 || segments.len() == 4) {
-        return None;
-    }
-    let group_path = segments[0].replace('.', "/");
-    let artifact = segments[1];
-    let version = segments[2];
-    let classifier_suffix = segments
-        .get(3)
-        .map(|classifier| format!("-{classifier}"))
-        .unwrap_or_default();
-    let path = mc_root
-        .join("libraries")
-        .join(group_path)
-        .join(artifact)
-        .join(version)
-        .join(format!(
-            "{artifact}-{version}{classifier_suffix}.{extension}"
-        ));
-    Some(path.display().to_string())
-}
-
-fn resolve_native_jar(
-    mc_root: &Path,
-    lib: &Value,
-    rule_context: &RuleContext,
-) -> Option<NativeJar> {
-    let os_key = match rule_context.os_name {
-        crate::domain::minecraft::rule_engine::OsName::Windows => "windows",
-        crate::domain::minecraft::rule_engine::OsName::Linux => "linux",
-        crate::domain::minecraft::rule_engine::OsName::Macos => "osx",
-        crate::domain::minecraft::rule_engine::OsName::Unknown => return None,
-    };
-
-    let classifier_raw = lib
-        .get("natives")
-        .and_then(|value| value.get(os_key))
-        .and_then(Value::as_str)?;
-    let classifier = classifier_raw.replace("${arch}", &rule_context.arch);
-
-    let native_path = lib
-        .get("downloads")
-        .and_then(|d| d.get("classifiers"))
-        .and_then(|c| c.get(&classifier))
-        .and_then(|entry| entry.get("path"))
-        .and_then(Value::as_str)
-        .map(|path| mc_root.join("libraries").join(path));
-
-    let Some(path) = native_path else {
-        return None;
-    };
-
-    let excludes = lib
-        .get("extract")
-        .and_then(|extract| extract.get("exclude"))
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(Value::as_str)
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-
-    Some(NativeJar { path, excludes })
-}
-
-fn extract_natives(native_jars: &[NativeJar], natives_dir: &Path) -> Result<(), String> {
-    let marker = natives_dir.join(".native-jars.hash");
-    let fingerprint = natives_fingerprint(native_jars)?;
-    let should_reextract = should_reextract_natives(natives_dir, &marker, &fingerprint)?;
-
-    if !should_reextract {
-        return Ok(());
-    }
-
-    if natives_dir.exists() {
-        fs::remove_dir_all(natives_dir).map_err(|err| {
-            format!(
-                "No se pudo limpiar directorio de natives {}: {err}",
-                natives_dir.display()
-            )
-        })?;
-    }
-    fs::create_dir_all(natives_dir).map_err(|err| {
-        format!(
-            "No se pudo crear directorio de natives {}: {err}",
-            natives_dir.display()
-        )
-    })?;
-
-    for native in native_jars {
-        let file = fs::File::open(&native.path).map_err(|err| {
-            format!(
-                "No se pudo abrir native jar {}: {err}",
-                native.path.display()
-            )
-        })?;
-        let mut zip = ZipArchive::new(file)
-            .map_err(|err| format!("Native jar inválido {}: {err}", native.path.display()))?;
-
-        for i in 0..zip.len() {
-            let mut entry = zip.by_index(i).map_err(|err| {
-                format!(
-                    "No se pudo leer entrada native en {}: {err}",
-                    native.path.display()
-                )
-            })?;
-            let entry_name = entry.name().replace('\\', "/");
-
-            if should_skip_native_entry(&entry_name, &native.excludes) {
-                continue;
-            }
-
-            let out_path = natives_dir.join(&entry_name);
-            if entry.is_dir() {
-                fs::create_dir_all(&out_path).map_err(|err| {
-                    format!(
-                        "No se pudo crear subdirectorio native {}: {err}",
-                        out_path.display()
-                    )
-                })?;
-                continue;
-            }
-
-            if let Some(parent) = out_path.parent() {
-                fs::create_dir_all(parent).map_err(|err| {
-                    format!(
-                        "No se pudo crear carpeta parent native {}: {err}",
-                        parent.display()
-                    )
-                })?;
-            }
-
-            let mut output = fs::File::create(&out_path).map_err(|err| {
-                format!(
-                    "No se pudo crear archivo native {}: {err}",
-                    out_path.display()
-                )
-            })?;
-            io::copy(&mut entry, &mut output).map_err(|err| {
-                format!(
-                    "No se pudo extraer archivo native {}: {err}",
-                    out_path.display()
-                )
-            })?;
-        }
-    }
-
-    fs::write(&marker, fingerprint).map_err(|err| {
-        format!(
-            "No se pudo guardar marcador de natives {}: {err}",
-            marker.display()
-        )
-    })?;
-
-    Ok(())
-}
-
-fn should_reextract_natives(
-    natives_dir: &Path,
-    marker_path: &Path,
-    fingerprint: &str,
-) -> Result<bool, String> {
-    if !natives_dir.exists() {
-        return Ok(true);
-    }
-
-    let has_entries = fs::read_dir(natives_dir)
-        .map_err(|err| {
-            format!(
-                "No se pudo inspeccionar directorio de natives {}: {err}",
-                natives_dir.display()
-            )
-        })?
-        .next()
-        .transpose()
-        .map_err(|err| {
-            format!(
-                "No se pudo leer entradas de natives {}: {err}",
-                natives_dir.display()
-            )
-        })?
-        .is_some();
-
-    if !has_entries {
-        return Ok(true);
-    }
-
-    let existing_fingerprint = fs::read_to_string(marker_path).unwrap_or_default();
-    Ok(existing_fingerprint.trim() != fingerprint)
-}
-
-fn natives_fingerprint(native_jars: &[NativeJar]) -> Result<String, String> {
-    let mut parts = native_jars
-        .iter()
-        .map(|native| {
-            let metadata = fs::metadata(&native.path).map_err(|err| {
-                format!(
-                    "No se pudo leer metadata de native {}: {err}",
-                    native.path.display()
-                )
-            })?;
-            let modified = metadata
-                .modified()
-                .ok()
-                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|dur| dur.as_secs())
-                .unwrap_or(0);
-            Ok(format!(
-                "{}:{}:{}",
-                native.path.display(),
-                metadata.len(),
-                modified
-            ))
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    parts.sort();
-
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    parts.hash(&mut hasher);
-    Ok(format!("{:x}", hasher.finish()))
-}
-
-fn should_skip_native_entry(entry_name: &str, excludes: &[String]) -> bool {
-    if entry_name.starts_with("META-INF/") {
-        return true;
-    }
-
-    excludes.iter().any(|excluded| {
-        let pattern = excluded.trim_matches('/');
-        entry_name == pattern || entry_name.starts_with(&format!("{pattern}/"))
+    Ok(VerifiedLaunchAuth {
+        profile_id,
+        profile_name,
+        minecraft_access_token: active_minecraft_token,
+        premium_verified: true,
     })
 }
 

@@ -84,6 +84,57 @@ struct MicrosoftAuthError {
     error_description: Option<String>,
 }
 
+fn build_refresh_token_params(refresh_token: &str) -> [(&'static str, String); 4] {
+    [
+        ("grant_type", "refresh_token".to_string()),
+        ("client_id", MICROSOFT_CLIENT_ID.to_string()),
+        ("refresh_token", refresh_token.to_string()),
+        ("scope", MICROSOFT_SCOPES.to_string()),
+    ]
+}
+
+pub async fn refresh_microsoft_access_token(
+    client: &reqwest::Client,
+    refresh_token: &str,
+) -> Result<MicrosoftTokenResponse, String> {
+    if refresh_token.trim().is_empty() {
+        return Err(
+            "No hay refresh_token de Microsoft para renovar la sesión oficial.".to_string(),
+        );
+    }
+
+    let params = build_refresh_token_params(refresh_token);
+
+    let response = client
+        .post(TOKEN_ENDPOINT)
+        .form(&params)
+        .send()
+        .await
+        .map_err(|e| format!("Error llamando token endpoint para refresh: {e}"))?;
+
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+
+    if !status.is_success() {
+        if let Ok(parsed) = serde_json::from_str::<MicrosoftAuthError>(&body) {
+            let detail = parsed
+                .error_description
+                .unwrap_or_else(|| "Sin detalle adicional".to_string());
+            return Err(format!(
+                "Microsoft OAuth refresh error {}: {}",
+                parsed.error, detail
+            ));
+        }
+
+        return Err(format!(
+            "Microsoft refresh token endpoint HTTP {}: {}",
+            status, body
+        ));
+    }
+
+    serde_json::from_str::<MicrosoftTokenResponse>(&body)
+        .map_err(|e| format!("Error deserializando MicrosoftTokenResponse (refresh): {e}"))
+}
 pub async fn exchange_authorization_code(
     client: &reqwest::Client,
     code: &str,

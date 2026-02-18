@@ -23,6 +23,7 @@ pub fn run() {
             app::auth_service::authorize_microsoft_in_launcher,
             app::auth_service::start_microsoft_auth,
             app::auth_service::complete_microsoft_auth,
+            app::auth_service::refresh_microsoft_auth,
             app::auth_service::start_microsoft_device_auth,
             app::auth_service::complete_microsoft_device_auth,
             app::instance_service::open_instance_folder,

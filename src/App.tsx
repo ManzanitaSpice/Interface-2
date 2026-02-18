@@ -153,6 +153,7 @@ type MicrosoftAuthResult = {
   minecraftAccessToken: string
   microsoftAccessToken: string
   microsoftRefreshToken?: string
+  premiumVerified: boolean
   profile: {
     id: string
     name: string
@@ -165,6 +166,7 @@ type AuthSession = {
   minecraftAccessToken: string
   microsoftAccessToken: string
   microsoftRefreshToken?: string
+  premiumVerified: boolean
   loggedAt: number
 }
 
@@ -343,6 +345,7 @@ function App() {
         minecraftAccessToken: result.minecraftAccessToken,
         microsoftAccessToken: result.microsoftAccessToken,
         microsoftRefreshToken: result.microsoftRefreshToken,
+        premiumVerified: result.premiumVerified,
         loggedAt: Date.now(),
       }
 
@@ -376,7 +379,7 @@ function App() {
     if (stored) {
       try {
         const parsed = JSON.parse(stored) as AuthSession
-        if (parsed.profileId && parsed.profileName && parsed.minecraftAccessToken) {
+        if (parsed.profileId && parsed.profileName && parsed.minecraftAccessToken && parsed.premiumVerified) {
           setAuthSession(parsed)
           setAuthStatus(`Sesión restaurada para ${parsed.profileName}.`)
         }
@@ -930,6 +933,8 @@ function App() {
             profileId: authSession.profileId,
             profileName: authSession.profileName,
             minecraftAccessToken: authSession.minecraftAccessToken,
+            microsoftRefreshToken: authSession.microsoftRefreshToken,
+            premiumVerified: authSession.premiumVerified,
           },
           creationRequestId: requestId,
         },
@@ -990,6 +995,8 @@ function App() {
           profileId: authSession.profileId,
           profileName: authSession.profileName,
           minecraftAccessToken: authSession.minecraftAccessToken,
+          microsoftRefreshToken: authSession.microsoftRefreshToken,
+          premiumVerified: authSession.premiumVerified,
         },
       })
 
@@ -1034,6 +1041,8 @@ function App() {
           profileId: authSession.profileId,
           profileName: authSession.profileName,
           minecraftAccessToken: authSession.minecraftAccessToken,
+          microsoftRefreshToken: authSession.microsoftRefreshToken,
+          premiumVerified: authSession.premiumVerified,
         },
       })
 
