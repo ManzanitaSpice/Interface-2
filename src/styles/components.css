@@ -147,9 +147,10 @@
 
 .name-fields-with-console {
   display: grid;
-  grid-template-columns: minmax(260px, 440px) minmax(220px, 1fr);
+  grid-template-columns: minmax(260px, 420px) minmax(340px, 1fr);
   gap: 0.7rem;
-  width: min(980px, 100%);
+  width: min(1180px, 100%);
+  margin-left: auto;
 }
 
 .name-fields {
@@ -162,7 +163,7 @@
 
 .creation-mini-console {
   min-height: 74px;
-  max-height: 96px;
+  max-height: 108px;
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 0.55rem;
@@ -250,14 +251,16 @@
 .mini-right-sidebar {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  justify-content: center;
+  border: 1px dashed var(--border);
+  border-radius: 0.6rem;
+  padding: 0.6rem;
 }
 
-.mini-right-sidebar button {
+.mini-right-sidebar p {
+  margin: 0;
+  color: var(--text-muted);
   font-size: 0.78rem;
-  padding-inline: 0.5rem;
-  min-height: 38px;
-  white-space: normal;
 }
 
 .section-placeholder {
@@ -324,4 +327,10 @@
 
 .execution-view input {
   margin: 0.65rem;
+}
+
+.list-interface-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
 }
