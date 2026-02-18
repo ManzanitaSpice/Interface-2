@@ -18,7 +18,7 @@ use crate::{
     shared::result::AppResult,
 };
 
-const MOJANG_MANIFEST_URL: &str = "https://launchermeta.mojang.com/mc/game/version_manifest.json";
+const MOJANG_MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 const MOJANG_RESOURCES_URL: &str = "https://resources.download.minecraft.net";
 const MOJANG_MANIFEST_HOST: &str = "launchermeta.mojang.com";
 const MOJANG_PISTON_META_HOST: &str = "piston-meta.mojang.com";
@@ -234,9 +234,7 @@ fn download_version_json(minecraft_version: &str) -> AppResult<Value> {
     let version = manifest
         .versions
         .into_iter()
-        .find(|entry: &ManifestVersionEntry| {
-            entry.id == minecraft_version && entry.r#type == "release"
-        })
+        .find(|entry: &ManifestVersionEntry| entry.id == minecraft_version)
         .ok_or_else(|| {
             format!("No se encontró la versión {minecraft_version} en el manifest de Mojang.")
         })?;

@@ -90,6 +90,7 @@ type LaunchValidationResult = {
     profileId: string
     profileName: string
     minecraftAccessToken: string
+    minecraftAccessTokenExpiresAt?: number | null
     microsoftRefreshToken?: string | null
     premiumVerified: boolean
   }
@@ -103,6 +104,7 @@ type StartInstanceResult = {
     profileId: string
     profileName: string
     minecraftAccessToken: string
+    minecraftAccessTokenExpiresAt?: number | null
     microsoftRefreshToken?: string | null
     premiumVerified: boolean
   }
@@ -172,6 +174,7 @@ type MicrosoftAuthStart = {
 
 type MicrosoftAuthResult = {
   minecraftAccessToken: string
+  minecraftAccessTokenExpiresAt?: number
   microsoftAccessToken: string
   microsoftRefreshToken?: string
   premiumVerified: boolean
@@ -185,6 +188,7 @@ type AuthSession = {
   profileId: string
   profileName: string
   minecraftAccessToken: string
+  minecraftAccessTokenExpiresAt?: number
   microsoftAccessToken: string
   microsoftRefreshToken?: string
   premiumVerified: boolean
@@ -215,7 +219,7 @@ const instanceActions = ['Iniciar', 'Forzar Cierre', 'Editar', 'Cambiar Grupo', 
 const defaultGroup = 'Sin grupo'
 const sidebarMinWidth = 144
 const sidebarMaxWidth = 320
-const mojangManifestUrl = 'https://launchermeta.mojang.com/mc/game/version_manifest.json'
+const mojangManifestUrl = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json'
 const authSessionKey = 'launcher_microsoft_auth_session_v1'
 const managedAccountsKey = 'launcher_managed_accounts_v1'
 const authCodeRegenerateCooldownMs = 10_000
@@ -409,6 +413,7 @@ function App() {
         profileId: result.profile.id,
         profileName: result.profile.name,
         minecraftAccessToken: result.minecraftAccessToken,
+        minecraftAccessTokenExpiresAt: result.minecraftAccessTokenExpiresAt,
         microsoftAccessToken: result.microsoftAccessToken,
         microsoftRefreshToken: result.microsoftRefreshToken,
         premiumVerified: result.premiumVerified,
@@ -1055,6 +1060,7 @@ function App() {
             profileId: authSession.profileId,
             profileName: authSession.profileName,
             minecraftAccessToken: authSession.minecraftAccessToken,
+            minecraftAccessTokenExpiresAt: authSession.minecraftAccessTokenExpiresAt,
             microsoftRefreshToken: authSession.microsoftRefreshToken,
             premiumVerified: authSession.premiumVerified,
           },
@@ -1124,6 +1130,7 @@ function App() {
           profileId: authSession.profileId,
           profileName: authSession.profileName,
           minecraftAccessToken: authSession.minecraftAccessToken,
+          minecraftAccessTokenExpiresAt: authSession.minecraftAccessTokenExpiresAt,
           microsoftRefreshToken: authSession.microsoftRefreshToken,
           premiumVerified: authSession.premiumVerified,
         },
@@ -1134,6 +1141,7 @@ function App() {
         profileId: result.refreshedAuthSession.profileId,
         profileName: result.refreshedAuthSession.profileName,
         minecraftAccessToken: result.refreshedAuthSession.minecraftAccessToken,
+        minecraftAccessTokenExpiresAt: result.refreshedAuthSession.minecraftAccessTokenExpiresAt ?? authSession.minecraftAccessTokenExpiresAt,
         microsoftRefreshToken: result.refreshedAuthSession.microsoftRefreshToken ?? undefined,
         premiumVerified: result.refreshedAuthSession.premiumVerified,
         loggedAt: Date.now(),

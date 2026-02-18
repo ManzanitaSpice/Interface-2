@@ -4,8 +4,12 @@ use std::{
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::{Arc, Mutex, OnceLock},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, OnceLock,
+    },
     thread,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use serde::Serialize;
@@ -89,6 +93,7 @@ struct VerifiedLaunchAuth {
     profile_id: String,
     profile_name: String,
     minecraft_access_token: String,
+    minecraft_access_token_expires_at: Option<u64>,
     premium_verified: bool,
 }
 
@@ -514,6 +519,7 @@ pub fn validate_and_prepare_launch(
             profile_id: verified_auth.profile_id,
             profile_name: verified_auth.profile_name,
             minecraft_access_token: verified_auth.minecraft_access_token,
+            minecraft_access_token_expires_at: verified_auth.minecraft_access_token_expires_at,
             microsoft_refresh_token: auth_session.microsoft_refresh_token,
             premium_verified: verified_auth.premium_verified,
         },
@@ -595,10 +601,25 @@ pub async fn start_instance(
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
     let instance_root_for_thread = instance_root.clone();
+    let expected_username = prepared.refreshed_auth_session.profile_name.clone();
 
     let app_for_thread = app.clone();
 
     thread::spawn(move || {
+        let stop_log_monitor = Arc::new(AtomicBool::new(false));
+        let monitor_stop_signal = Arc::clone(&stop_log_monitor);
+        let monitor_instance = instance_root_for_thread.clone();
+        let monitor_username = expected_username.clone();
+        let monitor_app = app_for_thread.clone();
+        let monitor_handle = thread::spawn(move || {
+            monitor_latest_log_for_auth(
+                monitor_app,
+                monitor_instance,
+                monitor_username,
+                pid,
+                monitor_stop_signal,
+            );
+        });
         let stderr_tail = Arc::new(Mutex::new(Vec::<String>::new()));
         let mut stream_threads = Vec::new();
 
@@ -667,6 +688,8 @@ pub async fn start_instance(
         }
 
         let exit_code = child.wait().ok().and_then(|status| status.code());
+        stop_log_monitor.store(true, Ordering::Relaxed);
+        let _ = monitor_handle.join();
         let final_tail = stderr_tail
             .lock()
             .map(|tail| tail.clone())
@@ -727,6 +750,76 @@ fn first_line(text: &str) -> String {
         .to_string()
 }
 
+fn now_unix_millis() -> Option<u64> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_millis() as u64)
+}
+
+fn terminate_process(pid: u32) {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .status();
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .status();
+    }
+}
+
+fn monitor_latest_log_for_auth(
+    app: AppHandle,
+    instance_root: String,
+    expected_username: String,
+    pid: u32,
+    stop_signal: Arc<AtomicBool>,
+) {
+    let latest_log_path = Path::new(&instance_root)
+        .join("minecraft")
+        .join("logs")
+        .join("latest.log");
+
+    let started = Instant::now();
+    while !stop_signal.load(Ordering::Relaxed) && started.elapsed() < Duration::from_secs(180) {
+        if let Ok(content) = fs::read_to_string(&latest_log_path) {
+            if content.contains("Setting user: Demo") {
+                let _ = app.emit(
+                    "instance_runtime_output",
+                    RuntimeOutputEvent {
+                        instance_root: instance_root.clone(),
+                        stream: "system".to_string(),
+                        line: "ERROR AUTH: latest.log reportó 'Setting user: Demo'. Se aborta el proceso por autenticación inválida.".to_string(),
+                    },
+                );
+                terminate_process(pid);
+                break;
+            }
+
+            if content.contains(&expected_username) {
+                let _ = app.emit(
+                    "instance_runtime_output",
+                    RuntimeOutputEvent {
+                        instance_root: instance_root.clone(),
+                        stream: "system".to_string(),
+                        line: format!(
+                            "OK AUTH: latest.log contiene el username oficial validado ({expected_username})."
+                        ),
+                    },
+                );
+                break;
+            }
+        }
+
+        thread::sleep(Duration::from_secs(1));
+    }
+}
+
 fn ensure_instance_embedded_java(
     instance_path: &Path,
     metadata: &InstanceMetadata,
@@ -785,24 +878,46 @@ fn validate_official_minecraft_auth(
         );
     }
 
-    logs.push("CHECK obligatorio: validando perfil oficial vía /minecraft/profile".to_string());
-
     let client = reqwest::blocking::Client::new();
     let mut active_minecraft_token = auth_session.minecraft_access_token.clone();
+    let mut active_minecraft_expires_at = auth_session.minecraft_access_token_expires_at;
 
-    let mut profile_response = client
-        .get("https://api.minecraftservices.com/minecraft/profile")
-        .header(
-            "Authorization",
-            format!("Bearer {}", active_minecraft_token),
+    let mut needs_refresh = false;
+    if let (Some(expires_at), Some(now)) = (active_minecraft_expires_at, now_unix_millis()) {
+        if expires_at <= now.saturating_add(60_000) {
+            logs.push(
+                "⚠ access_token próximo a expirar; refrescando de forma preventiva (MSA→XBL→XSTS→Minecraft).".to_string(),
+            );
+            needs_refresh = true;
+        }
+    }
+
+    logs.push("CHECK obligatorio: validando perfil oficial vía /minecraft/profile".to_string());
+
+    let mut profile_response = if needs_refresh {
+        None
+    } else {
+        Some(
+            client
+                .get("https://api.minecraftservices.com/minecraft/profile")
+                .header(
+                    "Authorization",
+                    format!("Bearer {}", active_minecraft_token),
+                )
+                .header("Accept", "application/json")
+                .send()
+                .map_err(|err| format!("No se pudo consultar perfil de Minecraft: {err}"))?,
         )
-        .header("Accept", "application/json")
-        .send()
-        .map_err(|err| format!("No se pudo consultar perfil de Minecraft: {err}"))?;
+    };
 
-    if profile_response.status().as_u16() == 401 {
+    if profile_response
+        .as_ref()
+        .map(|response| response.status().as_u16() == 401)
+        .unwrap_or(false)
+        || needs_refresh
+    {
         logs.push(
-            "⚠ access_token expirado; intentando refresh oficial Microsoft/Xbox/XSTS..."
+            "⚠ access_token expirado/inválido; intentando refresh oficial Microsoft/Xbox/XSTS..."
                 .to_string(),
         );
         let refresh_token = auth_session
@@ -815,36 +930,44 @@ fn validate_official_minecraft_auth(
         let runtime = tokio::runtime::Runtime::new()
             .map_err(|err| format!("No se pudo crear runtime para refresh de token: {err}"))?;
 
-        let refreshed_mc = runtime.block_on(async {
-            let ms =
-                refresh_microsoft_access_token(&reqwest::Client::new(), &refresh_token).await?;
-            let xbox =
-                authenticate_with_xbox_live(&reqwest::Client::new(), &ms.access_token).await?;
-            let xsts = authorize_xsts(&reqwest::Client::new(), &xbox.token).await?;
-            let mc =
-                login_minecraft_with_xbox(&reqwest::Client::new(), &xsts.uhs, &xsts.token).await?;
-            Ok::<String, String>(mc.access_token)
+        let refreshed = runtime.block_on(async {
+            let client = reqwest::Client::new();
+            let ms = refresh_microsoft_access_token(&client, &refresh_token).await?;
+            let xbox = authenticate_with_xbox_live(&client, &ms.access_token).await?;
+            let xsts = authorize_xsts(&client, &xbox.token).await?;
+            let mc = login_minecraft_with_xbox(&client, &xsts.uhs, &xsts.token).await?;
+            let expires_at = mc.expires_in.and_then(|expires_in| {
+                now_unix_millis().map(|now| now.saturating_add(expires_in.saturating_mul(1000)))
+            });
+            Ok::<(String, Option<u64>), String>((mc.access_token, expires_at))
         })?;
 
-        active_minecraft_token = refreshed_mc;
-        profile_response = client
-            .get("https://api.minecraftservices.com/minecraft/profile")
-            .header(
-                "Authorization",
-                format!("Bearer {}", active_minecraft_token),
-            )
-            .header("Accept", "application/json")
-            .send()
-            .map_err(|err| {
-                format!("No se pudo consultar perfil de Minecraft tras refresh: {err}")
-            })?;
+        active_minecraft_token = refreshed.0;
+        active_minecraft_expires_at = refreshed.1;
+        profile_response = Some(
+            client
+                .get("https://api.minecraftservices.com/minecraft/profile")
+                .header(
+                    "Authorization",
+                    format!("Bearer {}", active_minecraft_token),
+                )
+                .header("Accept", "application/json")
+                .send()
+                .map_err(|err| {
+                    format!("No se pudo consultar perfil de Minecraft tras refresh: {err}")
+                })?,
+        );
     }
 
+    let profile_response = profile_response.ok_or_else(|| {
+        "No se obtuvo respuesta de perfil de Minecraft tras validación/refresco.".to_string()
+    })?;
+
     let profile_status = profile_response.status();
-    if !profile_status.is_success() {
+    if profile_status.as_u16() != 200 {
         let body = profile_response.text().unwrap_or_default();
         return Err(format!(
-            "La API de perfil de Minecraft devolvió error HTTP: {profile_status}. Body completo: {body}"
+            "La API de perfil de Minecraft devolvió error HTTP: {profile_status}. Body completo: {body}. Lanzamiento bloqueado."
         ));
     }
 
@@ -866,6 +989,13 @@ fn validate_official_minecraft_auth(
     if profile_id.is_empty() || profile_name.is_empty() {
         return Err(
             "El perfil de Minecraft no devolvió id/name válidos; ejecución bloqueada.".to_string(),
+        );
+    }
+
+    if profile_id.contains('-') {
+        return Err(
+            "profile.id devolvió UUID con guiones; se bloquea por requisito de UUID oficial sin guiones."
+                .to_string(),
         );
     }
 
@@ -895,6 +1025,7 @@ fn validate_official_minecraft_auth(
         profile_id,
         profile_name,
         minecraft_access_token: active_minecraft_token,
+        minecraft_access_token_expires_at: active_minecraft_expires_at,
         premium_verified: true,
     })
 }
@@ -923,6 +1054,12 @@ fn validate_required_online_launch_flags(game_args: &[String]) -> Result<(), Str
 
     if uuid.trim().is_empty() {
         return Err("--uuid vacío".to_string());
+    }
+
+    if uuid.contains('-') {
+        return Err(
+            "--uuid debe enviarse sin guiones para coincidir con profile.id oficial".to_string(),
+        );
     }
 
     if token.trim().is_empty() {
