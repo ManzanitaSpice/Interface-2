@@ -408,12 +408,12 @@ pub fn start_instance(instance_root: String) -> Result<StartInstanceResult, Stri
         let mut registry = runtime_registry()
             .lock()
             .map_err(|_| "No se pudo bloquear el registro de runtime.".to_string())?;
-        if let Some(state) = registry.get(&instance_root)
-            && state.running
-        {
-            return Err(
-                "La instancia ya está ejecutándose; no se permite doble ejecución.".to_string(),
-            );
+        if let Some(state) = registry.get(&instance_root) {
+            if state.running {
+                return Err(
+                    "La instancia ya está ejecutándose; no se permite doble ejecución.".to_string(),
+                );
+            }
         }
         registry.insert(
             instance_root.clone(),
@@ -458,10 +458,10 @@ pub fn start_instance(instance_root: String) -> Result<StartInstanceResult, Stri
     };
 
     let pid = child.id();
-    if let Ok(mut registry) = runtime_registry().lock()
-        && let Some(state) = registry.get_mut(&instance_root)
-    {
-        state.pid = Some(pid);
+    if let Ok(mut registry) = runtime_registry().lock() {
+        if let Some(state) = registry.get_mut(&instance_root) {
+            state.pid = Some(pid);
+        }
     }
 
     let stdout = child.stdout.take();

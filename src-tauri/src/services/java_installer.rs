@@ -50,13 +50,11 @@ pub fn ensure_embedded_java(
         }
     }
 
-<<<<<<< HEAD
-    fs::create_dir_all(&runtime_root).map_err(|err| format!("Error creando directorio runtime: {err}"))?;
-=======
     if !runtime_root.exists() {
-        fs::create_dir_all(&runtime_root)?;
+        fs::create_dir_all(&runtime_root).map_err(|err| {
+            format!("Error creando directorio runtime {}: {err}", runtime_root.display())
+        })?;
     }
->>>>>>> f29a51f3173216c39b285ca8a28279bd4df35f7e
     logs.push(format!(
         "Java {} no encontrado. Iniciando descarga de runtime embebido oficial (Temurin).",
         runtime.major()
