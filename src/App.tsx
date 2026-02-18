@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import './App.css'
 
 type TopNavItem = 'Mis Modpacks' | 'Novedades' | 'Explorador' | 'Servers' | 'Configuración Global'
@@ -134,10 +134,19 @@ type LoaderChannelFilter = 'Todos' | 'Stable' | 'Latest' | 'Maven'
 
 type InstanceSettingsTab = 'General' | 'Java' | 'Ajustes' | 'Comandos Personalizados' | 'Variables de Entorno'
 
-type MicrosoftAuthStart = {
-  authorizeUrl: string
-  codeVerifier: string
-  redirectUri: string
+type MicrosoftDeviceCodeStart = {
+  deviceCode: string
+  userCode: string
+  verificationUri: string
+  verificationUriComplete?: string
+  expiresIn: number
+  interval: number
+  message?: string
+}
+
+type BrowserOption = {
+  id: string
+  name: string
 }
 
 type MicrosoftAuthResult = {
@@ -277,6 +286,8 @@ function App() {
   const [isAuthenticating, setIsAuthenticating] = useState(false)
   const [authStatus, setAuthStatus] = useState('')
   const [authError, setAuthError] = useState('')
+  const [availableBrowsers, setAvailableBrowsers] = useState<BrowserOption[]>([])
+  const [selectedBrowserId, setSelectedBrowserId] = useState('default')
   const creationIconInputRef = useRef<HTMLInputElement | null>(null)
   const runtimeConsoleRef = useRef<HTMLDivElement | null>(null)
 
@@ -303,22 +314,6 @@ function App() {
     setAuthError('')
   }
 
-  const finishMicrosoftAuth = async (code: string, codeVerifier: string) => {
-    const result = await invoke<MicrosoftAuthResult>('complete_microsoft_auth', { code, codeVerifier })
-    const session: AuthSession = {
-      profileId: result.profile.id,
-      profileName: result.profile.name,
-      minecraftAccessToken: result.minecraftAccessToken,
-      microsoftAccessToken: result.microsoftAccessToken,
-      microsoftRefreshToken: result.microsoftRefreshToken,
-      loggedAt: Date.now(),
-    }
-    setAuthSession(session)
-    persistAuthSession(session)
-    setAuthStatus(`Sesión iniciada como ${session.profileName}.`)
-    setAuthError('')
-  }
-
   const startMicrosoftLogin = async () => {
     if (isAuthenticating) return
     setIsAuthenticating(true)
@@ -326,59 +321,55 @@ function App() {
     setAuthStatus('Preparando autenticación con Microsoft...')
 
     try {
-      const start = await invoke<MicrosoftAuthStart>('start_microsoft_auth')
-      const authUrl = new URL(start.authorizeUrl)
-      const authWindow = window.open(authUrl.toString(), '_blank', 'noopener,noreferrer,width=520,height=760')
-      if (!authWindow) {
-        throw new Error('No se pudo abrir la ventana del navegador para el login de Microsoft.')
+      const device = await invoke<MicrosoftDeviceCodeStart>('start_microsoft_device_auth')
+      const browserToUse = selectedBrowserId || 'default'
+      const targetUrl = device.verificationUriComplete ?? device.verificationUri
+      await invoke('open_url_in_browser', { url: targetUrl, browserId: browserToUse })
+
+      setAuthStatus(
+        `Se abrió el navegador (${browserToUse}). Si Microsoft lo solicita, usa el código: ${device.userCode}`,
+      )
+
+      const expiresAt = Date.now() + device.expiresIn * 1000
+      const intervalMs = Math.max(1500, device.interval * 1000)
+
+      while (Date.now() < expiresAt) {
+        try {
+          const result = await invoke<MicrosoftAuthResult>('complete_microsoft_device_auth', {
+            deviceCode: device.deviceCode,
+          })
+
+          const session: AuthSession = {
+            profileId: result.profile.id,
+            profileName: result.profile.name,
+            minecraftAccessToken: result.minecraftAccessToken,
+            microsoftAccessToken: result.microsoftAccessToken,
+            microsoftRefreshToken: result.microsoftRefreshToken,
+            loggedAt: Date.now(),
+          }
+
+          setAuthSession(session)
+          persistAuthSession(session)
+          setAuthStatus(`Sesión iniciada como ${session.profileName}.`)
+          setAuthError('')
+          return
+        } catch (pollError) {
+          const pollMessage = pollError instanceof Error ? pollError.message : String(pollError)
+          if (pollMessage.includes('authorization_pending') || pollMessage.includes('slow_down')) {
+            await new Promise((resolve) => window.setTimeout(resolve, intervalMs))
+            continue
+          }
+          if (pollMessage.includes('authorization_declined')) {
+            throw new Error('Se canceló la autorización en Microsoft.')
+          }
+          if (pollMessage.includes('expired_token')) {
+            throw new Error('La autorización de Microsoft expiró. Inténtalo de nuevo.')
+          }
+          throw pollError
+        }
       }
 
-      setAuthStatus('Completa el login en la ventana de Microsoft...')
-
-      await new Promise<void>((resolve, reject) => {
-        const timeout = window.setTimeout(() => {
-          reject(new Error('Tiempo de espera agotado al autenticar con Microsoft.'))
-        }, 180_000)
-
-        const poller = window.setInterval(() => {
-          if (authWindow.closed) {
-            window.clearInterval(poller)
-            window.clearTimeout(timeout)
-            reject(new Error('La ventana de login se cerró antes de completar la autenticación.'))
-            return
-          }
-
-          try {
-            const href = authWindow.location.href
-            if (!href) return
-            const current = new URL(href)
-            if (!current.href.startsWith(start.redirectUri)) return
-
-            const code = current.searchParams.get('code')
-            const error = current.searchParams.get('error_description') ?? current.searchParams.get('error')
-
-            window.clearInterval(poller)
-            window.clearTimeout(timeout)
-            authWindow.close()
-
-            if (error) {
-              reject(new Error(`Microsoft devolvió un error: ${decodeURIComponent(error)}`))
-              return
-            }
-
-            if (!code) {
-              reject(new Error('No se recibió código de autorización de Microsoft.'))
-              return
-            }
-
-            void finishMicrosoftAuth(code, start.codeVerifier)
-              .then(resolve)
-              .catch(reject)
-          } catch {
-            // Ignorado: mientras esté en dominio externo del login, puede lanzar cross-origin.
-          }
-        }, 500)
-      })
+      throw new Error('Tiempo de espera agotado al autenticar con Microsoft.')
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setAuthError(message)
@@ -388,9 +379,27 @@ function App() {
     }
   }
 
+
   const iconButtonStyle = instanceIconPreview.startsWith('data:image')
     ? ({ backgroundImage: `url(${instanceIconPreview})`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'transparent' } as CSSProperties)
     : undefined
+
+  const loadAvailableBrowsers = useCallback(async () => {
+    try {
+      const browsers = await invoke<BrowserOption[]>('list_available_browsers')
+      setAvailableBrowsers(browsers)
+      if (browsers.length > 0) {
+        setSelectedBrowserId((current) => (browsers.some((item) => item.id === current) ? current : browsers[0].id))
+      }
+    } catch {
+      setAvailableBrowsers([{ id: 'default', name: 'Navegador predeterminado' }])
+      setSelectedBrowserId('default')
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadAvailableBrowsers()
+  }, [loadAvailableBrowsers])
 
   useEffect(() => {
     const stored = localStorage.getItem(authSessionKey)
@@ -1197,7 +1206,20 @@ const onTopNavClick = (item: TopNavItem) => {
             <p>Para usar el launcher, autentícate con tu cuenta de Microsoft.</p>
             {authStatus && <p>{authStatus}</p>}
             {authError && <p style={{ color: '#fecaca' }}>{authError}</p>}
-            <div className="floating-modal-actions">
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+              <span>Selecciona navegador para el login</span>
+              <select value={selectedBrowserId} onChange={(event) => setSelectedBrowserId(event.target.value)} disabled={isAuthenticating}>
+                {availableBrowsers.map((browser) => (
+                  <option key={browser.id} value={browser.id}>
+                    {browser.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="floating-modal-actions" style={{ justifyContent: 'space-between' }}>
+              <button onClick={() => void loadAvailableBrowsers()} disabled={isAuthenticating}>
+                Actualizar navegadores
+              </button>
               <button className="primary" onClick={() => void startMicrosoftLogin()} disabled={isAuthenticating}>
                 {isAuthenticating ? 'Conectando...' : 'Continuar con Microsoft'}
               </button>
