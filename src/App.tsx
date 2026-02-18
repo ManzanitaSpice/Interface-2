@@ -85,6 +85,13 @@ type StartInstanceResult = {
   logs: string[]
 }
 
+type RuntimeStatus = {
+  running: boolean
+  pid: number | null
+  exitCode: number | null
+  stderrTail: string[]
+}
+
 type ManifestVersion = {
   id: string
   type: string
@@ -234,12 +241,18 @@ function App() {
   const [instanceDrafts, setInstanceDrafts] = useState<Record<string, InstanceSummary>>({})
   const [selectedInstanceMetadata, setSelectedInstanceMetadata] = useState<InstanceMetadataView | null>(null)
   const [selectedSettingsTab, setSelectedSettingsTab] = useState<InstanceSettingsTab>('General')
+  const [isStartingInstance, setIsStartingInstance] = useState(false)
+  const [isInstanceRunning, setIsInstanceRunning] = useState(false)
+  const [lastRuntimeExitKey, setLastRuntimeExitKey] = useState('')
   const creationIconInputRef = useRef<HTMLInputElement | null>(null)
   const runtimeConsoleRef = useRef<HTMLDivElement | null>(null)
 
 
   const appendRuntime = (entry: ConsoleEntry) => {
-    setRuntimeConsole((prev) => [...prev, entry])
+    setRuntimeConsole((prev) => {
+      const next = [...prev, entry]
+      return next.length > 2000 ? next.slice(next.length - 2000) : next
+    })
   }
 
   const iconButtonStyle = instanceIconPreview.startsWith('data:image')
@@ -288,6 +301,49 @@ function App() {
   }, [activePage, selectedCard])
 
   useEffect(() => {
+    if (!selectedCard?.instanceRoot) {
+      setIsInstanceRunning(false)
+      return
+    }
+
+    let timer: number | null = null
+    let cancelled = false
+
+    const pollRuntimeStatus = async () => {
+      try {
+        const status = await invoke<RuntimeStatus>('get_runtime_status', { instanceRoot: selectedCard.instanceRoot })
+        if (cancelled) return
+        setIsInstanceRunning(status.running)
+
+        if (!status.running && status.exitCode !== null) {
+          const exitKey = `${selectedCard.instanceRoot}:${status.exitCode}:${status.pid ?? 'none'}`
+          if (exitKey !== lastRuntimeExitKey) {
+            appendRuntime(makeConsoleEntry(status.exitCode === 0 ? 'INFO' : 'ERROR', 'launcher', `Proceso finalizado con exit_code=${status.exitCode}.`))
+            if (status.stderrTail.length > 0) {
+              appendRuntime(makeConsoleEntry('WARN', 'game', `stderr (últimas ${status.stderrTail.length} líneas): ${status.stderrTail.join(' | ')}`))
+            }
+            setLastRuntimeExitKey(exitKey)
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setIsInstanceRunning(false)
+        }
+      }
+    }
+
+    void pollRuntimeStatus()
+    timer = window.setInterval(() => {
+      void pollRuntimeStatus()
+    }, 2000)
+
+    return () => {
+      cancelled = true
+      if (timer !== null) window.clearInterval(timer)
+    }
+  }, [lastRuntimeExitKey, selectedCard?.instanceRoot])
+
+  useEffect(() => {
     const onEscapePress = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       event.preventDefault()
@@ -299,6 +355,10 @@ function App() {
         }
         if (selectedEditSection !== 'Ejecución') {
           setSelectedEditSection('Ejecución')
+          return
+        }
+        if (isInstanceRunning || isStartingInstance) {
+          appendRuntime(makeConsoleEntry('WARN', 'launcher', 'No se puede cerrar el editor mientras la instancia está ejecutándose.'))
           return
         }
         setActivePage('Mis Modpacks')
@@ -322,7 +382,7 @@ function App() {
 
     window.addEventListener('keydown', onEscapePress)
     return () => window.removeEventListener('keydown', onEscapePress)
-  }, [activePage, selectedCard, selectedEditSection, selectedSettingsTab])
+  }, [activePage, isInstanceRunning, isStartingInstance, selectedCard, selectedEditSection, selectedSettingsTab])
 
 
   useEffect(() => {
@@ -703,7 +763,7 @@ function App() {
         ...prepared.logs.map((line) => makeConsoleEntry('INFO', 'launcher', line)),
         makeConsoleEntry('INFO', 'game', 'Proceso listo para ejecución real con orden JVM -> mainClass -> game args'),
       ]
-      setRuntimeConsole(entries)
+      setRuntimeConsole(entries.length > 2000 ? entries.slice(entries.length - 2000) : entries)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setRuntimeConsole([
@@ -714,7 +774,12 @@ function App() {
 
   const startInstanceProcess = async () => {
     if (!selectedCard?.instanceRoot) return
+    if (isStartingInstance || isInstanceRunning) {
+      appendRuntime(makeConsoleEntry('WARN', 'launcher', 'La instancia ya está en ejecución o iniciándose.'))
+      return
+    }
 
+    setIsStartingInstance(true)
     await appendRuntimeSummary()
 
     try {
@@ -722,14 +787,20 @@ function App() {
         instanceRoot: selectedCard.instanceRoot,
       })
 
-      setRuntimeConsole((prev) => [
-        ...prev,
-        makeConsoleEntry('INFO', 'launcher', `Proceso de Minecraft iniciado (PID ${result.pid}) con Java ${result.javaPath}`),
-        ...result.logs.map((line) => makeConsoleEntry('INFO', 'launcher', line)),
-      ])
+      setRuntimeConsole((prev) => {
+        const next = [
+          ...prev,
+          makeConsoleEntry('INFO', 'launcher', `Proceso de Minecraft iniciado (PID ${result.pid}) con Java ${result.javaPath}`),
+          ...result.logs.map((line) => makeConsoleEntry('INFO', 'launcher', line)),
+        ]
+        return next.length > 2000 ? next.slice(next.length - 2000) : next
+      })
+      setIsInstanceRunning(true)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       appendRuntime(makeConsoleEntry('ERROR', 'launcher', `No se pudo iniciar el proceso de la instancia: ${message}`))
+    } finally {
+      setIsStartingInstance(false)
     }
   }
 
@@ -804,8 +875,9 @@ const onTopNavClick = (item: TopNavItem) => {
     if (!selectedCard) return
 
     if (action === 'Iniciar') {
+      if (isStartingInstance || isInstanceRunning) return
       openEditor()
-      startInstanceProcess()
+      void startInstanceProcess()
       return
     }
 
@@ -1118,8 +1190,8 @@ const onTopNavClick = (item: TopNavItem) => {
               <section className="execution-view execution-view-full">
                 <div className="execution-toolbar">
                   <div className="execution-primary-actions">
-                    <button className="primary launch-btn" onClick={startInstanceProcess}>
-                      ▶ Iniciar instancia
+                    <button className="primary launch-btn" onClick={() => void startInstanceProcess()} disabled={isStartingInstance || isInstanceRunning}>
+                      {isStartingInstance ? "⏳ Iniciando..." : isInstanceRunning ? "🟢 Ejecutándose" : "▶ Iniciar instancia"}
                     </button>
                     <button className="danger ghost-btn">■ Forzar cierre</button>
                   </div>
