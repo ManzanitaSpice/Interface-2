@@ -1,0 +1,1 @@
+// Módulo minecraft: manifest.
