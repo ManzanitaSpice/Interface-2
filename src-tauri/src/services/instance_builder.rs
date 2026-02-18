@@ -63,6 +63,12 @@ pub fn build_instance_structure(
 
     let launch_context = LaunchContext {
         classpath: "${classpath}".to_string(),
+        classpath_separator: if cfg!(target_os = "windows") {
+            ";".to_string()
+        } else {
+            ":".to_string()
+        },
+        library_directory: minecraft_root.join("libraries").display().to_string(),
         natives_dir: minecraft_root.join("natives").display().to_string(),
         launcher_name: "Interface-2".to_string(),
         launcher_version: env!("CARGO_PKG_VERSION").to_string(),

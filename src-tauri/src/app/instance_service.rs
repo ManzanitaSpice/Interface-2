@@ -17,7 +17,9 @@ use zip::ZipArchive;
 use crate::{
     domain::{
         minecraft::{
-            argument_resolver::{resolve_launch_arguments, LaunchContext},
+            argument_resolver::{
+                resolve_launch_arguments, unresolved_variables_in_args, LaunchContext,
+            },
             rule_engine::RuleContext,
         },
         models::instance::InstanceMetadata,
@@ -319,6 +321,8 @@ pub fn validate_and_prepare_launch(
 
     let launch_context = LaunchContext {
         classpath: classpath.clone(),
+        classpath_separator: sep.to_string(),
+        library_directory: mc_root.join("libraries").display().to_string(),
         natives_dir: natives_dir.display().to_string(),
         launcher_name: "Interface-2".to_string(),
         launcher_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -353,12 +357,12 @@ pub fn validate_and_prepare_launch(
         jvm_args.push(classpath.clone());
     }
 
-    let unresolved_vars = jvm_args
-        .iter()
-        .chain(resolved.game.iter())
-        .any(|arg| arg.contains("${"));
-    if unresolved_vars {
-        return Err("Hay variables sin resolver en argumentos JVM/Game.".to_string());
+    let unresolved_vars = unresolved_variables_in_args(jvm_args.iter().chain(resolved.game.iter()));
+    if !unresolved_vars.is_empty() {
+        return Err(format!(
+            "Hay variables sin resolver en argumentos JVM/Game: {}",
+            unresolved_vars.join(", ")
+        ));
     }
 
     logs.push("✔ argumentos JVM y GAME resueltos".to_string());
