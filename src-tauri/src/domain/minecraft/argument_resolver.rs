@@ -1,1 +1,236 @@
-// Módulo minecraft: argument_resolver.
+use std::collections::HashMap;
+
+use serde_json::Value;
+
+use super::rule_engine::{evaluate_rules, RuleContext};
+
+#[derive(Debug, Clone)]
+pub struct LaunchContext {
+    pub classpath: String,
+    pub natives_dir: String,
+    pub launcher_name: String,
+    pub launcher_version: String,
+    pub auth_player_name: String,
+    pub auth_uuid: String,
+    pub auth_access_token: String,
+    pub user_type: String,
+    pub user_properties: String,
+    pub version_name: String,
+    pub game_directory: String,
+    pub assets_root: String,
+    pub assets_index_name: String,
+    pub version_type: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ResolvedLaunchArguments {
+    pub main_class: String,
+    pub jvm: Vec<String>,
+    pub game: Vec<String>,
+    pub all: Vec<String>,
+}
+
+pub fn resolve_launch_arguments(
+    version_json: &Value,
+    launch: &LaunchContext,
+    rule_context: &RuleContext,
+) -> Result<ResolvedLaunchArguments, String> {
+    let main_class = version_json
+        .get("mainClass")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "version.json no contiene mainClass".to_string())?
+        .to_string();
+
+    let replacements = replacement_map(launch);
+
+    if let Some(arguments) = version_json.get("arguments") {
+        let jvm = resolve_argument_section(arguments.get("jvm"), &replacements, rule_context);
+        let game = resolve_argument_section(arguments.get("game"), &replacements, rule_context);
+        let mut all = Vec::with_capacity(jvm.len() + game.len());
+        all.extend(jvm.clone());
+        all.extend(game.clone());
+
+        return Ok(ResolvedLaunchArguments {
+            main_class,
+            jvm,
+            game,
+            all,
+        });
+    }
+
+    if let Some(legacy) = version_json
+        .get("minecraftArguments")
+        .and_then(Value::as_str)
+    {
+        let game = legacy
+            .split_whitespace()
+            .map(|item| replace_variables(item, &replacements))
+            .collect::<Vec<_>>();
+
+        return Ok(ResolvedLaunchArguments {
+            main_class,
+            jvm: Vec::new(),
+            all: game.clone(),
+            game,
+        });
+    }
+
+    Err("version.json no contiene arguments ni minecraftArguments".to_string())
+}
+
+fn resolve_argument_section(
+    maybe_section: Option<&Value>,
+    replacements: &HashMap<&str, String>,
+    rule_context: &RuleContext,
+) -> Vec<String> {
+    let Some(section) = maybe_section.and_then(Value::as_array) else {
+        return Vec::new();
+    };
+
+    let mut args = Vec::new();
+    for item in section {
+        match item {
+            Value::String(value) => args.push(replace_variables(value, replacements)),
+            Value::Object(_) => {
+                let rules = item
+                    .get("rules")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                if !evaluate_rules(&rules, rule_context) {
+                    continue;
+                }
+
+                if let Some(value) = item.get("value") {
+                    match value {
+                        Value::String(single) => args.push(replace_variables(single, replacements)),
+                        Value::Array(multiple) => {
+                            for entry in multiple {
+                                if let Some(single) = entry.as_str() {
+                                    args.push(replace_variables(single, replacements));
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    args
+}
+
+fn replacement_map(launch: &LaunchContext) -> HashMap<&str, String> {
+    let mut map = HashMap::new();
+    map.insert("${classpath}", launch.classpath.clone());
+    map.insert("${natives_directory}", launch.natives_dir.clone());
+    map.insert("${launcher_name}", launch.launcher_name.clone());
+    map.insert("${launcher_version}", launch.launcher_version.clone());
+    map.insert("${auth_player_name}", launch.auth_player_name.clone());
+    map.insert("${auth_uuid}", launch.auth_uuid.clone());
+    map.insert("${auth_access_token}", launch.auth_access_token.clone());
+    map.insert("${user_type}", launch.user_type.clone());
+    map.insert("${user_properties}", launch.user_properties.clone());
+    map.insert("${version_name}", launch.version_name.clone());
+    map.insert("${game_directory}", launch.game_directory.clone());
+    map.insert("${assets_root}", launch.assets_root.clone());
+    map.insert("${assets_index_name}", launch.assets_index_name.clone());
+    map.insert("${version_type}", launch.version_type.clone());
+
+    map.insert("${username}", launch.auth_player_name.clone());
+    map.insert("${uuid}", launch.auth_uuid.clone());
+    map.insert("${accessToken}", launch.auth_access_token.clone());
+    map.insert("${gameDir}", launch.game_directory.clone());
+    map.insert("${assetsDir}", launch.assets_root.clone());
+    map.insert("${assetIndex}", launch.assets_index_name.clone());
+
+    map
+}
+
+fn replace_variables(raw: &str, replacements: &HashMap<&str, String>) -> String {
+    replacements
+        .iter()
+        .fold(raw.to_string(), |acc, (key, value)| acc.replace(key, value))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::domain::minecraft::rule_engine::OsName;
+
+    fn sample_launch_context() -> LaunchContext {
+        LaunchContext {
+            classpath: "CP".to_string(),
+            natives_dir: "NAT".to_string(),
+            launcher_name: "Launcher".to_string(),
+            launcher_version: "1.0".to_string(),
+            auth_player_name: "Steve".to_string(),
+            auth_uuid: "uuid-123".to_string(),
+            auth_access_token: "token".to_string(),
+            user_type: "msa".to_string(),
+            user_properties: "{}".to_string(),
+            version_name: "1.21.1".to_string(),
+            game_directory: "/game".to_string(),
+            assets_root: "/assets".to_string(),
+            assets_index_name: "17".to_string(),
+            version_type: "release".to_string(),
+        }
+    }
+
+    #[test]
+    fn resolve_modern_arguments_with_rules() {
+        let version_json = json!({
+          "mainClass":"net.minecraft.client.main.Main",
+          "arguments": {
+            "jvm": [
+              "-Djava.library.path=${natives_directory}",
+              {"rules":[{"action":"allow","os":{"name":"linux"}}],"value":"-Dos=linux"}
+            ],
+            "game": ["--username", "${auth_player_name}"]
+          }
+        });
+
+        let result = resolve_launch_arguments(
+            &version_json,
+            &sample_launch_context(),
+            &RuleContext {
+                os_name: OsName::Linux,
+                arch: "x86_64".to_string(),
+            },
+        )
+        .expect("debe resolver");
+
+        assert_eq!(result.jvm[0], "-Djava.library.path=NAT");
+        assert_eq!(result.jvm[1], "-Dos=linux");
+        assert_eq!(result.game[1], "Steve");
+        assert_eq!(result.main_class, "net.minecraft.client.main.Main");
+    }
+
+    #[test]
+    fn resolve_legacy_arguments() {
+        let version_json = json!({
+          "mainClass":"net.minecraft.client.main.Main",
+          "minecraftArguments":"--username ${username} --gameDir ${gameDir}"
+        });
+
+        let result = resolve_launch_arguments(
+            &version_json,
+            &sample_launch_context(),
+            &RuleContext {
+                os_name: OsName::Windows,
+                arch: "x86_64".to_string(),
+            },
+        )
+        .expect("debe resolver");
+
+        assert!(result.jvm.is_empty());
+        assert_eq!(
+            result.game,
+            vec!["--username", "Steve", "--gameDir", "/game"]
+        );
+    }
+}
