@@ -303,6 +303,7 @@ function App() {
   const [authStatus, setAuthStatus] = useState('')
   const [authError, setAuthError] = useState('')
   const [pendingMicrosoftCodeVerifier, setPendingMicrosoftCodeVerifier] = useState('')
+  const [pendingAuthorizeUrl, setPendingAuthorizeUrl] = useState('')
   const [availableBrowsers, setAvailableBrowsers] = useState<BrowserOption[]>([])
   const [selectedBrowserId, setSelectedBrowserId] = useState('default')
   const creationIconInputRef = useRef<HTMLInputElement | null>(null)
@@ -344,6 +345,7 @@ function App() {
       await invoke('open_url_in_browser', { url: authStart.authorizeUrl, browserId: browserToUse })
 
       setPendingMicrosoftCodeVerifier(authStart.codeVerifier)
+      setPendingAuthorizeUrl(authStart.authorizeUrl)
       setAuthStatus(
         `Se abrió el navegador (${browserToUse}). Autoriza la app y luego pega aquí el parámetro code de la URL de redirección.`,
       )
@@ -352,6 +354,7 @@ function App() {
       setAuthError(message)
       setAuthStatus('')
       setPendingMicrosoftCodeVerifier('')
+      setPendingAuthorizeUrl('')
       setAuthRetryAt(Date.now() + authCodeRegenerateCooldownMs)
     } finally {
       setIsAuthenticating(false)
@@ -398,6 +401,7 @@ function App() {
       persistAuthSession(session)
       setAuthorizationCodeInput('')
       setPendingMicrosoftCodeVerifier('')
+      setPendingAuthorizeUrl('')
       setAuthStatus(`Sesión iniciada como ${session.profileName}.`)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -1237,13 +1241,20 @@ const onTopNavClick = (item: TopNavItem) => {
 
       {isAuthReady && !authSession && (
         <main className="content content-padded">
-          <section className="floating-modal" style={{ margin: '2rem auto' }}>
+          <section className="floating-modal auth-login-card" style={{ margin: '2rem auto' }}>
             <h3>Inicia sesión con Microsoft</h3>
-            <p>Para usar el launcher, autentícate con tu cuenta de Microsoft.</p>
-            {authStatus && <p>{authStatus}</p>}
-            {authError && <p style={{ color: '#fecaca' }}>{authError}</p>}
-            {isAuthCooldown && <p>Espera {authRetrySeconds}s antes de generar un nuevo código de inicio de sesión.</p>}
-            <label style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+            <p>Para usar el launcher, autentícate con tu cuenta de Microsoft y completa el flujo OAuth con PKCE.</p>
+            <ul className="auth-required-params">
+              <li><code>response_type=code</code></li>
+              <li><code>client_id=7ce1b3e8-48d7-4a9d-9329-7e11f988df39</code></li>
+              <li><code>redirect_uri=https://login.microsoftonline.com/common/oauth2/nativeclient</code></li>
+              <li><code>scope=XboxLive.signin offline_access</code></li>
+              <li><code>code_challenge=&lt;PKCE_S256&gt;</code> y <code>code_challenge_method=S256</code></li>
+            </ul>
+            {authStatus && <p className="auth-feedback auth-feedback-status">{authStatus}</p>}
+            {authError && <p className="auth-feedback auth-feedback-error">{authError}</p>}
+            {isAuthCooldown && <p className="auth-feedback auth-feedback-warn">Espera {authRetrySeconds}s antes de generar un nuevo código de inicio de sesión.</p>}
+            <label className="auth-field">
               <span>Selecciona navegador para el login</span>
               <select value={selectedBrowserId} onChange={(event) => setSelectedBrowserId(event.target.value)} disabled={isAuthenticating || isAuthCooldown}>
                 {availableBrowsers.map((browser) => (
@@ -1253,7 +1264,21 @@ const onTopNavClick = (item: TopNavItem) => {
                 ))}
               </select>
             </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', marginTop: '0.75rem' }}>
+            {pendingAuthorizeUrl && (
+              <div className="auth-browser-hint">
+                <span>
+                  Si el navegador no abre automáticamente, copia y abre este enlace manualmente (incluye <code>response_type</code>, <code>client_id</code>, <code>redirect_uri</code>, <code>scope</code> y PKCE).
+                </span>
+                <textarea value={pendingAuthorizeUrl} readOnly rows={3} />
+                <button
+                  onClick={() => void navigator.clipboard.writeText(pendingAuthorizeUrl)}
+                  disabled={isAuthenticating}
+                >
+                  Copiar enlace OAuth
+                </button>
+              </div>
+            )}
+            <label className="auth-field auth-field-spaced">
               <span>Pega aquí el parámetro <code>code</code> del redirect de Microsoft</span>
               <textarea
                 value={authorizationCodeInput}
@@ -1263,7 +1288,7 @@ const onTopNavClick = (item: TopNavItem) => {
                 rows={3}
               />
             </label>
-            <div className="floating-modal-actions" style={{ justifyContent: 'space-between' }}>
+            <div className="floating-modal-actions auth-actions">
               <button onClick={() => void loadAvailableBrowsers()} disabled={isAuthenticating || isAuthCooldown}>
                 Actualizar navegadores
               </button>

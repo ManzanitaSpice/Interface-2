@@ -124,33 +124,37 @@ pub fn list_available_browsers() -> Vec<BrowserOption> {
 
 #[cfg(target_os = "linux")]
 fn open_with_browser_command(browser_id: &str, url: &str) -> Result<(), String> {
-    let spawn_result = match browser_id {
-        "default" => Command::new("xdg-open").arg(url).spawn(),
-        "chrome" => Command::new("google-chrome")
-            .arg(url)
-            .spawn()
-            .or_else(|_| Command::new("google-chrome-stable").arg(url).spawn()),
-        "chromium" => Command::new("chromium")
-            .arg(url)
-            .spawn()
-            .or_else(|_| Command::new("chromium-browser").arg(url).spawn()),
-        "firefox" => Command::new("firefox").arg(url).spawn(),
-        "edge" => Command::new("microsoft-edge")
-            .arg(url)
-            .spawn()
-            .or_else(|_| Command::new("microsoft-edge-stable").arg(url).spawn()),
-        "brave" => Command::new("brave-browser")
-            .arg(url)
-            .spawn()
-            .or_else(|_| Command::new("brave").arg(url).spawn()),
-        "opera" => Command::new("opera").arg(url).spawn(),
-        "vivaldi" => Command::new("vivaldi").arg(url).spawn(),
-        _ => return Err(format!("Navegador no soportado: {browser_id}")),
+    let spawn_named = |commands: &[&str]| {
+        commands
+            .iter()
+            .find_map(|command| Command::new(command).arg(url).spawn().ok())
     };
 
-    spawn_result
+    let opened = match browser_id {
+        "default" => Command::new("xdg-open").arg(url).spawn().ok(),
+        "chrome" => spawn_named(&["google-chrome", "google-chrome-stable", "chromium"]),
+        "chromium" => spawn_named(&["chromium", "chromium-browser", "google-chrome"]),
+        "firefox" => spawn_named(&["firefox"]),
+        "edge" => spawn_named(&["microsoft-edge", "microsoft-edge-stable"]),
+        "brave" => spawn_named(&["brave-browser", "brave"]),
+        "opera" => spawn_named(&["opera"]),
+        "vivaldi" => spawn_named(&["vivaldi"]),
+        _ => None,
+    };
+
+    if opened.is_some() {
+        return Ok(());
+    }
+
+    Command::new("xdg-open")
+        .arg(url)
+        .spawn()
         .map(|_| ())
-        .map_err(|err| format!("No se pudo abrir navegador '{browser_id}': {err}"))
+        .map_err(|err| {
+            format!(
+                "No se pudo abrir navegador '{browser_id}' ni fallback predeterminado: {err}"
+            )
+        })
 }
 
 #[cfg(target_os = "windows")]
@@ -225,7 +229,13 @@ pub fn open_url_in_browser(url: String, browser_id: String) -> Result<(), String
     if url.trim().is_empty() {
         return Err("La URL para abrir en el navegador está vacía.".to_string());
     }
-    open_with_browser_command(&browser_id, &url)
+
+    let normalized_url = url.trim().to_string();
+    if !normalized_url.starts_with("http://") && !normalized_url.starts_with("https://") {
+        return Err("La URL OAuth debe comenzar con http:// o https://.".to_string());
+    }
+
+    open_with_browser_command(&browser_id, &normalized_url)
 }
 
 #[tauri::command]

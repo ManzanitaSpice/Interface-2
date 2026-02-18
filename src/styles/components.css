@@ -121,6 +121,79 @@
   gap: 0.8rem;
 }
 
+.auth-login-card {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 20%, transparent), transparent 48%),
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 88%, #0b1220), var(--bg-surface));
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+  box-shadow: 0 12px 35px rgba(4, 10, 27, 0.45);
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.auth-field-spaced {
+  margin-top: 0.75rem;
+}
+
+.auth-feedback {
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.5rem;
+  border: 1px solid transparent;
+  font-size: 0.92rem;
+}
+
+.auth-feedback-status {
+  color: #bfdbfe;
+  background: rgba(30, 64, 175, 0.22);
+  border-color: rgba(96, 165, 250, 0.45);
+}
+
+.auth-feedback-error {
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.25);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.auth-feedback-warn {
+  color: #fde68a;
+  background: rgba(133, 77, 14, 0.24);
+  border-color: rgba(251, 191, 36, 0.35);
+}
+
+.auth-browser-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: 0.3rem;
+  border: 1px solid color-mix(in srgb, var(--border) 75%, var(--accent));
+  border-radius: 0.6rem;
+  padding: 0.7rem;
+  background: color-mix(in srgb, var(--bg-soft) 82%, #0b1220);
+}
+
+.auth-browser-hint span {
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+
+.auth-browser-hint textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 78px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 0.75rem;
+}
+
+.auth-actions {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
 .floating-modal h3 {
   margin: 0;
 }
@@ -588,4 +661,20 @@
 .toolbar-toggle-btn.active {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
   border-color: var(--accent);
+}
+
+
+.auth-required-params {
+  margin: 0;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  background: color-mix(in srgb, var(--bg-soft) 82%, #0b1220);
+  font-size: 0.82rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.auth-required-params li {
+  margin-left: 1rem;
 }
