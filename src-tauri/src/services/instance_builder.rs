@@ -188,7 +188,7 @@ fn download_client_jar(version_json: &Value, jar_path: &Path) -> AppResult<()> {
         .and_then(Value::as_str)
         .ok_or_else(|| "version.json no incluye downloads.client.url".to_string())?;
 
-    download_binary(client_url, jar_path, true)
+    download_binary(client_url, jar_path, true).map(|_| ())
 }
 
 fn download_libraries(
@@ -245,7 +245,7 @@ fn native_download_entry<'a>(
     library: &'a Value,
     rule_context: &RuleContext,
 ) -> Option<(&'a str, &'a str)> {
-    let os_key = match rule_context.os {
+    let os_key = match rule_context.os_name {
         crate::domain::minecraft::rule_engine::OsName::Windows => "windows",
         crate::domain::minecraft::rule_engine::OsName::Linux => "linux",
         crate::domain::minecraft::rule_engine::OsName::Macos => "osx",
