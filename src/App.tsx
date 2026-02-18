@@ -53,6 +53,8 @@ type CreateInstanceResult = {
 type InstanceCreationProgressEvent = {
   requestId?: string
   message: string
+  completed?: number
+  total?: number
 }
 
 type InstanceSummary = {
@@ -254,6 +256,7 @@ function App() {
   const [creationConsoleLogs, setCreationConsoleLogs] = useState<string[]>([])
   const [instanceIconPreview, setInstanceIconPreview] = useState<string>('⛏')
   const [isCreating, setIsCreating] = useState(false)
+  const [creationProgress, setCreationProgress] = useState<{ completed: number; total: number } | null>(null)
   const [manifestVersions, setManifestVersions] = useState<ManifestVersion[]>([])
   const [manifestLoading, setManifestLoading] = useState(false)
   const [manifestError, setManifestError] = useState('')
@@ -492,12 +495,14 @@ function App() {
           appendRuntime(makeConsoleEntry('WARN', 'launcher', 'No se puede cerrar el editor mientras la instancia está ejecutándose.'))
           return
         }
-        setActivePage('Mis Modpacks')
+        setCreationProgress((prev) => prev ? { completed: prev.total, total: prev.total } : prev)
+      setActivePage('Mis Modpacks')
         return
       }
 
       if (activePage === 'Creador de Instancias') {
-        setActivePage('Mis Modpacks')
+        setCreationProgress((prev) => prev ? { completed: prev.total, total: prev.total } : prev)
+      setActivePage('Mis Modpacks')
         return
       }
 
@@ -507,7 +512,8 @@ function App() {
       }
 
       if (activePage !== 'Mis Modpacks') {
-        setActivePage('Mis Modpacks')
+        setCreationProgress((prev) => prev ? { completed: prev.total, total: prev.total } : prev)
+      setActivePage('Mis Modpacks')
       }
     }
 
@@ -888,6 +894,7 @@ function App() {
     setIsCreating(true)
     const requestId = `create-${Date.now()}-${Math.random().toString(16).slice(2)}`
     let unlistenCreationProgress: UnlistenFn | null = null
+    setCreationProgress(null)
     setCreationConsoleLogs([
       'FASE 2 iniciada al presionar OK.',
       'Validación ✓ nombre no vacío.',
@@ -902,6 +909,9 @@ function App() {
       unlistenCreationProgress = await listen<InstanceCreationProgressEvent>('instance_creation_progress', (event) => {
         if (event.payload.requestId && event.payload.requestId !== requestId) {
           return
+        }
+        if (typeof event.payload.completed === 'number' && typeof event.payload.total === 'number' && event.payload.total > 0) {
+          setCreationProgress({ completed: event.payload.completed, total: event.payload.total })
         }
         setCreationConsoleLogs((prev) => [...prev, event.payload.message])
       })
@@ -932,6 +942,7 @@ function App() {
       setCreationConsoleLogs((prev) => [...prev, ...result.logs, '✅ Instancia creada correctamente.'])
       setInstanceName('')
       setGroupName(defaultGroup)
+      setCreationProgress((prev) => prev ? { completed: prev.total, total: prev.total } : prev)
       setActivePage('Mis Modpacks')
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -1094,6 +1105,7 @@ function App() {
 const onTopNavClick = (item: TopNavItem) => {
     setSelectedCard(null)
     if (item === 'Mis Modpacks') {
+      setCreationProgress((prev) => prev ? { completed: prev.total, total: prev.total } : prev)
       setActivePage('Mis Modpacks')
       return
     }
@@ -1407,6 +1419,16 @@ const onTopNavClick = (item: TopNavItem) => {
                     <p key={`creation-log-${index}`}>{line}</p>
                   ))}
                 </aside>
+              </div>
+              <div className="creation-progress-wrap" aria-label="Progreso de creación de instancia">
+                <div
+                  className="creation-progress-fill"
+                  style={{
+                    width: `${creationProgress && creationProgress.total > 0
+                      ? Math.min(100, Math.round((creationProgress.completed / creationProgress.total) * 100))
+                      : 0}%`,
+                  }}
+                />
               </div>
             </header>
 
