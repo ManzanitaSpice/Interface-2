@@ -30,6 +30,7 @@ pub fn build_instance_structure(
     _instance_root: &Path,
     minecraft_root: &Path,
     minecraft_version: &str,
+    download_assets_during_creation: bool,
     logs: &mut Vec<String>,
     on_progress: &mut dyn FnMut(u64, u64, String),
 ) -> AppResult<()> {
@@ -58,7 +59,11 @@ pub fn build_instance_structure(
     let version_json = download_version_json(minecraft_version)?;
     let rule_context = RuleContext::current();
     let planned_libraries = planned_library_downloads(&version_json, &rule_context);
-    let planned_assets = planned_asset_downloads(&version_json)?;
+    let planned_assets = if download_assets_during_creation {
+        planned_asset_downloads(&version_json)?
+    } else {
+        0
+    };
     let total_downloads = 2_u64 + planned_libraries as u64 + planned_assets as u64;
     let mut completed_downloads = 0_u64;
 
@@ -99,17 +104,24 @@ pub fn build_instance_structure(
         downloaded_libraries
     ));
 
-    let downloaded_assets = download_assets(
-        &version_json,
-        minecraft_root,
-        &mut completed_downloads,
-        total_downloads,
-        on_progress,
-    )?;
-    logs.push(format!(
-        "Assets oficiales descargados: {} objetos.",
-        downloaded_assets
-    ));
+    if download_assets_during_creation {
+        let downloaded_assets = download_assets(
+            &version_json,
+            minecraft_root,
+            &mut completed_downloads,
+            total_downloads,
+            on_progress,
+        )?;
+        logs.push(format!(
+            "Assets oficiales descargados: {} objetos.",
+            downloaded_assets
+        ));
+    } else {
+        logs.push(
+            "Assets diferidos para acelerar la creación. Se resolverán al ejecutar la instancia."
+                .to_string(),
+        );
+    }
 
     let launch_context = LaunchContext {
         classpath: "${classpath}".to_string(),

@@ -402,16 +402,22 @@ fn create_instance_impl(
         &instance_root,
         &minecraft_root,
         &payload.minecraft_version,
+        false,
         &mut build_logs,
         &mut |completed, total, message| {
-            let line = format!("{message} [progreso {completed}/{total}]");
+            let percentage = if total > 0 {
+                ((completed as f64 / total as f64) * 100.0).round() as u64
+            } else {
+                0
+            };
+            let line = format!("{message} [{percentage}% | {completed}/{total}]");
             progress_logs.push(line.clone());
             emit_creation_progress(
                 &app,
                 &request_id,
                 completed,
                 total,
-                "Progreso de descarga actualizado",
+                format!("Progreso de descarga: {percentage}%"),
             );
         },
     )?;

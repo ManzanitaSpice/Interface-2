@@ -10,6 +10,7 @@ use std::{
 
 use serde::Serialize;
 use serde_json::Value;
+use sha1::{Digest, Sha1};
 use zip::ZipArchive;
 
 use crate::domain::auth::{
@@ -247,6 +248,7 @@ pub fn validate_and_prepare_launch(
     let rule_context = RuleContext::current();
     let mut resolved_libraries = resolve_libraries(&mc_root, &version_json, &rule_context);
     hydrate_missing_libraries(&resolved_libraries.missing_classpath_entries, &mut logs)?;
+    ensure_assets_available(&mc_root, &version_json, &mut logs)?;
     resolved_libraries = resolve_libraries(&mc_root, &version_json, &rule_context);
 
     if !resolved_libraries.missing_classpath_entries.is_empty() {
@@ -757,6 +759,8 @@ fn contains_classpath_switch(jvm_args: &[String]) -> bool {
 #[derive(Debug, Clone)]
 struct MissingLibraryEntry {
     path: String,
+    url: String,
+    sha1: String,
 }
 
 #[derive(Debug, Clone)]
@@ -909,7 +913,26 @@ fn resolve_libraries(
             if Path::new(&path).exists() {
                 classpath_entries.push(path);
             } else {
-                missing_classpath_entries.push(MissingLibraryEntry { path });
+                let artifact = lib.get("downloads").and_then(|v| v.get("artifact"));
+                let url = artifact
+                    .and_then(|v| v.get("url"))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let sha1 = artifact
+                    .and_then(|v| v.get("sha1"))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+
+                if !url.is_empty() && !sha1.is_empty() {
+                    missing_classpath_entries.push(MissingLibraryEntry { path, url, sha1 });
+                } else {
+                    missing_native_entries.push(format!(
+                        "metadata incompleta para descargar librería faltante: {}",
+                        lib.get("name").and_then(Value::as_str).unwrap_or("unknown")
+                    ));
+                }
             }
         }
 
@@ -957,6 +980,8 @@ fn hydrate_missing_libraries(
         return Ok(());
     }
 
+    let client = reqwest::blocking::Client::new();
+
     for entry in missing_entries {
         let path = Path::new(&entry.path);
         if let Some(parent) = path.parent() {
@@ -967,12 +992,178 @@ fn hydrate_missing_libraries(
                 )
             })?;
         }
+
+        let bytes = client
+            .get(&entry.url)
+            .send()
+            .and_then(reqwest::blocking::Response::error_for_status)
+            .map_err(|err| {
+                format!(
+                    "No se pudo descargar librería faltante {}: {err}",
+                    entry.url
+                )
+            })?
+            .bytes()
+            .map_err(|err| format!("No se pudo leer librería faltante {}: {err}", entry.url))?;
+
+        let actual_sha1 = sha1_hex(bytes.as_ref());
+        if !actual_sha1.eq_ignore_ascii_case(&entry.sha1) {
+            return Err(format!(
+                "SHA1 inválido en librería {}. Esperado {}, obtenido {}",
+                entry.path, entry.sha1, actual_sha1
+            ));
+        }
+
+        fs::write(path, &bytes).map_err(|err| {
+            format!(
+                "No se pudo guardar librería faltante {}: {err}",
+                path.display()
+            )
+        })?;
+
         logs.push(format!(
-            "⚠ librería faltante detectada (descarga automática no implementada): {}",
+            "✔ librería faltante descargada en runtime: {}",
             entry.path
         ));
     }
     Ok(())
+}
+
+fn ensure_assets_available(
+    mc_root: &Path,
+    version_json: &Value,
+    logs: &mut Vec<String>,
+) -> Result<(), String> {
+    let asset_index = version_json
+        .get("assetIndex")
+        .ok_or_else(|| "version.json no incluye assetIndex".to_string())?;
+
+    let index_url = asset_index
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "assetIndex.url no está presente".to_string())?;
+    let index_id = asset_index
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "assetIndex.id no está presente".to_string())?;
+
+    let indexes_dir = mc_root.join("assets").join("indexes");
+    fs::create_dir_all(&indexes_dir).map_err(|err| {
+        format!(
+            "No se pudo crear carpeta de asset indexes {}: {err}",
+            indexes_dir.display()
+        )
+    })?;
+
+    let index_path = indexes_dir.join(format!("{index_id}.json"));
+    if !index_path.exists() {
+        let index_bytes = reqwest::blocking::get(index_url)
+            .and_then(reqwest::blocking::Response::error_for_status)
+            .map_err(|err| format!("No se pudo descargar asset index oficial: {err}"))?
+            .bytes()
+            .map_err(|err| format!("No se pudo leer asset index oficial: {err}"))?;
+        fs::write(&index_path, &index_bytes).map_err(|err| {
+            format!(
+                "No se pudo guardar asset index en {}: {err}",
+                index_path.display()
+            )
+        })?;
+    }
+
+    let raw_index = fs::read_to_string(&index_path).map_err(|err| {
+        format!(
+            "No se pudo leer asset index {}: {err}",
+            index_path.display()
+        )
+    })?;
+
+    let parsed: Value = serde_json::from_str(&raw_index)
+        .map_err(|err| format!("asset index inválido {}: {err}", index_path.display()))?;
+
+    let objects = parsed
+        .get("objects")
+        .and_then(Value::as_object)
+        .ok_or_else(|| format!("asset index sin objects: {}", index_path.display()))?;
+
+    let mut missing = Vec::new();
+    for object in objects.values() {
+        let Some(hash) = object.get("hash").and_then(Value::as_str) else {
+            continue;
+        };
+        if hash.len() < 2 {
+            continue;
+        }
+        let prefix = &hash[..2];
+        let object_path = mc_root
+            .join("assets")
+            .join("objects")
+            .join(prefix)
+            .join(hash);
+        if !object_path.exists() {
+            missing.push((hash.to_string(), object_path));
+        }
+    }
+
+    if missing.is_empty() {
+        logs.push("✔ assets listos en disco (sin descargas diferidas).".to_string());
+        return Ok(());
+    }
+
+    logs.push(format!(
+        "ℹ assets faltantes detectados para esta ejecución: {}",
+        missing.len()
+    ));
+
+    let client = reqwest::blocking::Client::new();
+    for (idx, (hash, object_path)) in missing.iter().enumerate() {
+        if let Some(parent) = object_path.parent() {
+            fs::create_dir_all(parent).map_err(|err| {
+                format!(
+                    "No se pudo crear carpeta de asset {}: {err}",
+                    parent.display()
+                )
+            })?;
+        }
+
+        let prefix = &hash[..2];
+        let url = format!("https://resources.download.minecraft.net/{prefix}/{hash}");
+        let bytes = client
+            .get(&url)
+            .send()
+            .and_then(reqwest::blocking::Response::error_for_status)
+            .map_err(|err| format!("No se pudo descargar asset {hash}: {err}"))?
+            .bytes()
+            .map_err(|err| format!("No se pudo leer asset {hash}: {err}"))?;
+
+        let actual_sha1 = sha1_hex(bytes.as_ref());
+        if !actual_sha1.eq_ignore_ascii_case(hash) {
+            return Err(format!(
+                "SHA1 inválido en asset {}. Esperado {}, obtenido {}",
+                object_path.display(),
+                hash,
+                actual_sha1
+            ));
+        }
+
+        fs::write(object_path, &bytes)
+            .map_err(|err| format!("No se pudo guardar asset {}: {err}", object_path.display()))?;
+
+        if (idx + 1) % 250 == 0 || idx + 1 == missing.len() {
+            logs.push(format!(
+                "✔ assets diferidos descargados: {}/{}",
+                idx + 1,
+                missing.len()
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn sha1_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha1::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
 }
 
 fn validate_jars_as_zip(jars: &[PathBuf]) -> Result<(), String> {
