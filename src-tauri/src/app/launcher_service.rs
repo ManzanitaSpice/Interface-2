@@ -35,6 +35,7 @@ fn create_instance_impl(
     validate_payload(&payload)?;
 
     let launcher_root = resolve_launcher_root(&app)?;
+    validate_instance_constraints(&launcher_root, &payload)?;
     logs.push(format!("Base launcher: {}", launcher_root.display()));
 
     crate::infrastructure::filesystem::directories::create_launcher_directories(
@@ -117,6 +118,38 @@ fn create_instance_impl(
         minecraft_path: minecraft_root.display().to_string(),
         logs,
     })
+}
+
+
+fn validate_instance_constraints(launcher_root: &std::path::Path, payload: &CreateInstancePayload) -> AppResult<()> {
+    let sanitized_name =
+        crate::infrastructure::filesystem::paths::sanitize_path_segment(&payload.name);
+    let instance_root = launcher_root.join("instances").join(&sanitized_name);
+
+    if instance_root.exists() {
+        return Err(format!(
+            "Ya existe una instancia con ese nombre: {}",
+            payload.name
+        ));
+    }
+
+    let available_bytes = fs2::available_space(launcher_root).map_err(|err| {
+        format!(
+            "No se pudo validar el espacio en disco en {}: {}",
+            launcher_root.display(),
+            err
+        )
+    })?;
+
+    let minimum_required = 1024_u64 * 1024 * 1024;
+    if available_bytes < minimum_required {
+        return Err(format!(
+            "Espacio insuficiente: se requiere al menos 1GB libre en {}",
+            launcher_root.display()
+        ));
+    }
+
+    Ok(())
 }
 
 fn validate_payload(payload: &CreateInstancePayload) -> AppResult<()> {

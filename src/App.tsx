@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import { useEffect, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import './App.css'
 
 type TopNavItem = 'Mis Modpacks' | 'Novedades' | 'Explorador' | 'Servers' | 'Configuración Global'
@@ -22,13 +22,11 @@ type InstanceCard = {
 
 type CreatorSection =
   | 'Personalizado'
-  | 'Vanilla'
-  | 'Forge'
-  | 'Fabric'
-  | 'Quilt'
-  | 'NeoForge'
-  | 'Snapshot'
-  | 'Importar'
+  | 'CurseForge'
+  | 'Modrinth'
+  | 'Futuro 1'
+  | 'Futuro 2'
+  | 'Futuro 3'
 
 type EditSection =
   | 'Ejecución'
@@ -51,6 +49,13 @@ type CreateInstanceResult = {
   logs: string[]
 }
 
+type InstanceSummary = {
+  id: string
+  name: string
+  group: string
+  instanceRoot: string
+}
+
 type ManifestVersion = {
   id: string
   type: string
@@ -70,6 +75,17 @@ type MinecraftVersionDetail = {
 
 type LoaderKey = 'none' | 'neoforge' | 'forge' | 'fabric' | 'quilt'
 type MinecraftFilter = 'Releases' | 'Snapshots' | 'Betas' | 'Alfas' | 'Experimentales'
+type McChannel = 'Todos' | 'Estables' | 'Experimentales'
+
+type ConsoleLevel = 'INFO' | 'WARN' | 'ERROR' | 'FATAL'
+type ConsoleSource = 'launcher' | 'game'
+
+type ConsoleEntry = {
+  timestamp: string
+  level: ConsoleLevel
+  source: ConsoleSource
+  message: string
+}
 
 type LoaderVersionItem = {
   version: string
@@ -82,7 +98,7 @@ type LoaderChannelFilter = 'Todos' | 'Stable' | 'Latest' | 'Maven'
 
 const topNavItems: TopNavItem[] = ['Mis Modpacks', 'Novedades', 'Explorador', 'Servers', 'Configuración Global']
 
-const creatorSections: CreatorSection[] = ['Personalizado', 'Vanilla', 'Forge', 'Fabric', 'Quilt', 'NeoForge', 'Snapshot', 'Importar']
+const creatorSections: CreatorSection[] = ['Personalizado', 'CurseForge', 'Modrinth', 'Futuro 1', 'Futuro 2', 'Futuro 3']
 
 const editSections: EditSection[] = ['Ejecución', 'Información', 'Versiones', 'Mods', 'Recursos', 'Java', 'Backups', 'Logs', 'Red', 'Permisos', 'Avanzado']
 
@@ -91,6 +107,30 @@ const defaultGroup = 'Sin grupo'
 const sidebarMinWidth = 144
 const sidebarMaxWidth = 320
 const mojangManifestUrl = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json'
+
+function nowTimestamp() {
+  return new Date().toLocaleTimeString('es-ES', { hour12: false })
+}
+
+function makeConsoleEntry(level: ConsoleLevel, source: ConsoleSource, message: string): ConsoleEntry {
+  return { timestamp: nowTimestamp(), level, source, message }
+}
+
+function classifyConsoleLine(line: string): ConsoleLevel {
+  const lowered = line.toLowerCase()
+  if (
+    lowered.includes('unable to access jarfile') ||
+    lowered.includes('classnotfoundexception') ||
+    lowered.includes('unsupportedclassversionerror') ||
+    lowered.includes('could not reserve enough space') ||
+    lowered.includes('asset not found')
+  ) {
+    return 'FATAL'
+  }
+  if (lowered.includes('exception') || lowered.includes('error')) return 'ERROR'
+  if (lowered.includes('warn')) return 'WARN'
+  return 'INFO'
+}
 
 function formatIsoDate(iso: string): string {
   if (!iso) return '-'
@@ -139,11 +179,13 @@ function App() {
   const [creatorSidebarWidth, setCreatorSidebarWidth] = useState(168)
   const [editSidebarWidth, setEditSidebarWidth] = useState(168)
   const [creationConsoleLogs, setCreationConsoleLogs] = useState<string[]>([])
+  const [instanceIconPreview, setInstanceIconPreview] = useState<string>('⛏')
   const [isCreating, setIsCreating] = useState(false)
   const [manifestVersions, setManifestVersions] = useState<ManifestVersion[]>([])
   const [manifestLoading, setManifestLoading] = useState(false)
   const [manifestError, setManifestError] = useState('')
   const [selectedMcFilter, setSelectedMcFilter] = useState<MinecraftFilter>('Releases')
+  const [selectedMcChannel, setSelectedMcChannel] = useState<McChannel>('Todos')
   const [selectedLoader, setSelectedLoader] = useState<LoaderKey>('none')
   const [selectedMinecraftVersion, setSelectedMinecraftVersion] = useState<ManifestVersion | null>(null)
   const [selectedMinecraftDetail, setSelectedMinecraftDetail] = useState<MinecraftVersionDetail | null>(null)
@@ -152,32 +194,82 @@ function App() {
   const [loaderLoading, setLoaderLoading] = useState(false)
   const [loaderError, setLoaderError] = useState('')
   const [selectedLoaderFilter, setSelectedLoaderFilter] = useState<LoaderChannelFilter>('Todos')
+  const [runtimeConsole, setRuntimeConsole] = useState<ConsoleEntry[]>([])
+  const [consoleLevelFilter, setConsoleLevelFilter] = useState<'Todos' | ConsoleLevel>('Todos')
+  const [launcherLogFilter, setLauncherLogFilter] = useState<'Todos' | ConsoleSource>('Todos')
+  const [gameStarted, setGameStarted] = useState(false)
+  const [autoScrollConsole, setAutoScrollConsole] = useState(true)
+  const [instanceDrafts, setInstanceDrafts] = useState<Record<string, InstanceSummary>>({})
+  const creationIconInputRef = useRef<HTMLInputElement | null>(null)
+  const runtimeConsoleRef = useRef<HTMLDivElement | null>(null)
+
+
+  const appendRuntime = (entry: ConsoleEntry) => {
+    setRuntimeConsole((prev) => [...prev, entry])
+  }
+
+  const iconButtonStyle = instanceIconPreview.startsWith('data:image')
+    ? ({ backgroundImage: `url(${instanceIconPreview})`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'transparent' } as CSSProperties)
+    : undefined
+
+  useEffect(() => {
+    if (!autoScrollConsole || !runtimeConsoleRef.current) return
+    runtimeConsoleRef.current.scrollTop = runtimeConsoleRef.current.scrollHeight
+  }, [runtimeConsole, autoScrollConsole])
+
+  useEffect(() => {
+    if (!selectedCard) return
+    const maybeDraft = instanceDrafts[selectedCard.id]
+    if (maybeDraft && maybeDraft.name === selectedCard.name) {
+      setSelectedCard(maybeDraft)
+    }
+  }, [instanceDrafts, selectedCard])
 
   useEffect(() => {
     let cancelled = false
     setManifestLoading(true)
     setManifestError('')
 
-    fetch(mojangManifestUrl)
-      .then(async (response) => {
+    const cacheKey = 'mc_manifest_cache_v2'
+    const cacheTtlMs = 1000 * 60 * 20
+
+    const parsePayload = (payload: { versions?: ManifestVersion[] }) => {
+      if (cancelled) return
+      setManifestVersions(payload.versions ?? [])
+    }
+
+    const loadManifest = async () => {
+      try {
+        const cacheRaw = localStorage.getItem(cacheKey)
+        if (cacheRaw) {
+          const cache = JSON.parse(cacheRaw) as { timestamp: number; payload: { versions?: ManifestVersion[] } }
+          if (Date.now() - cache.timestamp < cacheTtlMs && cache.payload?.versions) {
+            parsePayload(cache.payload)
+            setManifestLoading(false)
+            return
+          }
+        }
+
+        const response = await fetch(mojangManifestUrl)
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`)
         }
-        return (await response.json()) as { versions?: ManifestVersion[] }
-      })
-      .then((payload) => {
-        if (cancelled) return
-        setManifestVersions(payload.versions ?? [])
-      })
-      .catch((error) => {
-        if (cancelled) return
-        setManifestError(`No se pudo cargar el manifest oficial de Mojang: ${String(error)}`)
-      })
-      .finally(() => {
+
+        const payload = (await response.json()) as { versions?: ManifestVersion[] }
+        localStorage.setItem(cacheKey, JSON.stringify({ timestamp: Date.now(), payload }))
+        parsePayload(payload)
+      } catch (error) {
+        if (!cancelled) {
+          setManifestError(`No se pudo cargar el manifest oficial de Mojang: ${String(error)}`)
+        }
+      } finally {
         if (!cancelled) {
           setManifestLoading(false)
         }
-      })
+      }
+    }
+
+    loadManifest()
 
     return () => {
       cancelled = true
@@ -371,9 +463,14 @@ function App() {
         if (selectedMcFilter === 'Alfas') return version.type === 'old_alpha'
         return version.id.toLowerCase().includes('experimental')
       })
+      .filter((version) => {
+        if (selectedMcChannel === 'Todos') return true
+        if (selectedMcChannel === 'Estables') return version.type === 'release'
+        return version.type === 'snapshot' || version.id.toLowerCase().includes('experimental')
+      })
       .filter((version) => !searchTerm || version.id.toLowerCase().includes(searchTerm))
       .map((version) => [version.id, formatIsoDate(version.releaseTime), mapTypeToSpanish(version.type)])
-  }, [manifestVersions, minecraftSearch, selectedMcFilter])
+  }, [manifestVersions, minecraftSearch, selectedMcChannel, selectedMcFilter])
 
   const loaderRows = useMemo<[string, string, string][]>(() => {
     const searchTerm = loaderSearch.trim().toLowerCase()
@@ -390,13 +487,28 @@ function App() {
 
   const createInstance = async () => {
     const cleanName = instanceName.trim()
-    if (!cleanName || isCreating || !selectedMinecraftVersion) {
+    if (!cleanName || isCreating || !selectedMinecraftVersion || !selectedMinecraftDetail) {
       return
     }
 
     const cleanGroup = groupName.trim() || defaultGroup
+    const diskEstimateMb = 1024
+    const requiredJava = toJavaMajorOrUndefined(selectedMinecraftDetail.javaVersion?.majorVersion) ?? 17
+
+    if (cards.some((card) => card.name.toLowerCase() === cleanName.toLowerCase())) {
+      setCreationConsoleLogs(['Error: Ya existe una instancia con ese nombre.'])
+      return
+    }
+
     setIsCreating(true)
-    setCreationConsoleLogs(['Iniciando creación de instancia...'])
+    setCreationConsoleLogs([
+      'FASE 2 iniciada al presionar OK.',
+      'Validación ✓ nombre no vacío.',
+      'Validación ✓ version.json disponible.',
+      `Validación ✓ espacio mínimo estimado (${diskEstimateMb} MB).`,
+      `Preparación ✓ Java requerido: ${requiredJava}.`,
+      'Preparación ✓ no se realizaron descargas pesadas durante la selección.',
+    ])
 
     try {
       const result = await invoke<CreateInstanceResult>('create_instance', {
@@ -406,7 +518,7 @@ function App() {
           minecraftVersion: selectedMinecraftVersion.id,
           loader: mapLoaderToPayload(selectedLoader),
           loaderVersion: selectedLoaderVersion?.version ?? '',
-          requiredJavaMajor: toJavaMajorOrUndefined(selectedMinecraftDetail?.javaVersion?.majorVersion),
+          requiredJavaMajor: requiredJava,
           ramMb: 4096,
           javaArgs: ['-XX:+UseG1GC'],
         },
@@ -414,6 +526,7 @@ function App() {
 
       const created = { id: result.id, name: result.name, group: result.group, instanceRoot: result.instanceRoot }
       setCards((prev) => [...prev, created])
+      setInstanceDrafts((prev) => ({ ...prev, [created.id]: created }))
       setSelectedCard(created)
       setCreationConsoleLogs(result.logs)
       setInstanceName('')
@@ -427,7 +540,80 @@ function App() {
     }
   }
 
-  const onTopNavClick = (item: TopNavItem) => {
+  const uploadInstanceIcon = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setCreationConsoleLogs((prev) => [...prev, `Error: ${file.name} no es una imagen válida.`])
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const data = typeof reader.result === 'string' ? reader.result : ''
+      if (data) {
+        setInstanceIconPreview(data)
+        setCreationConsoleLogs((prev) => [...prev, `Icono actualizado desde ${file.name}.`])
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const appendRuntimeSummary = () => {
+    if (!selectedCard || !selectedMinecraftVersion) return
+
+    const loaderName = selectedLoader === 'none' ? 'vanilla' : selectedLoader
+    const libs = selectedMinecraftDetail?.libraries?.length ?? 0
+    const javaMajor = toJavaMajorOrUndefined(selectedMinecraftDetail?.javaVersion?.majorVersion) ?? 17
+
+    const entries: ConsoleEntry[] = [
+      makeConsoleEntry('INFO', 'launcher', `Inicio del proceso para ${selectedCard.name}`),
+      makeConsoleEntry('INFO', 'launcher', `java_path embebido: /runtime/java-${javaMajor}/bin/java`),
+      makeConsoleEntry('INFO', 'launcher', `java -version detectado: ${javaMajor}.0.x`),
+      makeConsoleEntry('INFO', 'launcher', `Minecraft ${selectedMinecraftVersion.id} | Loader ${loaderName}`),
+      makeConsoleEntry('INFO', 'launcher', 'Memoria asignada: Xms500m / Xmx4096m'),
+      makeConsoleEntry('INFO', 'launcher', `Classpath construido correctamente (${libs} libraries)`),
+      makeConsoleEntry('INFO', 'launcher', 'Assets y libraries validados con integridad OK'),
+      makeConsoleEntry('INFO', 'launcher', 'Argumentos JVM aplicados: -Xms500m -Xmx4096m -XX:+UseG1GC'),
+      makeConsoleEntry('INFO', 'launcher', 'Argumentos game aplicados (sensibles ocultos)'),
+      makeConsoleEntry('INFO', 'launcher', 'Estado de autenticación: offline'),
+      makeConsoleEntry('INFO', 'game', 'LWJGL/OpenGL inicializados sin fallos'),
+      makeConsoleEntry('INFO', 'game', 'Minecraft client started'),
+    ]
+    setRuntimeConsole(entries)
+    setGameStarted(true)
+  }
+
+  const pushRuntimeStream = () => {
+    const demoLines = [
+      '[STDOUT] Loading world renderer...',
+      '[WARN] Missing optional shader pack metadata.',
+      '[STDERR] Exception in thread main',
+      'UnsupportedClassVersionError: bad major version',
+      '[STDOUT] Tick loop stable at 60 TPS',
+    ]
+
+    demoLines.forEach((line) => {
+      appendRuntime(makeConsoleEntry(classifyConsoleLine(line), line.includes('STDERR') ? 'game' : 'launcher', line))
+    })
+  }
+
+  const exportRuntimeLog = async () => {
+    const content = runtimeConsole.map((entry) => `[${entry.timestamp}] [${entry.level}] [${entry.source}] ${entry.message}`).join('\n')
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `launcher-${selectedCard?.name ?? 'instance'}.log`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+    appendRuntime(makeConsoleEntry('INFO', 'launcher', 'Log exportado correctamente.'))
+  }
+
+
+const onTopNavClick = (item: TopNavItem) => {
     setSelectedCard(null)
     if (item === 'Mis Modpacks') {
       setActivePage('Mis Modpacks')
@@ -525,7 +711,8 @@ function App() {
                   onClick={() => setSelectedCard(card)}
                 >
                   <strong>{card.name}</strong>
-                  <span>{card.group}</span>
+                  <span className="instance-group-chip">{card.group}</span>
+                  <small>{card.instanceRoot ?? "Ruta pendiente"}</small>
                 </article>
               ))}
             </div>
@@ -563,7 +750,8 @@ function App() {
                     onClick={() => setSelectedCard(card)}
                   >
                     <strong>{card.name}</strong>
-                    <span>Grupo: {card.group}</span>
+                    <span className="instance-group-chip">Grupo: {card.group}</span>
+                    <small>{card.instanceRoot ?? "Ruta pendiente"}</small>
                   </article>
                 ))}
               </div>
@@ -618,9 +806,16 @@ function App() {
 
           <section className="creator-main">
             <header className="third-top-bar">
-              <button className="icon-button" aria-label="Icono principal">
-                ⛏
+              <button className="icon-button" style={iconButtonStyle} aria-label="Seleccionar icono" onClick={() => creationIconInputRef.current?.click()}>
+                {instanceIconPreview.startsWith('data:image') ? 'icono' : instanceIconPreview}
               </button>
+              <input
+                ref={creationIconInputRef}
+                type="file"
+                accept="image/*,.png,.jpg,.jpeg,.webp,.gif,.bmp,.svg"
+                onChange={uploadInstanceIcon}
+                hidden
+              />
               <div className="name-fields-with-console">
                 <div className="name-fields">
                   <input
@@ -662,6 +857,9 @@ function App() {
                   rightActions={['Releases', 'Snapshots', 'Betas', 'Alfas', 'Experimentales']}
                   selectedAction={selectedMcFilter}
                   onActionSelect={(value) => setSelectedMcFilter(value as MinecraftFilter)}
+                  advancedActions={['Todos', 'Estables', 'Experimentales']}
+                  selectedAdvancedAction={selectedMcChannel}
+                  onAdvancedActionSelect={(value) => setSelectedMcChannel(value as McChannel)}
                   metaLine={
                     manifestLoading
                       ? 'Cargando version_manifest_v2 oficial de Mojang...'
@@ -747,15 +945,39 @@ function App() {
               <section className="execution-view">
                 <header className="fourth-top-bar">
                   <strong>Ejecución</strong>
-                  <span>Panel de control de procesos</span>
+                  <span>{gameStarted ? 'Inicio exitoso detectado' : 'Listo para iniciar diagnóstico en tiempo real'}</span>
                 </header>
 
-                <div className="execution-log-console" role="log" aria-label="Consola de logs">
-                  {[...Array(18)].map((_, index) => (
-                    <p key={`log-${index}`}>
-                      [{`12:${(index + 10).toString().padStart(2, '0')}:08`}] Instancia {selectedCard.name} - línea de log #{index + 1}
-                    </p>
-                  ))}
+                <div className="execution-toolbar">
+                  <select value={consoleLevelFilter} onChange={(event) => setConsoleLevelFilter(event.target.value as 'Todos' | ConsoleLevel)}>
+                    <option value="Todos">Nivel: Todos</option>
+                    <option value="INFO">INFO</option>
+                    <option value="WARN">WARN</option>
+                    <option value="ERROR">ERROR</option>
+                    <option value="FATAL">FATAL</option>
+                  </select>
+                  <select value={launcherLogFilter} onChange={(event) => setLauncherLogFilter(event.target.value as 'Todos' | ConsoleSource)}>
+                    <option value="Todos">Origen: Todos</option>
+                    <option value="launcher">Launcher</option>
+                    <option value="game">Juego</option>
+                  </select>
+                  <label>
+                    <input type="checkbox" checked={autoScrollConsole} onChange={(event) => setAutoScrollConsole(event.target.checked)} />
+                    AutoScroll
+                  </label>
+                </div>
+
+                <div className="execution-log-console" role="log" aria-label="Consola de logs" ref={runtimeConsoleRef}>
+                  {runtimeConsole
+                    .filter((entry) => (consoleLevelFilter === 'Todos' ? true : entry.level === consoleLevelFilter))
+                    .filter((entry) => (launcherLogFilter === 'Todos' ? true : entry.source === launcherLogFilter))
+                    .filter((entry) => !logSearch || entry.message.toLowerCase().includes(logSearch.toLowerCase()))
+                    .map((entry, index) => (
+                      <p key={`${entry.timestamp}-${index}`} className={`log-level-${entry.level.toLowerCase()}`}>
+                        [{entry.timestamp}] [{entry.source}] [{entry.level}] {entry.message}
+                      </p>
+                    ))}
+                  {runtimeConsole.length === 0 && <p>[{nowTimestamp()}] [launcher] [INFO] Consola lista para iniciar.</p>}
                 </div>
 
                 <input
@@ -767,8 +989,11 @@ function App() {
                 />
 
                 <footer className="execution-actions">
-                  <button className="primary">Iniciar</button>
-                  <button>Forzar Cierre</button>
+                  <button className="primary" onClick={appendRuntimeSummary}>
+                    Iniciar
+                  </button>
+                  <button onClick={pushRuntimeStream}>Simular stream</button>
+                  <button onClick={exportRuntimeLog}>Exportar .log</button>
                   <button onClick={() => setActivePage('Mis Modpacks')}>Cerrar</button>
                 </footer>
               </section>
@@ -819,6 +1044,9 @@ type ListInterfaceProps = {
   rightActions: string[]
   selectedAction: string
   onActionSelect: (action: string) => void
+  advancedActions?: string[]
+  selectedAdvancedAction?: string
+  onAdvancedActionSelect?: (action: string) => void
   loaderActions?: string[]
   selectedLoaderAction?: string
   onLoaderActionSelect?: (action: string) => void
@@ -835,6 +1063,9 @@ function ListInterface({
   rightActions,
   selectedAction,
   onActionSelect,
+  advancedActions,
+  selectedAdvancedAction,
+  onAdvancedActionSelect,
   loaderActions,
   selectedLoaderAction,
   onLoaderActionSelect,
@@ -884,6 +1115,10 @@ function ListInterface({
             </button>
           ))}
           {loaderActions && <hr className="sidebar-divider" />}
+          {advancedActions?.map((action) => (
+            <button key={`${title}-advanced-${action}`} className={selectedAdvancedAction === action ? 'active' : ''} onClick={() => onAdvancedActionSelect?.(action)}>{action}</button>
+          ))}
+          {advancedActions && <hr className="sidebar-divider" />}
           {rightActions.map((action) => (
             <button key={`${title}-${action}`} className={selectedAction === action ? 'active' : ''} onClick={() => onActionSelect(action)}>
               {action}

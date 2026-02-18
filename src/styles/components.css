@@ -37,19 +37,20 @@
 
 .cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.9rem;
 }
 
 .instance-card {
-  min-height: 100px;
-  background: #1e293b;
-  border: 1px solid var(--border);
-  border-radius: 0.7rem;
-  padding: 0.8rem;
+  min-height: 138px;
+  background: linear-gradient(165deg, #0f172a 0%, #1e293b 88%);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 0.9rem;
+  padding: 0.85rem;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  box-shadow: 0 16px 30px -28px #38bdf8;
 }
 
 .instance-card.clickable {
@@ -149,17 +150,16 @@
 
 .name-fields-with-console {
   display: grid;
-  grid-template-columns: minmax(260px, 420px) minmax(340px, 1fr);
-  gap: 0.7rem;
+  grid-template-columns: minmax(320px, 520px) minmax(340px, 1fr);
+  gap: 0.6rem;
   width: 100%;
-  margin-left: auto;
 }
 
 .name-fields {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  width: min(500px, 100%);
+  width: min(640px, 100%);
 }
 
 
@@ -240,7 +240,7 @@
 .table-body-scroll {
   overflow: auto;
   min-height: 0;
-  max-height: none;
+  max-height: 240px;
 }
 
 .table-row-button {
@@ -418,4 +418,44 @@
 .edit-main-content {
   min-height: 0;
   overflow: hidden;
+}
+
+
+.instance-group-chip {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 0.16rem 0.48rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, #0f172a);
+}
+
+.instance-card small {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  word-break: break-word;
+}
+
+.execution-toolbar {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.55rem 0.65rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.execution-toolbar select,
+.execution-toolbar label {
+  font-size: 0.78rem;
+}
+
+.log-level-info { color: #93c5fd; }
+.log-level-warn { color: #fde047; }
+.log-level-error { color: #fb7185; }
+.log-level-fatal {
+  color: #ef4444;
+  font-weight: 700;
+  background: color-mix(in srgb, #ef4444 16%, transparent);
 }
