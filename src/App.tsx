@@ -181,6 +181,7 @@ const sidebarMinWidth = 144
 const sidebarMaxWidth = 320
 const mojangManifestUrl = 'https://launchermeta.mojang.com/mc/game/version_manifest.json'
 const authSessionKey = 'launcher_microsoft_auth_session_v1'
+const authCodeRegenerateCooldownMs = 10_000
 
 function nowTimestamp() {
   return new Date().toLocaleTimeString('es-ES', { hour12: false })
@@ -284,6 +285,8 @@ function App() {
   const [authSession, setAuthSession] = useState<AuthSession | null>(null)
   const [isAuthReady, setIsAuthReady] = useState(false)
   const [isAuthenticating, setIsAuthenticating] = useState(false)
+  const [authRetryAt, setAuthRetryAt] = useState(0)
+  const [nowTick, setNowTick] = useState(() => Date.now())
   const [authStatus, setAuthStatus] = useState('')
   const [authError, setAuthError] = useState('')
   const [availableBrowsers, setAvailableBrowsers] = useState<BrowserOption[]>([])
@@ -316,6 +319,7 @@ function App() {
 
   const startMicrosoftLogin = async () => {
     if (isAuthenticating) return
+    if (Date.now() < authRetryAt) return
     setIsAuthenticating(true)
     setAuthError('')
     setAuthStatus('Preparando autenticación con Microsoft...')
@@ -374,10 +378,14 @@ function App() {
       const message = error instanceof Error ? error.message : String(error)
       setAuthError(message)
       setAuthStatus('')
+      setAuthRetryAt(Date.now() + authCodeRegenerateCooldownMs)
     } finally {
       setIsAuthenticating(false)
     }
   }
+
+  const authRetrySeconds = Math.max(0, Math.ceil((authRetryAt - nowTick) / 1000))
+  const isAuthCooldown = authRetrySeconds > 0
 
 
   const iconButtonStyle = instanceIconPreview.startsWith('data:image')
@@ -421,6 +429,12 @@ function App() {
     if (!autoScrollConsole || !runtimeConsoleRef.current) return
     runtimeConsoleRef.current.scrollTop = runtimeConsoleRef.current.scrollHeight
   }, [runtimeConsole, autoScrollConsole])
+
+  useEffect(() => {
+    if (!isAuthCooldown) return
+    const timer = window.setInterval(() => setNowTick(Date.now()), 250)
+    return () => window.clearInterval(timer)
+  }, [isAuthCooldown])
 
   useEffect(() => {
     if (!selectedCard) return
@@ -1206,9 +1220,10 @@ const onTopNavClick = (item: TopNavItem) => {
             <p>Para usar el launcher, autentícate con tu cuenta de Microsoft.</p>
             {authStatus && <p>{authStatus}</p>}
             {authError && <p style={{ color: '#fecaca' }}>{authError}</p>}
+            {isAuthCooldown && <p>Espera {authRetrySeconds}s antes de generar un nuevo código de inicio de sesión.</p>}
             <label style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
               <span>Selecciona navegador para el login</span>
-              <select value={selectedBrowserId} onChange={(event) => setSelectedBrowserId(event.target.value)} disabled={isAuthenticating}>
+              <select value={selectedBrowserId} onChange={(event) => setSelectedBrowserId(event.target.value)} disabled={isAuthenticating || isAuthCooldown}>
                 {availableBrowsers.map((browser) => (
                   <option key={browser.id} value={browser.id}>
                     {browser.name}
@@ -1217,11 +1232,15 @@ const onTopNavClick = (item: TopNavItem) => {
               </select>
             </label>
             <div className="floating-modal-actions" style={{ justifyContent: 'space-between' }}>
-              <button onClick={() => void loadAvailableBrowsers()} disabled={isAuthenticating}>
+              <button onClick={() => void loadAvailableBrowsers()} disabled={isAuthenticating || isAuthCooldown}>
                 Actualizar navegadores
               </button>
-              <button className="primary" onClick={() => void startMicrosoftLogin()} disabled={isAuthenticating}>
-                {isAuthenticating ? 'Conectando...' : 'Continuar con Microsoft'}
+              <button className="primary" onClick={() => void startMicrosoftLogin()} disabled={isAuthenticating || isAuthCooldown}>
+                {isAuthenticating
+                  ? 'Conectando...'
+                  : isAuthCooldown
+                    ? `Espera ${authRetrySeconds}s`
+                    : 'Continuar con Microsoft'}
               </button>
             </div>
           </section>
