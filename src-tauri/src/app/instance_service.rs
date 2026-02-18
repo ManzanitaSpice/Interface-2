@@ -292,7 +292,7 @@ pub fn validate_and_prepare_launch(
         resolved_libraries
             .native_jars
             .iter()
-            .map(|native| native.path.clone()),
+            .map(|native| PathBuf::from(&native.path)),
     );
     validate_jars_as_zip(&jars_to_validate)?;
     logs.push(format!(
