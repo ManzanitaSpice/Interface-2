@@ -1,4 +1,4 @@
-use std::{ffi::OsStr, fs, io::Cursor, path::Path, path::PathBuf};
+use std::{ffi::OsStr, fs, io::Cursor, path::Path, path::PathBuf, process::Command};
 
 use flate2::read::GzDecoder;
 use tar::Archive;
@@ -28,22 +28,50 @@ pub fn ensure_embedded_java(
     let runtime_root = root.join("runtime").join(runtime.as_dir_name());
     let java_exec = java_executable_path(&runtime_root);
     if java_exec.exists() {
-        logs.push(format!(
-            "Java {} ya instalado: {}",
-            runtime.major(),
-            java_exec.display()
-        ));
-        return Ok(java_exec);
+        if !is_runtime_healthy(&java_exec) {
+            logs.push(format!(
+                "⚠ Runtime existente parece corrupto/no ejecutable: {}. Se reinstalará.",
+                java_exec.display()
+            ));
+            fs::remove_dir_all(&runtime_root).map_err(|err| {
+                format!(
+                    "No se pudo limpiar runtime posiblemente corrupto {}: {err}",
+                    runtime_root.display()
+                )
+            })?;
+            fs::create_dir_all(&runtime_root)?;
+        } else {
+            logs.push(format!(
+                "Java {} ya instalado: {}",
+                runtime.major(),
+                java_exec.display()
+            ));
+            return Ok(java_exec);
+        }
     }
 
+<<<<<<< HEAD
     fs::create_dir_all(&runtime_root).map_err(|err| format!("Error creando directorio runtime: {err}"))?;
+=======
+    if !runtime_root.exists() {
+        fs::create_dir_all(&runtime_root)?;
+    }
+>>>>>>> f29a51f3173216c39b285ca8a28279bd4df35f7e
     logs.push(format!(
         "Java {} no encontrado. Iniciando descarga de runtime embebido oficial (Temurin).",
         runtime.major()
     ));
 
     let client = build_http_client()?;
-    let (download_url, expected_checksum, file_name) = resolve_temurin_asset(&client, runtime)?;
+    let (download_url, expected_checksum, file_name, selected_image_type) =
+        resolve_temurin_asset(&client, runtime)?;
+
+    if selected_image_type == "jdk" {
+        logs.push(
+            "⚠ No se encontró binario JRE para esta arquitectura/runtime. Se aplicó fallback a JDK."
+                .to_string(),
+        );
+    }
 
     logs.push(format!("Descargando: {download_url}"));
     let archive_bytes = client
@@ -62,6 +90,7 @@ pub fn ensure_embedded_java(
         "Checksum SHA-256 validado para Java {}.",
         runtime.major()
     ));
+    logs.push(format!("Hash SHA-256 runtime descargado: {archive_sha}"));
 
     extract_archive(&archive_bytes, &file_name, &runtime_root)?;
 
@@ -74,6 +103,14 @@ pub fn ensure_embedded_java(
     }
 
     let marker = runtime_root.join(".installed.json");
+    if marker.exists() {
+        logs.push(format!(
+            "⚠ Metadata existente preservada en {} (no sobrescrita automáticamente).",
+            marker.display()
+        ));
+        return Ok(java_exec);
+    }
+
     fs::write(
         &marker,
         serde_json::json!({
@@ -81,7 +118,9 @@ pub fn ensure_embedded_java(
             "javaMajor": runtime.major(),
             "downloadUrl": download_url,
             "checksum": expected_checksum,
+            "downloadedSha256": archive_sha,
             "archive": file_name,
+            "imageType": selected_image_type,
             "status": "installed"
         })
         .to_string(),
@@ -95,6 +134,16 @@ pub fn ensure_embedded_java(
     ));
 
     Ok(java_exec)
+}
+
+fn is_runtime_healthy(java_exec: &Path) -> bool {
+    Command::new(java_exec)
+        .arg("-version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 fn extract_archive(archive: &[u8], file_name: &str, destination: &Path) -> AppResult<()> {

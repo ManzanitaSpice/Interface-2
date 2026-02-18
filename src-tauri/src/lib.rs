@@ -20,7 +20,8 @@ pub fn run() {
             app::instance_service::open_instance_folder,
             app::instance_service::get_instance_metadata,
             app::instance_service::validate_and_prepare_launch,
-            app::instance_service::start_instance
+            app::instance_service::start_instance,
+            app::instance_service::get_runtime_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

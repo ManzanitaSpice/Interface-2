@@ -1,7 +1,11 @@
 use std::{
+    collections::HashMap,
     fs, io,
+    io::{BufRead, BufReader},
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::{Mutex, OnceLock},
+    thread,
 };
 
 use serde::Serialize;
@@ -38,6 +42,53 @@ pub struct StartInstanceResult {
     pub java_path: String,
     pub logs: Vec<String>,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeStatus {
+    pub running: bool,
+    pub pid: Option<u32>,
+    pub exit_code: Option<i32>,
+    pub stderr_tail: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct RuntimeState {
+    pid: Option<u32>,
+    running: bool,
+    exit_code: Option<i32>,
+    stderr_tail: Vec<String>,
+}
+
+static RUNTIME_REGISTRY: OnceLock<Mutex<HashMap<String, RuntimeState>>> = OnceLock::new();
+
+fn runtime_registry() -> &'static Mutex<HashMap<String, RuntimeState>> {
+    RUNTIME_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[tauri::command]
+pub fn get_runtime_status(instance_root: String) -> Result<RuntimeStatus, String> {
+    let registry = runtime_registry()
+        .lock()
+        .map_err(|_| "No se pudo bloquear el registro de runtime.".to_string())?;
+
+    if let Some(state) = registry.get(&instance_root) {
+        return Ok(RuntimeStatus {
+            running: state.running,
+            pid: state.pid,
+            exit_code: state.exit_code,
+            stderr_tail: state.stderr_tail.clone(),
+        });
+    }
+
+    Ok(RuntimeStatus {
+        running: false,
+        pid: None,
+        exit_code: None,
+        stderr_tail: Vec::new(),
+    })
+}
+
 #[tauri::command]
 pub fn open_instance_folder(path: String) -> Result<(), String> {
     let target = Path::new(&path);
@@ -332,7 +383,37 @@ pub fn validate_and_prepare_launch(
 
 #[tauri::command]
 pub fn start_instance(instance_root: String) -> Result<StartInstanceResult, String> {
-    let prepared = validate_and_prepare_launch(instance_root)?;
+    {
+        let mut registry = runtime_registry()
+            .lock()
+            .map_err(|_| "No se pudo bloquear el registro de runtime.".to_string())?;
+        if let Some(state) = registry.get(&instance_root)
+            && state.running
+        {
+            return Err(
+                "La instancia ya está ejecutándose; no se permite doble ejecución.".to_string(),
+            );
+        }
+        registry.insert(
+            instance_root.clone(),
+            RuntimeState {
+                pid: None,
+                running: true,
+                exit_code: None,
+                stderr_tail: Vec::new(),
+            },
+        );
+    }
+
+    let prepared = match validate_and_prepare_launch(instance_root.clone()) {
+        Ok(value) => value,
+        Err(err) => {
+            if let Ok(mut registry) = runtime_registry().lock() {
+                registry.remove(&instance_root);
+            }
+            return Err(err);
+        }
+    };
 
     let mut command = Command::new(&prepared.java_path);
     command
@@ -342,16 +423,79 @@ pub fn start_instance(instance_root: String) -> Result<StartInstanceResult, Stri
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let child = command
+    let mut child = match command
         .spawn()
-        .map_err(|err| format!("No se pudo iniciar java para la instancia: {err}"))?;
+        .map_err(|err| format!("No se pudo iniciar java para la instancia: {err}"))
+    {
+        Ok(child) => child,
+        Err(err) => {
+            if let Ok(mut registry) = runtime_registry().lock() {
+                registry.remove(&instance_root);
+            }
+            return Err(err);
+        }
+    };
+
+    let pid = child.id();
+    if let Ok(mut registry) = runtime_registry().lock()
+        && let Some(state) = registry.get_mut(&instance_root)
+    {
+        state.pid = Some(pid);
+    }
+
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let instance_root_for_thread = instance_root.clone();
+
+    thread::spawn(move || {
+        let mut stderr_tail = Vec::<String>::new();
+
+        if let Some(stdout_pipe) = stdout {
+            let reader = BufReader::new(stdout_pipe);
+            for line in reader.lines().map_while(Result::ok) {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                log::info!("[MC-STDOUT][{}] {}", instance_root_for_thread, line);
+            }
+        }
+
+        if let Some(stderr_pipe) = stderr {
+            let reader = BufReader::new(stderr_pipe);
+            for line in reader.lines().map_while(Result::ok) {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                log::warn!("[MC-STDERR][{}] {}", instance_root_for_thread, line);
+                stderr_tail.push(line);
+                if stderr_tail.len() > 100 {
+                    let drop_count = stderr_tail.len() - 100;
+                    stderr_tail.drain(0..drop_count);
+                }
+            }
+        }
+
+        let exit_code = child.wait().ok().and_then(|status| status.code());
+
+        if let Ok(mut registry) = runtime_registry().lock() {
+            registry.insert(
+                instance_root_for_thread,
+                RuntimeState {
+                    pid: Some(pid),
+                    running: false,
+                    exit_code,
+                    stderr_tail,
+                },
+            );
+        }
+    });
 
     Ok(StartInstanceResult {
-        pid: child.id(),
+        pid,
         java_path: prepared.java_path,
         logs: vec![
             "Comando de lanzamiento ejecutado con argumentos validados.".to_string(),
-            "Salida estándar y de error conectadas para streaming en consola.".to_string(),
+            "Salida estándar y de error conectadas para monitoreo; exit_code persistido al finalizar.".to_string(),
         ],
     })
 }

@@ -39,7 +39,7 @@ pub fn build_http_client() -> AppResult<Client> {
 pub fn resolve_temurin_asset(
     client: &Client,
     runtime: JavaRuntime,
-) -> AppResult<(String, String, String)> {
+) -> AppResult<(String, String, String, String)> {
     let arch = detect_architecture()?;
     let os = current_os();
 
@@ -67,7 +67,7 @@ pub fn resolve_temurin_asset(
             })
             .map(|binary| binary.package)
         {
-            return build_asset_tuple(client, package);
+            return build_asset_tuple(client, package, image_type);
         }
 
         last_error = format!(
@@ -84,7 +84,8 @@ pub fn resolve_temurin_asset(
 fn build_asset_tuple(
     client: &Client,
     package: AdoptiumBinaryPackage,
-) -> AppResult<(String, String, String)> {
+    image_type: &str,
+) -> AppResult<(String, String, String, String)> {
     let download_link = package.link;
     let file_name = if package.name.trim().is_empty() {
         download_link
@@ -114,5 +115,5 @@ fn build_asset_tuple(
         package.checksum
     };
 
-    Ok((download_link, checksum, file_name))
+    Ok((download_link, checksum, file_name, image_type.to_string()))
 }
