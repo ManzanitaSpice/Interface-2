@@ -118,18 +118,16 @@
   border-color: var(--accent);
 }
 
-.sidebar-resize-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.45rem;
-  margin-bottom: 0.35rem;
+
+.sidebar-resize-handle {
+  width: 6px;
+  cursor: col-resize;
+  background: color-mix(in srgb, var(--border) 65%, transparent);
 }
 
-.sidebar-resize-actions button {
-  font-size: 1rem;
-  font-weight: 700;
-  min-height: 36px;
-  padding: 0;
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle:active {
+  background: var(--accent);
 }
 
 .third-top-bar {
@@ -147,11 +145,40 @@
   font-size: 1.5rem;
 }
 
+.name-fields-with-console {
+  display: grid;
+  grid-template-columns: minmax(260px, 440px) minmax(220px, 1fr);
+  gap: 0.7rem;
+  width: min(980px, 100%);
+}
+
 .name-fields {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
   width: min(500px, 100%);
+}
+
+
+.creation-mini-console {
+  min-height: 74px;
+  max-height: 96px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  background: #020617;
+  padding: 0.45rem 0.55rem;
+  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+}
+
+.creation-mini-console p {
+  margin: 0 0 0.3rem;
+  color: #cbd5e1;
+}
+
+.creation-mini-console p:last-child {
+  margin-bottom: 0;
 }
 
 .customized-content {

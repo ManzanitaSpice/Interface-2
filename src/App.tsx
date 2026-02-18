@@ -1,4 +1,5 @@
-import { useMemo, useState, type CSSProperties, type Dispatch, type SetStateAction } from 'react'
+import { invoke } from '@tauri-apps/api/core'
+import { useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import './App.css'
 
 type TopNavItem = 'Mis Modpacks' | 'Novedades' | 'Explorador' | 'Servers' | 'Configuración Global'
@@ -13,7 +14,7 @@ type MainPage =
   | 'Editar Instancia'
 
 type InstanceCard = {
-  id: number
+  id: string
   name: string
   group: string
 }
@@ -41,48 +42,30 @@ type EditSection =
   | 'Permisos'
   | 'Avanzado'
 
-const topNavItems: TopNavItem[] = [
-  'Mis Modpacks',
-  'Novedades',
-  'Explorador',
-  'Servers',
-  'Configuración Global',
-]
+type CreateInstanceResult = {
+  id: string
+  name: string
+  group: string
+  logs: string[]
+}
 
-const creatorSections: CreatorSection[] = [
-  'Personalizado',
-  'Vanilla',
-  'Forge',
-  'Fabric',
-  'Quilt',
-  'NeoForge',
-  'Snapshot',
-  'Importar',
-]
+const topNavItems: TopNavItem[] = ['Mis Modpacks', 'Novedades', 'Explorador', 'Servers', 'Configuración Global']
 
-const editSections: EditSection[] = [
-  'Ejecución',
-  'Información',
-  'Versiones',
-  'Mods',
-  'Recursos',
-  'Java',
-  'Backups',
-  'Logs',
-  'Red',
-  'Permisos',
-  'Avanzado',
-]
+const creatorSections: CreatorSection[] = ['Personalizado', 'Vanilla', 'Forge', 'Fabric', 'Quilt', 'NeoForge', 'Snapshot', 'Importar']
 
-const groups = ['Sin grupo']
+const editSections: EditSection[] = ['Ejecución', 'Información', 'Versiones', 'Mods', 'Recursos', 'Java', 'Backups', 'Logs', 'Red', 'Permisos', 'Avanzado']
+
 const instanceActions = ['Iniciar', 'Forzar Cierre', 'Editar', 'Cambiar Grupo', 'Carpeta', 'Exportar', 'Copiar', 'Crear atajo']
+const defaultGroup = 'Sin grupo'
+const sidebarMinWidth = 144
+const sidebarMaxWidth = 320
 
 function App() {
-  const [activePage, setActivePage] = useState<MainPage>('Inicio')
+  const [activePage, setActivePage] = useState<MainPage>('Mis Modpacks')
   const [cards, setCards] = useState<InstanceCard[]>([])
   const [selectedCreatorSection, setSelectedCreatorSection] = useState<CreatorSection>('Personalizado')
   const [instanceName, setInstanceName] = useState('')
-  const [groupName, setGroupName] = useState(groups[0])
+  const [groupName, setGroupName] = useState(defaultGroup)
   const [instanceSearch, setInstanceSearch] = useState('')
   const [minecraftSearch, setMinecraftSearch] = useState('')
   const [loaderSearch, setLoaderSearch] = useState('')
@@ -91,6 +74,8 @@ function App() {
   const [logSearch, setLogSearch] = useState('')
   const [creatorSidebarWidth, setCreatorSidebarWidth] = useState(168)
   const [editSidebarWidth, setEditSidebarWidth] = useState(168)
+  const [creationConsoleLogs, setCreationConsoleLogs] = useState<string[]>([])
+  const [isCreating, setIsCreating] = useState(false)
 
   const filteredCards = useMemo(() => {
     const term = instanceSearch.trim().toLowerCase()
@@ -98,23 +83,45 @@ function App() {
       return cards
     }
 
-    return cards.filter(
-      (card) => card.name.toLowerCase().includes(term) || card.group.toLowerCase().includes(term),
-    )
+    return cards.filter((card) => card.name.toLowerCase().includes(term) || card.group.toLowerCase().includes(term))
   }, [cards, instanceSearch])
 
-  const createInstance = () => {
+  const createInstance = async () => {
     const cleanName = instanceName.trim()
-    if (!cleanName) {
+    if (!cleanName || isCreating) {
       return
     }
 
-    const created = { id: Date.now(), name: cleanName, group: groupName }
-    setCards((prev) => [...prev, created])
-    setSelectedCard(created)
-    setInstanceName('')
-    setGroupName(groups[0])
-    setActivePage('Mis Modpacks')
+    const cleanGroup = groupName.trim() || defaultGroup
+    setIsCreating(true)
+    setCreationConsoleLogs(['Iniciando creación de instancia...'])
+
+    try {
+      const result = await invoke<CreateInstanceResult>('create_instance', {
+        payload: {
+          name: cleanName,
+          group: cleanGroup,
+          minecraftVersion: '1.21.4',
+          loader: 'fabric',
+          loaderVersion: '0.16',
+          ramMb: 4096,
+          javaArgs: ['-XX:+UseG1GC'],
+        },
+      })
+
+      const created = { id: result.id, name: result.name, group: result.group }
+      setCards((prev) => [...prev, created])
+      setSelectedCard(created)
+      setCreationConsoleLogs(result.logs)
+      setInstanceName('')
+      setGroupName(defaultGroup)
+      setActivePage('Mis Modpacks')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setCreationConsoleLogs((prev) => [...prev, `Error: ${message}`])
+    } finally {
+      setIsCreating(false)
+    }
   }
 
   const onTopNavClick = (item: TopNavItem) => {
@@ -135,14 +142,38 @@ function App() {
     setActivePage('Editar Instancia')
   }
 
-  const resizeSidebar = (
-    setter: Dispatch<SetStateAction<number>>,
-    direction: 'narrower' | 'wider',
+  const startSidebarDrag = (
+    event: ReactPointerEvent<HTMLDivElement>,
+    setter: (value: number) => void,
+    initialWidth: number,
+    direction: 'right' | 'left',
   ) => {
-    setter((prev) => {
-      const delta = direction === 'wider' ? 16 : -16
-      return Math.max(144, Math.min(280, prev + delta))
-    })
+    event.preventDefault()
+    const pointerId = event.pointerId
+    const startX = event.clientX
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      const delta = moveEvent.clientX - startX
+      const nextWidth = direction === 'right' ? initialWidth + delta : initialWidth - delta
+      const clamped = Math.max(sidebarMinWidth, Math.min(sidebarMaxWidth, nextWidth))
+      setter(clamped)
+    }
+
+    const stopDrag = () => {
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', stopDrag)
+      window.removeEventListener('pointercancel', stopDrag)
+    }
+
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', stopDrag)
+    window.addEventListener('pointercancel', stopDrag)
+
+    try {
+      event.currentTarget.setPointerCapture(pointerId)
+    } catch {
+      // No-op if pointer capture is not available.
+    }
   }
 
   return (
@@ -198,9 +229,7 @@ function App() {
             <h2>Panel de Instancias</h2>
             <div className={`instances-workspace ${selectedCard ? 'with-right-panel' : ''}`}>
               <div className="cards-grid instances-grid-area">
-                {filteredCards.length === 0 && (
-                  <article className="instance-card placeholder">No hay instancias para mostrar.</article>
-                )}
+                {filteredCards.length === 0 && <article className="instance-card placeholder">No hay instancias para mostrar.</article>}
                 {filteredCards.map((card) => (
                   <article
                     key={card.id}
@@ -221,11 +250,7 @@ function App() {
                   </header>
                   <div className="instance-right-actions">
                     {instanceActions.map((action) => (
-                      <button
-                        key={action}
-                        className={action === 'Editar' ? 'primary' : ''}
-                        onClick={action === 'Editar' ? openEditor : undefined}
-                      >
+                      <button key={action} className={action === 'Editar' ? 'primary' : ''} onClick={action === 'Editar' ? openEditor : undefined}>
                         {action}
                       </button>
                     ))}
@@ -252,40 +277,45 @@ function App() {
       {activePage === 'Creador de Instancias' && (
         <main className="creator-layout" style={{ '--sidebar-width': `${creatorSidebarWidth}px` } as CSSProperties}>
           <aside className="compact-sidebar left">
-            <div className="sidebar-resize-actions">
-              <button onClick={() => resizeSidebar(setCreatorSidebarWidth, 'narrower')}>−</button>
-              <button onClick={() => resizeSidebar(setCreatorSidebarWidth, 'wider')}>+</button>
-            </div>
             {creatorSections.map((section) => (
-              <button
-                key={section}
-                className={selectedCreatorSection === section ? 'active' : ''}
-                onClick={() => setSelectedCreatorSection(section)}
-              >
+              <button key={section} className={selectedCreatorSection === section ? 'active' : ''} onClick={() => setSelectedCreatorSection(section)}>
                 {section}
               </button>
             ))}
           </aside>
+          <div
+            className="sidebar-resize-handle"
+            role="separator"
+            aria-label="Redimensionar barra lateral del creador"
+            onPointerDown={(event) => startSidebarDrag(event, setCreatorSidebarWidth, creatorSidebarWidth, 'right')}
+          />
 
           <section className="creator-main">
             <header className="third-top-bar">
               <button className="icon-button" aria-label="Icono principal">
                 ⛏
               </button>
-              <div className="name-fields">
-                <input
-                  type="text"
-                  placeholder="Nombre de la instancia"
-                  value={instanceName}
-                  onChange={(event) => setInstanceName(event.target.value)}
-                />
-                <select value={groupName} onChange={(event) => setGroupName(event.target.value)}>
-                  {groups.map((group) => (
-                    <option key={group} value={group}>
-                      {group}
-                    </option>
+              <div className="name-fields-with-console">
+                <div className="name-fields">
+                  <input
+                    type="text"
+                    placeholder="Nombre de la instancia"
+                    value={instanceName}
+                    onChange={(event) => setInstanceName(event.target.value)}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Grupo (editable, por ejemplo: Vanilla PvP)"
+                    value={groupName}
+                    onChange={(event) => setGroupName(event.target.value)}
+                  />
+                </div>
+                <aside className="creation-mini-console" role="log" aria-label="Consola de creación">
+                  {creationConsoleLogs.length === 0 && <p>Consola lista. Aquí verás la creación e instalación de la instancia.</p>}
+                  {creationConsoleLogs.map((line, index) => (
+                    <p key={`creation-log-${index}`}>{line}</p>
                   ))}
-                </select>
+                </aside>
               </div>
             </header>
 
@@ -320,8 +350,8 @@ function App() {
             )}
 
             <footer className="creator-footer-actions">
-              <button className="primary" onClick={createInstance}>
-                Ok
+              <button className="primary" onClick={createInstance} disabled={isCreating}>
+                {isCreating ? 'Creando...' : 'Ok'}
               </button>
               <button onClick={() => setActivePage('Mis Modpacks')}>Cancelar</button>
             </footer>
@@ -332,20 +362,18 @@ function App() {
       {activePage === 'Editar Instancia' && selectedCard && (
         <main className="edit-instance-layout" style={{ '--sidebar-width': `${editSidebarWidth}px` } as CSSProperties}>
           <aside className="edit-left-sidebar">
-            <div className="sidebar-resize-actions">
-              <button onClick={() => resizeSidebar(setEditSidebarWidth, 'narrower')}>−</button>
-              <button onClick={() => resizeSidebar(setEditSidebarWidth, 'wider')}>+</button>
-            </div>
             {editSections.map((section) => (
-              <button
-                key={section}
-                className={selectedEditSection === section ? 'active' : ''}
-                onClick={() => setSelectedEditSection(section)}
-              >
+              <button key={section} className={selectedEditSection === section ? 'active' : ''} onClick={() => setSelectedEditSection(section)}>
                 {section}
               </button>
             ))}
           </aside>
+          <div
+            className="sidebar-resize-handle"
+            role="separator"
+            aria-label="Redimensionar barra lateral de edición"
+            onPointerDown={(event) => startSidebarDrag(event, setEditSidebarWidth, editSidebarWidth, 'right')}
+          />
 
           <section className="edit-main-content">
             <header className="edit-top-bar">
@@ -363,8 +391,7 @@ function App() {
                 <div className="execution-log-console" role="log" aria-label="Consola de logs">
                   {[...Array(18)].map((_, index) => (
                     <p key={`log-${index}`}>
-                      [{`12:${(index + 10).toString().padStart(2, '0')}:08`}] Instancia {selectedCard.name} - línea de log
-                      #{index + 1}
+                      [{`12:${(index + 10).toString().padStart(2, '0')}:08`}] Instancia {selectedCard.name} - línea de log #{index + 1}
                     </p>
                   ))}
                 </div>
@@ -414,11 +441,7 @@ function SecondaryTopBar({ activePage, onNavigate }: SecondaryTopBarProps) {
   return (
     <nav className="top-bar secondary">
       {topNavItems.map((item) => (
-        <button
-          key={item}
-          onClick={() => onNavigate(item)}
-          className={activePage === item ? 'active' : ''}
-        >
+        <button key={item} onClick={() => onNavigate(item)} className={activePage === item ? 'active' : ''}>
           {item}
         </button>
       ))}

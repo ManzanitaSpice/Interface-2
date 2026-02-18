@@ -59,3 +59,15 @@ button.primary {
 button.primary:hover {
   background: var(--accent-hover);
 }
+
+html,
+body,
+#root,
+.app-shell {
+  scrollbar-width: none;
+}
+
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}

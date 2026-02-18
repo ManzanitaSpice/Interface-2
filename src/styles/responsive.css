@@ -16,6 +16,10 @@
     grid-template-columns: 1fr;
   }
 
+  .name-fields-with-console {
+    grid-template-columns: 1fr;
+  }
+
   .mini-right-sidebar {
     flex-direction: row;
     flex-wrap: wrap;
