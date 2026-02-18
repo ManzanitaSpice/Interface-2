@@ -1,0 +1,1 @@
+// Metadatos del loader.

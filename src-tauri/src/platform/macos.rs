@@ -1,0 +1,1 @@
+// Soporte específico de macOS.

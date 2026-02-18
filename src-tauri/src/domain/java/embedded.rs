@@ -1,0 +1,1 @@
+// Contratos para runtimes embebidos.
