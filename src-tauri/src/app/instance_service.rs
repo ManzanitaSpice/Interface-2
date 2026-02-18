@@ -722,14 +722,16 @@ pub async fn start_instance(
         }
     });
 
+    let java_path = prepared.java_path.clone();
+
     Ok(StartInstanceResult {
         pid,
-        java_path: prepared.java_path,
+        java_path,
         logs: vec![
             "Comando de lanzamiento ejecutado con argumentos validados.".to_string(),
             format!(
                 "Comando final ejecutado: {}",
-                std::iter::once(prepared.java_path.clone())
+                std::iter::once(prepared.java_path)
                     .chain(prepared.jvm_args.iter().cloned())
                     .chain(std::iter::once(prepared.main_class.clone()))
                     .chain(prepared.game_args.iter().cloned())
