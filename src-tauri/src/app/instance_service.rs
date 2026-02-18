@@ -1,15 +1,19 @@
 use std::{
-    fs,
+    fs, io,
     path::{Path, PathBuf},
     process::Command,
 };
 
 use serde::Serialize;
 use serde_json::Value;
+use zip::ZipArchive;
 
 use crate::{
     domain::{
-        minecraft::{argument_resolver::{resolve_launch_arguments, LaunchContext}, rule_engine::RuleContext},
+        minecraft::{
+            argument_resolver::{resolve_launch_arguments, LaunchContext},
+            rule_engine::RuleContext,
+        },
         models::instance::InstanceMetadata,
     },
     infrastructure::filesystem::paths::java_executable_path,
@@ -89,7 +93,9 @@ pub fn get_instance_metadata(instance_root: String) -> Result<InstanceMetadata, 
 }
 
 #[tauri::command]
-pub fn validate_and_prepare_launch(instance_root: String) -> Result<LaunchValidationResult, String> {
+pub fn validate_and_prepare_launch(
+    instance_root: String,
+) -> Result<LaunchValidationResult, String> {
     let instance_path = Path::new(&instance_root);
     if !instance_path.exists() {
         return Err("La instancia no existe en disco.".to_string());
@@ -114,7 +120,10 @@ pub fn validate_and_prepare_launch(instance_root: String) -> Result<LaunchValida
     if !java_output.status.success() {
         return Err(format!("java -version falló: {}", java_version_text.trim()));
     }
-    logs.push(format!("✔ java -version detectado: {}", first_line(&java_version_text)));
+    logs.push(format!(
+        "✔ java -version detectado: {}",
+        first_line(&java_version_text)
+    ));
 
     let mc_root = instance_path.join("minecraft");
     let versions_dir = mc_root.join("versions").join(&metadata.minecraft_version);
@@ -131,13 +140,55 @@ pub fn validate_and_prepare_launch(instance_root: String) -> Result<LaunchValida
     let version_json: Value = serde_json::from_str(&version_raw)
         .map_err(|err| format!("version.json inválido: {err}"))?;
 
-    let libs = build_classpath_entries(&mc_root, &version_json, &RuleContext::current());
-    if libs.is_empty() {
-        return Err("Classpath vacío: no hay librerías válidas para el OS/arch actual.".to_string());
+    let rule_context = RuleContext::current();
+    let resolved_libraries = resolve_libraries(&mc_root, &version_json, &rule_context);
+
+    if resolved_libraries.classpath_entries.is_empty() {
+        return Err(
+            "Classpath vacío: no hay librerías válidas para el OS/arch actual.".to_string(),
+        );
     }
 
-    let missing_libs = libs.iter().filter(|path| !Path::new(path).exists()).count();
-    logs.push(format!("✔ libraries evaluadas: {} (faltantes: {})", libs.len(), missing_libs));
+    if !resolved_libraries.missing_classpath_entries.is_empty() {
+        return Err(format!(
+            "Hay librerías faltantes en disco ({}). Ejemplo: {}",
+            resolved_libraries.missing_classpath_entries.len(),
+            resolved_libraries
+                .missing_classpath_entries
+                .iter()
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(" | ")
+        ));
+    }
+
+    if !resolved_libraries.missing_native_entries.is_empty() {
+        return Err(format!(
+            "Faltan nativos requeridos para el OS actual ({}). Ejemplo: {}",
+            resolved_libraries.missing_native_entries.len(),
+            resolved_libraries
+                .missing_native_entries
+                .iter()
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(" | ")
+        ));
+    }
+
+    logs.push(format!(
+        "✔ libraries evaluadas: {} (faltantes: 0)",
+        resolved_libraries.classpath_entries.len()
+    ));
+
+    let natives_dir = mc_root.join("natives");
+    extract_natives(&resolved_libraries.native_jars, &natives_dir)?;
+    logs.push(format!(
+        "✔ natives extraídos: {} archivos fuente en {}",
+        resolved_libraries.native_jars.len(),
+        natives_dir.display()
+    ));
 
     let assets_index_name = version_json
         .get("assetIndex")
@@ -153,16 +204,29 @@ pub fn validate_and_prepare_launch(instance_root: String) -> Result<LaunchValida
     logs.push(if assets_index.exists() {
         format!("✔ assets index presente: {}", assets_index.display())
     } else {
-        format!("⚠ assets index no encontrado todavía: {}", assets_index.display())
+        format!(
+            "⚠ assets index no encontrado todavía: {}",
+            assets_index.display()
+        )
     });
 
     logs.push("🔹 2. Preparación de ejecución".to_string());
 
-    let sep = if cfg!(target_os = "windows") { ";" } else { ":" };
-    let mut classpath_entries = libs;
+    let sep = if cfg!(target_os = "windows") {
+        ";"
+    } else {
+        ":"
+    };
+    let mut classpath_entries = resolved_libraries.classpath_entries;
     classpath_entries.push(client_jar.display().to_string());
     let classpath = classpath_entries.join(sep);
-    logs.push(format!("✔ classpath construido ({} entradas)", classpath_entries.len()));
+    if classpath.trim().is_empty() {
+        return Err("Classpath vacío luego del ensamblado final.".to_string());
+    }
+    logs.push(format!(
+        "✔ classpath construido ({} entradas)",
+        classpath_entries.len()
+    ));
 
     let java_exec_default = java_executable_path(
         &instance_path
@@ -176,12 +240,12 @@ pub fn validate_and_prepare_launch(instance_root: String) -> Result<LaunchValida
 
     let launch_context = LaunchContext {
         classpath: classpath.clone(),
-        natives_dir: mc_root.join("natives").display().to_string(),
+        natives_dir: natives_dir.display().to_string(),
         launcher_name: "Interface-2".to_string(),
         launcher_version: env!("CARGO_PKG_VERSION").to_string(),
         auth_player_name: "Player".to_string(),
         auth_uuid: uuid::Uuid::new_v4().to_string(),
-        auth_access_token: "offline-token".to_string(),
+        auth_access_token: "0".to_string(),
         user_type: "offline".to_string(),
         user_properties: "{}".to_string(),
         version_name: metadata.minecraft_version.clone(),
@@ -195,11 +259,20 @@ pub fn validate_and_prepare_launch(instance_root: String) -> Result<LaunchValida
             .to_string(),
     };
 
-    let mut resolved = resolve_launch_arguments(&version_json, &launch_context, &RuleContext::current())?;
-    let memory_args = vec![format!("-Xms{}M", metadata.ram_mb.max(512) / 2), format!("-Xmx{}M", metadata.ram_mb.max(512))];
+    let mut resolved =
+        resolve_launch_arguments(&version_json, &launch_context, &RuleContext::current())?;
+    let memory_args = vec![
+        format!("-Xms{}M", metadata.ram_mb.max(512) / 2),
+        format!("-Xmx{}M", metadata.ram_mb.max(512)),
+    ];
     let mut jvm_args = memory_args;
     jvm_args.extend(metadata.java_args.clone());
     jvm_args.append(&mut resolved.jvm);
+
+    if !contains_classpath_switch(&jvm_args) {
+        jvm_args.push("-cp".to_string());
+        jvm_args.push(classpath.clone());
+    }
 
     let unresolved_vars = jvm_args
         .iter()
@@ -220,9 +293,14 @@ pub fn validate_and_prepare_launch(instance_root: String) -> Result<LaunchValida
         )
     });
     logs.push("🔹 4. Lanzamiento del proceso".to_string());
-    logs.push("✔ Comando Java preparado con redirección de salida y consola en tiempo real".to_string());
+    logs.push(
+        "✔ Comando Java preparado con redirección de salida y consola en tiempo real".to_string(),
+    );
     logs.push("🔹 5. Monitoreo".to_string());
-    logs.push("✔ Estrategia: detectar excepciones fatales, cierre inesperado y código de salida".to_string());
+    logs.push(
+        "✔ Estrategia: detectar excepciones fatales, cierre inesperado y código de salida"
+            .to_string(),
+    );
     logs.push("🔹 6. Finalización".to_string());
     logs.push("✔ Manejo de cierre normal/error y persistencia de log completo".to_string());
 
@@ -242,52 +320,240 @@ pub fn validate_and_prepare_launch(instance_root: String) -> Result<LaunchValida
 }
 
 fn first_line(text: &str) -> String {
-    text.lines().next().unwrap_or("desconocido").trim().to_string()
+    text.lines()
+        .next()
+        .unwrap_or("desconocido")
+        .trim()
+        .to_string()
 }
 
-fn build_classpath_entries(mc_root: &Path, version_json: &Value, rule_context: &RuleContext) -> Vec<String> {
-    version_json
+#[derive(Debug, Clone)]
+struct NativeJar {
+    path: PathBuf,
+    excludes: Vec<String>,
+}
+
+#[derive(Debug, Default)]
+struct ResolvedLibraries {
+    classpath_entries: Vec<String>,
+    missing_classpath_entries: Vec<String>,
+    native_jars: Vec<NativeJar>,
+    missing_native_entries: Vec<String>,
+}
+
+fn resolve_libraries(
+    mc_root: &Path,
+    version_json: &Value,
+    rule_context: &RuleContext,
+) -> ResolvedLibraries {
+    let mut resolved = ResolvedLibraries::default();
+
+    let libraries = version_json
         .get("libraries")
         .and_then(Value::as_array)
         .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|lib| {
-            let rules = lib
-                .get("rules")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            if !crate::domain::minecraft::rule_engine::evaluate_rules(&rules, rule_context) {
-                return None;
-            }
+        .unwrap_or_default();
 
-            let artifact_path = lib
-                .get("downloads")
-                .and_then(|d| d.get("artifact"))
-                .and_then(|a| a.get("path"))
-                .and_then(Value::as_str)
-                .map(|p| mc_root.join("libraries").join(p).display().to_string());
+    for lib in libraries {
+        let rules = lib
+            .get("rules")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if !crate::domain::minecraft::rule_engine::evaluate_rules(&rules, rule_context) {
+            continue;
+        }
 
-            if artifact_path.is_some() {
-                return artifact_path;
-            }
+        let artifact_path = lib
+            .get("downloads")
+            .and_then(|d| d.get("artifact"))
+            .and_then(|a| a.get("path"))
+            .and_then(Value::as_str)
+            .map(|p| mc_root.join("libraries").join(p).display().to_string());
 
-            let name = lib.get("name").and_then(Value::as_str)?;
-            let segments: Vec<&str> = name.split(':').collect();
-            if segments.len() != 3 {
-                return None;
+        if artifact_path.is_some() {
+            let cp_path = artifact_path.expect("artifact_path checked as some");
+            if Path::new(&cp_path).exists() {
+                resolved.classpath_entries.push(cp_path);
+            } else {
+                resolved.missing_classpath_entries.push(cp_path);
             }
-            let group_path = segments[0].replace('.', "/");
-            let artifact = segments[1];
-            let version = segments[2];
-            let path = mc_root
-                .join("libraries")
-                .join(group_path)
-                .join(artifact)
-                .join(version)
-                .join(format!("{artifact}-{version}.jar"));
-            Some(path.display().to_string())
+        } else if let Some(fallback_path) = build_maven_library_path(mc_root, &lib) {
+            if Path::new(&fallback_path).exists() {
+                resolved.classpath_entries.push(fallback_path);
+            } else {
+                resolved.missing_classpath_entries.push(fallback_path);
+            }
+        }
+
+        if let Some(native) = resolve_native_jar(mc_root, &lib, rule_context) {
+            if native.path.exists() {
+                resolved.native_jars.push(native);
+            } else {
+                resolved
+                    .missing_native_entries
+                    .push(native.path.display().to_string());
+            }
+        }
+    }
+
+    resolved
+}
+
+fn build_maven_library_path(mc_root: &Path, lib: &Value) -> Option<String> {
+    let name = lib.get("name").and_then(Value::as_str)?;
+    let segments: Vec<&str> = name.split(':').collect();
+    if segments.len() != 3 {
+        return None;
+    }
+    let group_path = segments[0].replace('.', "/");
+    let artifact = segments[1];
+    let version = segments[2];
+    let path = mc_root
+        .join("libraries")
+        .join(group_path)
+        .join(artifact)
+        .join(version)
+        .join(format!("{artifact}-{version}.jar"));
+    Some(path.display().to_string())
+}
+
+fn resolve_native_jar(
+    mc_root: &Path,
+    lib: &Value,
+    rule_context: &RuleContext,
+) -> Option<NativeJar> {
+    let os_key = match rule_context.os_name {
+        crate::domain::minecraft::rule_engine::OsName::Windows => "windows",
+        crate::domain::minecraft::rule_engine::OsName::Linux => "linux",
+        crate::domain::minecraft::rule_engine::OsName::Macos => "osx",
+        crate::domain::minecraft::rule_engine::OsName::Unknown => return None,
+    };
+
+    let classifier_raw = lib
+        .get("natives")
+        .and_then(|value| value.get(os_key))
+        .and_then(Value::as_str)?;
+    let classifier = classifier_raw.replace("${arch}", &rule_context.arch);
+
+    let native_path = lib
+        .get("downloads")
+        .and_then(|d| d.get("classifiers"))
+        .and_then(|c| c.get(&classifier))
+        .and_then(|entry| entry.get("path"))
+        .and_then(Value::as_str)
+        .map(|path| mc_root.join("libraries").join(path));
+
+    let Some(path) = native_path else {
+        return None;
+    };
+
+    let excludes = lib
+        .get("extract")
+        .and_then(|extract| extract.get("exclude"))
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
         })
-        .collect()
+        .unwrap_or_default();
+
+    Some(NativeJar { path, excludes })
+}
+
+fn extract_natives(native_jars: &[NativeJar], natives_dir: &Path) -> Result<(), String> {
+    if natives_dir.exists() {
+        fs::remove_dir_all(natives_dir).map_err(|err| {
+            format!(
+                "No se pudo limpiar directorio de natives {}: {err}",
+                natives_dir.display()
+            )
+        })?;
+    }
+    fs::create_dir_all(natives_dir).map_err(|err| {
+        format!(
+            "No se pudo crear directorio de natives {}: {err}",
+            natives_dir.display()
+        )
+    })?;
+
+    for native in native_jars {
+        let file = fs::File::open(&native.path).map_err(|err| {
+            format!(
+                "No se pudo abrir native jar {}: {err}",
+                native.path.display()
+            )
+        })?;
+        let mut zip = ZipArchive::new(file)
+            .map_err(|err| format!("Native jar inválido {}: {err}", native.path.display()))?;
+
+        for i in 0..zip.len() {
+            let mut entry = zip.by_index(i).map_err(|err| {
+                format!(
+                    "No se pudo leer entrada native en {}: {err}",
+                    native.path.display()
+                )
+            })?;
+            let entry_name = entry.name().replace('\\', "/");
+
+            if should_skip_native_entry(&entry_name, &native.excludes) {
+                continue;
+            }
+
+            let out_path = natives_dir.join(&entry_name);
+            if entry.is_dir() {
+                fs::create_dir_all(&out_path).map_err(|err| {
+                    format!(
+                        "No se pudo crear subdirectorio native {}: {err}",
+                        out_path.display()
+                    )
+                })?;
+                continue;
+            }
+
+            if let Some(parent) = out_path.parent() {
+                fs::create_dir_all(parent).map_err(|err| {
+                    format!(
+                        "No se pudo crear carpeta parent native {}: {err}",
+                        parent.display()
+                    )
+                })?;
+            }
+
+            let mut output = fs::File::create(&out_path).map_err(|err| {
+                format!(
+                    "No se pudo crear archivo native {}: {err}",
+                    out_path.display()
+                )
+            })?;
+            io::copy(&mut entry, &mut output).map_err(|err| {
+                format!(
+                    "No se pudo extraer archivo native {}: {err}",
+                    out_path.display()
+                )
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
+fn should_skip_native_entry(entry_name: &str, excludes: &[String]) -> bool {
+    if entry_name.starts_with("META-INF/") {
+        return true;
+    }
+
+    excludes.iter().any(|excluded| {
+        let pattern = excluded.trim_matches('/');
+        entry_name == pattern || entry_name.starts_with(&format!("{pattern}/"))
+    })
+}
+
+fn contains_classpath_switch(jvm_args: &[String]) -> bool {
+    jvm_args
+        .windows(2)
+        .any(|window| matches!(window, [flag, _value] if flag == "-cp" || flag == "-classpath"))
 }
