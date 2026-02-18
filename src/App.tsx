@@ -11,6 +11,7 @@ type MainPage =
   | 'Explorador'
   | 'Servers'
   | 'Configuración Global'
+  | 'Administradora de cuentas'
   | 'Creador de Instancias'
   | 'Editar Instancia'
 
@@ -190,6 +191,19 @@ type AuthSession = {
   loggedAt: number
 }
 
+type AccountType = 'Msa' | 'Offline'
+
+type ManagedAccount = {
+  profileId: string
+  profileName: string
+  email: string
+  type: AccountType
+  status: 'Lista para usar'
+  totalPlaytimeMs: number
+  isDefault: boolean
+  loggedAt: number
+}
+
 
 const topNavItems: TopNavItem[] = ['Mis Modpacks', 'Novedades', 'Explorador', 'Servers', 'Configuración Global']
 
@@ -203,6 +217,7 @@ const sidebarMinWidth = 144
 const sidebarMaxWidth = 320
 const mojangManifestUrl = 'https://launchermeta.mojang.com/mc/game/version_manifest.json'
 const authSessionKey = 'launcher_microsoft_auth_session_v1'
+const managedAccountsKey = 'launcher_managed_accounts_v1'
 const authCodeRegenerateCooldownMs = 10_000
 
 function nowTimestamp() {
@@ -290,6 +305,8 @@ function App() {
   const [showDeleteInstanceConfirm, setShowDeleteInstanceConfirm] = useState(false)
   const [isDeletingInstance, setIsDeletingInstance] = useState(false)
   const [authSession, setAuthSession] = useState<AuthSession | null>(null)
+  const [managedAccounts, setManagedAccounts] = useState<ManagedAccount[]>([])
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const [isAuthReady, setIsAuthReady] = useState(false)
   const [isAuthenticating, setIsAuthenticating] = useState(false)
   const [authRetryAt, setAuthRetryAt] = useState(0)
@@ -299,6 +316,7 @@ function App() {
   const creationIconInputRef = useRef<HTMLInputElement | null>(null)
   const creationConsoleRef = useRef<HTMLDivElement | null>(null)
   const runtimeConsoleRef = useRef<HTMLDivElement | null>(null)
+  const playtimeStartRef = useRef<number | null>(null)
 
 
   const appendRuntime = (entry: ConsoleEntry) => {
@@ -316,8 +334,51 @@ function App() {
     localStorage.setItem(authSessionKey, JSON.stringify(session))
   }
 
+  const persistManagedAccounts = (accounts: ManagedAccount[]) => {
+    localStorage.setItem(managedAccountsKey, JSON.stringify(accounts))
+  }
+
+  const syncManagedAccountFromSession = (session: AuthSession, email = '-') => {
+    setManagedAccounts((prev) => {
+      const exists = prev.find((account) => account.profileId === session.profileId)
+      const next: ManagedAccount[] = exists
+        ? prev.map((account) => account.profileId === session.profileId
+          ? { ...account, profileName: session.profileName, status: 'Lista para usar', type: 'Msa', loggedAt: session.loggedAt, email: account.email || email }
+          : account)
+        : [
+            ...prev.map((account) => ({ ...account, isDefault: false })),
+            {
+              profileId: session.profileId,
+              profileName: session.profileName,
+              email,
+              type: 'Msa',
+              status: 'Lista para usar',
+              totalPlaytimeMs: 0,
+              isDefault: prev.length === 0,
+              loggedAt: session.loggedAt,
+            },
+          ]
+      persistManagedAccounts(next)
+      return next
+    })
+  }
+
+  const addPlaytimeToDefaultAccount = (elapsedMs: number) => {
+    if (elapsedMs <= 0) return
+    setManagedAccounts((prev) => {
+      if (prev.length === 0) return prev
+      const defaultAccount = prev.find((account) => account.isDefault) ?? prev[0]
+      const next = prev.map((account) => account.profileId === defaultAccount.profileId
+        ? { ...account, totalPlaytimeMs: account.totalPlaytimeMs + elapsedMs }
+        : account)
+      persistManagedAccounts(next)
+      return next
+    })
+  }
+
   const logout = () => {
     setAuthSession(null)
+    setAccountMenuOpen(false)
     persistAuthSession(null)
     setAuthStatus('Sesión cerrada correctamente.')
     setAuthError('')
@@ -355,6 +416,7 @@ function App() {
       }
 
       setAuthSession(session)
+      syncManagedAccountFromSession(session)
       persistAuthSession(session)
       setAuthStatus(`Sesión iniciada como ${session.profileName}.`)
     } catch (error) {
@@ -386,12 +448,26 @@ function App() {
         const parsed = JSON.parse(stored) as AuthSession
         if (parsed.profileId && parsed.profileName && parsed.minecraftAccessToken && parsed.premiumVerified) {
           setAuthSession(parsed)
+          syncManagedAccountFromSession(parsed)
           setAuthStatus(`Sesión restaurada para ${parsed.profileName}.`)
         }
       } catch {
         localStorage.removeItem(authSessionKey)
       }
     }
+
+    const savedAccounts = localStorage.getItem(managedAccountsKey)
+    if (savedAccounts) {
+      try {
+        const parsed = JSON.parse(savedAccounts) as ManagedAccount[]
+        if (Array.isArray(parsed)) {
+          setManagedAccounts(parsed)
+        }
+      } catch {
+        localStorage.removeItem(managedAccountsKey)
+      }
+    }
+
     setIsAuthReady(true)
   }, [])
 
@@ -489,6 +565,19 @@ function App() {
       if (timer !== null) window.clearInterval(timer)
     }
   }, [lastRuntimeExitKey, selectedCard?.instanceRoot])
+
+  useEffect(() => {
+    if (isInstanceRunning) {
+      if (playtimeStartRef.current === null) playtimeStartRef.current = Date.now()
+      return
+    }
+
+    if (playtimeStartRef.current !== null) {
+      const elapsed = Date.now() - playtimeStartRef.current
+      addPlaytimeToDefaultAccount(elapsed)
+      playtimeStartRef.current = null
+    }
+  }, [isInstanceRunning])
 
   useEffect(() => {
     let unlistenRuntimeOutput: UnlistenFn | null = null
@@ -1050,6 +1139,7 @@ function App() {
         loggedAt: Date.now(),
       }
       setAuthSession(refreshedSession)
+      syncManagedAccountFromSession(refreshedSession)
       persistAuthSession(refreshedSession)
 
       setRuntimeConsole((prev) => {
@@ -1218,9 +1308,28 @@ const onTopNavClick = (item: TopNavItem) => {
     }
   }
 
+  const formatPlaytime = (totalMs: number) => {
+    const totalSeconds = Math.max(0, Math.floor(totalMs / 1000))
+    const hours = Math.floor(totalSeconds / 3600)
+    const minutes = Math.floor((totalSeconds % 3600) / 60)
+    const seconds = totalSeconds % 60
+    return `${hours}h ${minutes}m ${seconds}s`
+  }
+
+  const openAccountManager = () => {
+    setAccountMenuOpen(false)
+    setActivePage('Administradora de cuentas')
+  }
+
+  const accountManagerRows = managedAccounts.map((account) => ({
+    ...account,
+    typeLabel: account.type,
+    stateLabel: account.status,
+  }))
+
   return (
     <div className="app-shell">
-      <PrincipalTopBar authSession={authSession} onLogout={logout} />
+      <PrincipalTopBar authSession={authSession} onLogout={logout} onOpenAccountManager={openAccountManager} accountMenuOpen={accountMenuOpen} onToggleMenu={() => setAccountMenuOpen((prev) => !prev)} />
 
       {!isAuthReady && (
         <main className="content content-padded">
@@ -1279,6 +1388,84 @@ const onTopNavClick = (item: TopNavItem) => {
                 </article>
               ))}
             </div>
+          </section>
+        </main>
+      )}
+
+      {authSession && activePage === 'Administradora de cuentas' && (
+        <main className="content content-padded">
+          <h1 className="page-title">Administradora de cuentas</h1>
+          <section className="account-manager-layout">
+            <aside className="account-manager-panel compact">
+              <button className="active">Cuentas</button>
+              <button disabled>Próximamente 1</button>
+              <button disabled>Próximamente 2</button>
+              <button disabled>Próximamente 3</button>
+            </aside>
+
+            <section className="account-manager-main">
+              <header>
+                <h2>Cuentas logeadas</h2>
+                <p>Listado de cuentas disponibles en el launcher.</p>
+              </header>
+              <div className="account-table">
+                <div className="account-table-head">
+                  <span>Nombre de Usuario</span>
+                  <span>Uuid</span>
+                  <span>Correo</span>
+                  <span>Tipo</span>
+                  <span>Estado</span>
+                  <span>Tiempo jugado</span>
+                </div>
+                <div className="account-table-body">
+                  {accountManagerRows.length === 0 && (
+                    <p className="account-empty">Aún no hay cuentas registradas.</p>
+                  )}
+                  {accountManagerRows.map((account) => (
+                    <div key={account.profileId} className="account-row">
+                      <span>{account.profileName}{account.isDefault ? ' (Predeterminada)' : ''}</span>
+                      <span>{account.profileId}</span>
+                      <span>{account.email}</span>
+                      <span>{account.typeLabel}</span>
+                      <span>{account.stateLabel}</span>
+                      <span>{formatPlaytime(account.totalPlaytimeMs)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <aside className="account-manager-panel compact">
+              <button onClick={() => void startMicrosoftLogin()}>Añadir Microsoft</button>
+              <button disabled>Añadir Offline (Próximamente)</button>
+              <button onClick={() => window.location.reload()}>Refrescar</button>
+              <button
+                onClick={() => {
+                  setManagedAccounts((prev) => {
+                    const next = prev.slice(0, -1)
+                    persistManagedAccounts(next)
+                    return next
+                  })
+                }}
+                disabled={managedAccounts.length === 0}
+              >
+                Remover
+              </button>
+              <button
+                onClick={() => {
+                  if (!authSession) return
+                  setManagedAccounts((prev) => {
+                    const next = prev.map((account) => ({ ...account, isDefault: account.profileId === authSession.profileId }))
+                    persistManagedAccounts(next)
+                    return next
+                  })
+                }}
+                disabled={!authSession}
+              >
+                Establecer por Defecto
+              </button>
+              <button disabled>Administrar Skins</button>
+            </aside>
           </section>
         </main>
       )}
@@ -1703,17 +1890,27 @@ type SecondaryTopBarProps = {
 type PrincipalTopBarProps = {
   authSession: AuthSession | null
   onLogout: () => void
+  onOpenAccountManager: () => void
+  accountMenuOpen: boolean
+  onToggleMenu: () => void
 }
 
-function PrincipalTopBar({ authSession, onLogout }: PrincipalTopBarProps) {
+function PrincipalTopBar({ authSession, onLogout, onOpenAccountManager, accountMenuOpen, onToggleMenu }: PrincipalTopBarProps) {
   return (
     <header className="top-bar principal">
       <strong>Launcher Control Center</strong>
       {authSession ? (
-        <span>
-          {authSession.profileName}
-          <button style={{ marginLeft: '0.65rem' }} onClick={onLogout}>Cerrar sesión</button>
-        </span>
+        <div className="account-menu">
+          <button className="account-menu-trigger" onClick={onToggleMenu}>
+            {authSession.profileName}
+          </button>
+          {accountMenuOpen && (
+            <div className="account-menu-dropdown">
+              <button onClick={onOpenAccountManager}>Administrar cuentas</button>
+              <button onClick={onLogout}>Cerrar sesión</button>
+            </div>
+          )}
+        </div>
       ) : (
         <span>Sin sesión iniciada</span>
       )}

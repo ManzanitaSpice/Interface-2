@@ -28,4 +28,14 @@
   .mini-right-sidebar button {
     flex: 1 1 110px;
   }
+
+  .account-manager-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .account-table-head,
+  .account-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
 }
