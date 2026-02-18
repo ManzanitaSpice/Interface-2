@@ -23,8 +23,9 @@ use crate::{
             rule_engine::RuleContext,
         },
         models::instance::InstanceMetadata,
+        models::java::JavaRuntime,
     },
-    infrastructure::filesystem::paths::java_executable_path,
+    services::java_installer::ensure_embedded_java,
 };
 
 #[derive(Debug, Serialize)]
@@ -168,11 +169,8 @@ pub fn validate_and_prepare_launch(
     let metadata = get_instance_metadata(instance_root.clone())?;
     logs.push("✔ .instance.json leído correctamente".to_string());
 
-    let java_path = PathBuf::from(&metadata.java_path);
-    if !java_path.exists() {
-        return Err(format!("java_path no existe: {}", java_path.display()));
-    }
-    logs.push("✔ java_path válido".to_string());
+    let embedded_java = ensure_instance_embedded_java(instance_path, &metadata, &mut logs)?;
+    let java_path = PathBuf::from(&embedded_java);
 
     let java_output = Command::new(&java_path)
         .arg("-version")
@@ -309,16 +307,6 @@ pub fn validate_and_prepare_launch(
         classpath_entries.len()
     ));
 
-    let java_exec_default = java_executable_path(
-        &instance_path
-            .parent()
-            .unwrap_or(instance_path)
-            .parent()
-            .unwrap_or(instance_path)
-            .join("runtime")
-            .join(&metadata.java_runtime),
-    );
-
     let launch_context = LaunchContext {
         classpath: classpath.clone(),
         classpath_separator: sep.to_string(),
@@ -400,16 +388,8 @@ pub fn validate_and_prepare_launch(
     logs.push("🔹 6. Finalización".to_string());
     logs.push("✔ Manejo de cierre normal/error y persistencia de log completo".to_string());
 
-    let effective_java_path = if java_path.exists() {
-        java_path.display().to_string()
-    } else if java_exec_default.exists() {
-        java_exec_default.display().to_string()
-    } else {
-        metadata.java_path
-    };
-
     Ok(LaunchValidationResult {
-        java_path: effective_java_path,
+        java_path: embedded_java,
         java_version: first_line(&java_version_text),
         classpath,
         jvm_args,
@@ -544,6 +524,92 @@ fn first_line(text: &str) -> String {
         .unwrap_or("desconocido")
         .trim()
         .to_string()
+}
+
+fn ensure_instance_embedded_java(
+    instance_path: &Path,
+    metadata: &InstanceMetadata,
+    logs: &mut Vec<String>,
+) -> Result<String, String> {
+    let launcher_root = instance_path
+        .parent()
+        .and_then(Path::parent)
+        .ok_or_else(|| {
+            format!(
+                "No se pudo resolver launcher_root desde instancia {}",
+                instance_path.display()
+            )
+        })?;
+
+    let runtime = parse_runtime_from_metadata(metadata).ok_or_else(|| {
+        format!(
+            "No se pudo determinar java_runtime para la instancia '{}'. Valor recibido: '{}'",
+            metadata.name, metadata.java_runtime
+        )
+    })?;
+
+    let java_exec = ensure_embedded_java(launcher_root, runtime, logs)?;
+    logs.push(format!(
+        "✔ runtime embebido garantizado para Java {}: {}",
+        runtime.major(),
+        java_exec.display()
+    ));
+
+    if Path::new(&metadata.java_path) != java_exec {
+        persist_instance_java_path(instance_path, metadata, &java_exec, logs)?;
+    }
+
+    Ok(java_exec.display().to_string())
+}
+
+fn parse_runtime_from_metadata(metadata: &InstanceMetadata) -> Option<JavaRuntime> {
+    match metadata.java_runtime.trim().to_ascii_lowercase().as_str() {
+        "java8" => Some(JavaRuntime::Java8),
+        "java17" => Some(JavaRuntime::Java17),
+        "java21" => Some(JavaRuntime::Java21),
+        _ => parse_runtime_major(metadata.java_version.as_str())
+            .or_else(|| parse_runtime_major(metadata.java_path.as_str())),
+    }
+}
+
+fn parse_runtime_major(text: &str) -> Option<JavaRuntime> {
+    let major = text
+        .split(|c: char| !c.is_ascii_digit())
+        .find_map(|token| token.parse::<u32>().ok())?;
+
+    match major {
+        0..=8 => Some(JavaRuntime::Java8),
+        9..=17 => Some(JavaRuntime::Java17),
+        _ => Some(JavaRuntime::Java21),
+    }
+}
+
+fn persist_instance_java_path(
+    instance_path: &Path,
+    metadata: &InstanceMetadata,
+    java_exec: &Path,
+    logs: &mut Vec<String>,
+) -> Result<(), String> {
+    let metadata_path = instance_path.join(".instance.json");
+    let mut updated = metadata.clone();
+    updated.java_path = java_exec.display().to_string();
+
+    let serialized = serde_json::to_string_pretty(&updated)
+        .map_err(|err| format!("No se pudo serializar metadata actualizada: {err}"))?;
+
+    fs::write(&metadata_path, serialized).map_err(|err| {
+        format!(
+            "No se pudo actualizar java_path en metadata {}: {err}",
+            metadata_path.display()
+        )
+    })?;
+
+    logs.push(format!(
+        "✔ metadata migrada a java embebido: {}",
+        java_exec.display()
+    ));
+
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
@@ -1000,7 +1066,11 @@ fn contains_classpath_switch(jvm_args: &[String]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_maven_library_path, contains_classpath_switch};
+    use super::{
+        build_maven_library_path, contains_classpath_switch, parse_runtime_from_metadata,
+        parse_runtime_major,
+    };
+    use crate::domain::models::{instance::InstanceMetadata, java::JavaRuntime};
     use serde_json::json;
     use std::path::Path;
 
@@ -1021,5 +1091,35 @@ mod tests {
         let jvm_args = vec!["-Xmx2G".to_string(), "-classpath=/tmp/cp".to_string()];
 
         assert!(contains_classpath_switch(&jvm_args));
+    }
+
+    #[test]
+    fn parse_runtime_major_maps_expected_ranges() {
+        assert_eq!(parse_runtime_major("8"), Some(JavaRuntime::Java8));
+        assert_eq!(parse_runtime_major("17.0.10"), Some(JavaRuntime::Java17));
+        assert_eq!(parse_runtime_major("21"), Some(JavaRuntime::Java21));
+    }
+
+    #[test]
+    fn parse_runtime_from_metadata_uses_fallback_fields() {
+        let metadata = InstanceMetadata {
+            name: "Demo".to_string(),
+            group: "Default".to_string(),
+            minecraft_version: "1.20.4".to_string(),
+            loader: "vanilla".to_string(),
+            loader_version: "".to_string(),
+            ram_mb: 2048,
+            java_args: vec![],
+            java_path: "C:/runtime/java17/bin/java.exe".to_string(),
+            java_runtime: "desconocido".to_string(),
+            java_version: "17.0.x".to_string(),
+            last_used: None,
+            internal_uuid: "id".to_string(),
+        };
+
+        assert_eq!(
+            parse_runtime_from_metadata(&metadata),
+            Some(JavaRuntime::Java17)
+        );
     }
 }

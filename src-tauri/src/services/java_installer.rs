@@ -57,7 +57,10 @@ pub fn ensure_embedded_java(
 
     if !runtime_root.exists() {
         fs::create_dir_all(&runtime_root).map_err(|err| {
-            format!("Error creando directorio runtime {}: {err}", runtime_root.display())
+            format!(
+                "Error creando directorio runtime {}: {err}",
+                runtime_root.display()
+            )
         })?;
     }
     logs.push(format!(
