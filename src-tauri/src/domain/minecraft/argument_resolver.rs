@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use super::rule_engine::{evaluate_rules, RuleContext};
+use super::rule_engine::{evaluate_rules, RuleContext, RuleFeatures};
 
 #[derive(Debug, Clone)]
 pub struct LaunchContext {
@@ -329,6 +329,7 @@ mod tests {
             &RuleContext {
                 os_name: OsName::Linux,
                 arch: "x86_64".to_string(),
+                features: RuleFeatures::default(),
             },
         )
         .expect("debe resolver");
@@ -358,6 +359,7 @@ mod tests {
             &RuleContext {
                 os_name: OsName::Linux,
                 arch: "x86_64".to_string(),
+                features: RuleFeatures::default(),
             },
         )
         .expect("debe resolver");
@@ -379,6 +381,7 @@ mod tests {
             &RuleContext {
                 os_name: OsName::Windows,
                 arch: "x86_64".to_string(),
+                features: RuleFeatures::default(),
             },
         )
         .expect("debe resolver");
@@ -412,6 +415,7 @@ mod tests {
             &RuleContext {
                 os_name: OsName::Linux,
                 arch: "x86_64".to_string(),
+                features: RuleFeatures::default(),
             },
         )
         .expect("debe resolver placeholders opcionales");

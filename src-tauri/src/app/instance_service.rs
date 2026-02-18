@@ -33,7 +33,7 @@ use crate::{
                 replace_launch_variables, resolve_launch_arguments, unresolved_variables_in_args,
                 LaunchContext,
             },
-            rule_engine::RuleContext,
+            rule_engine::{RuleContext, RuleFeatures},
         },
         models::instance::{InstanceMetadata, LaunchAuthSession},
         models::java::JavaRuntime,
@@ -392,8 +392,17 @@ pub fn validate_and_prepare_launch(
         quick_play_path: String::new(),
     };
 
+    let launch_rules = RuleContext {
+        features: RuleFeatures {
+            is_demo_user: false,
+            has_custom_resolution: false,
+            is_quick_play: false,
+        },
+        ..RuleContext::current()
+    };
+
     let mut resolved =
-        resolve_launch_arguments(&version_json, &launch_context, &RuleContext::current())?;
+        resolve_launch_arguments(&version_json, &launch_context, &launch_rules)?;
     let memory_args = vec![
         format!("-Xms{}M", metadata.ram_mb.max(512) / 2),
         format!("-Xmx{}M", metadata.ram_mb.max(512)),
@@ -880,7 +889,10 @@ fn validate_official_minecraft_auth(
         );
     }
 
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|err| format!("No se pudo construir cliente HTTP para auth de Minecraft: {err}"))?;
     let mut active_minecraft_token = auth_session.minecraft_access_token.clone();
     let mut active_minecraft_expires_at = auth_session.minecraft_access_token_expires_at;
 
@@ -966,6 +978,7 @@ fn validate_official_minecraft_auth(
     })?;
 
     let profile_status = profile_response.status();
+    logs.push(format!("GET /minecraft/profile -> HTTP {}", profile_status.as_u16()));
     if profile_status.as_u16() != 200 {
         let body = profile_response.text().unwrap_or_default();
         return Err(format!(
@@ -1320,7 +1333,10 @@ fn hydrate_missing_libraries(
         return Ok(());
     }
 
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|err| format!("No se pudo construir cliente HTTP para auth de Minecraft: {err}"))?;
 
     for entry in missing_entries {
         let path = Path::new(&entry.path);
@@ -1454,7 +1470,10 @@ fn ensure_assets_available(
         missing.len()
     ));
 
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|err| format!("No se pudo construir cliente HTTP para auth de Minecraft: {err}"))?;
     for (idx, (hash, object_path)) in missing.iter().enumerate() {
         if let Some(parent) = object_path.parent() {
             fs::create_dir_all(parent).map_err(|err| {

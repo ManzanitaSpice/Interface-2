@@ -8,10 +8,18 @@ pub enum OsName {
     Unknown,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RuleFeatures {
+    pub is_demo_user: bool,
+    pub has_custom_resolution: bool,
+    pub is_quick_play: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuleContext {
     pub os_name: OsName,
     pub arch: String,
+    pub features: RuleFeatures,
 }
 
 impl RuleContext {
@@ -29,6 +37,7 @@ impl RuleContext {
         Self {
             os_name,
             arch: std::env::consts::ARCH.to_string(),
+            features: RuleFeatures::default(),
         }
     }
 }
@@ -53,23 +62,44 @@ pub fn evaluate_rules(rules: &[Value], context: &RuleContext) -> bool {
 }
 
 fn rule_matches_context(rule: &Value, context: &RuleContext) -> bool {
-    let Some(os_rule) = rule.get("os") else {
-        return true;
-    };
-
-    let Some(os_obj) = os_rule.as_object() else {
-        return false;
-    };
-
-    if let Some(name) = os_obj.get("name").and_then(Value::as_str) {
-        if !os_name_matches(name, context.os_name) {
+    if let Some(os_rule) = rule.get("os") {
+        let Some(os_obj) = os_rule.as_object() else {
             return false;
+        };
+
+        if let Some(name) = os_obj.get("name").and_then(Value::as_str) {
+            if !os_name_matches(name, context.os_name) {
+                return false;
+            }
+        }
+
+        if let Some(arch) = os_obj.get("arch").and_then(Value::as_str) {
+            if !arch_matches(arch, &context.arch) {
+                return false;
+            }
         }
     }
 
-    if let Some(arch) = os_obj.get("arch").and_then(Value::as_str) {
-        if !arch_matches(arch, &context.arch) {
+    if let Some(feature_rule) = rule.get("features") {
+        let Some(feature_obj) = feature_rule.as_object() else {
             return false;
+        };
+
+        for (key, expected) in feature_obj {
+            let Some(expected_bool) = expected.as_bool() else {
+                continue;
+            };
+
+            let actual = match key.as_str() {
+                "is_demo_user" => context.features.is_demo_user,
+                "has_custom_resolution" => context.features.has_custom_resolution,
+                "is_quick_play" => context.features.is_quick_play,
+                _ => false,
+            };
+
+            if actual != expected_bool {
+                return false;
+            }
         }
     }
 
