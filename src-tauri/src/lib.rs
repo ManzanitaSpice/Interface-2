@@ -18,6 +18,8 @@ pub fn run() {
             app::launcher_service::create_instance,
             app::launcher_service::list_instances,
             app::launcher_service::delete_instance,
+            app::auth_service::start_microsoft_auth,
+            app::auth_service::complete_microsoft_auth,
             app::instance_service::open_instance_folder,
             app::instance_service::get_instance_metadata,
             app::instance_service::validate_and_prepare_launch,
