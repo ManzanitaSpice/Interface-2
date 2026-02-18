@@ -27,7 +27,7 @@
 }
 
 .top-bar.secondary button.active {
-  background: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
   border-color: var(--accent);
 }
 
