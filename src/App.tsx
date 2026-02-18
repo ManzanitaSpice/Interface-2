@@ -114,6 +114,12 @@ type RuntimeStatus = {
   stderrTail: string[]
 }
 
+type RuntimeOutputEvent = {
+  instanceRoot: string
+  stream: 'stdout' | 'stderr' | 'system'
+  line: string
+}
+
 type ManifestVersion = {
   id: string
   type: string
@@ -207,22 +213,6 @@ function makeConsoleEntry(level: ConsoleLevel, source: ConsoleSource, message: s
   return { timestamp: nowTimestamp(), level, source, message }
 }
 
-function classifyConsoleLine(line: string): ConsoleLevel {
-  const lowered = line.toLowerCase()
-  if (
-    lowered.includes('unable to access jarfile') ||
-    lowered.includes('classnotfoundexception') ||
-    lowered.includes('unsupportedclassversionerror') ||
-    lowered.includes('could not reserve enough space') ||
-    lowered.includes('asset not found')
-  ) {
-    return 'FATAL'
-  }
-  if (lowered.includes('exception') || lowered.includes('error')) return 'ERROR'
-  if (lowered.includes('warn')) return 'WARN'
-  return 'INFO'
-}
-
 function formatIsoDate(iso: string): string {
   if (!iso) return '-'
   return new Date(iso).toLocaleDateString('es-ES')
@@ -287,7 +277,7 @@ function App() {
   const [loaderError, setLoaderError] = useState('')
   const [selectedLoaderFilter, setSelectedLoaderFilter] = useState<LoaderChannelFilter>('Todos')
   const [runtimeConsole, setRuntimeConsole] = useState<ConsoleEntry[]>([])
-  const [launchPreparation, setLaunchPreparation] = useState<LaunchValidationResult | null>(null)
+  const [launchPreparation] = useState<LaunchValidationResult | null>(null)
   const [consoleLevelFilter, setConsoleLevelFilter] = useState<'Todos' | ConsoleLevel>('Todos')
   const [launcherLogFilter, setLauncherLogFilter] = useState<'Todos' | ConsoleSource>('Todos')
   const [autoScrollConsole, setAutoScrollConsole] = useState(true)
@@ -499,6 +489,29 @@ function App() {
       if (timer !== null) window.clearInterval(timer)
     }
   }, [lastRuntimeExitKey, selectedCard?.instanceRoot])
+
+  useEffect(() => {
+    let unlistenRuntimeOutput: UnlistenFn | null = null
+
+    const wireRuntimeOutput = async () => {
+      unlistenRuntimeOutput = await listen<RuntimeOutputEvent>('instance_runtime_output', (event) => {
+        if (!selectedCard?.instanceRoot || event.payload.instanceRoot !== selectedCard.instanceRoot) {
+          return
+        }
+
+        const level = event.payload.stream === 'stderr' ? 'WARN' : 'INFO'
+        const source = event.payload.stream === 'system' ? 'launcher' : 'game'
+        const prefix = event.payload.stream === 'system' ? '' : `[${event.payload.stream.toUpperCase()}] `
+        appendRuntime(makeConsoleEntry(level, source, `${prefix}${event.payload.line}`))
+      })
+    }
+
+    void wireRuntimeOutput()
+
+    return () => {
+      if (unlistenRuntimeOutput) void unlistenRuntimeOutput()
+    }
+  }, [selectedCard?.instanceRoot])
 
   useEffect(() => {
     const onEscapePress = (event: KeyboardEvent) => {
@@ -999,59 +1012,7 @@ function App() {
     reader.readAsDataURL(file)
   }
 
-  const appendRuntimeSummary = async () => {
-    if (!selectedCard?.instanceRoot || !selectedMinecraftVersion) return
-    if (!authSession) {
-      setRuntimeConsole([
-        makeConsoleEntry('ERROR', 'launcher', 'Debes iniciar sesión con cuenta oficial para validar lanzamiento (sin Demo).'),
-      ])
-      return
-    }
 
-    try {
-      const prepared = await invoke<LaunchValidationResult>('validate_and_prepare_launch', {
-        instanceRoot: selectedCard.instanceRoot,
-        authSession: {
-          profileId: authSession.profileId,
-          profileName: authSession.profileName,
-          minecraftAccessToken: authSession.minecraftAccessToken,
-          microsoftRefreshToken: authSession.microsoftRefreshToken,
-          premiumVerified: authSession.premiumVerified,
-        },
-      })
-
-      setLaunchPreparation(prepared)
-
-      const refreshedSession: AuthSession = {
-        ...authSession,
-        profileId: prepared.refreshedAuthSession.profileId,
-        profileName: prepared.refreshedAuthSession.profileName,
-        minecraftAccessToken: prepared.refreshedAuthSession.minecraftAccessToken,
-        microsoftRefreshToken: prepared.refreshedAuthSession.microsoftRefreshToken ?? undefined,
-        premiumVerified: prepared.refreshedAuthSession.premiumVerified,
-        loggedAt: Date.now(),
-      }
-      setAuthSession(refreshedSession)
-      persistAuthSession(refreshedSession)
-
-      const entries: ConsoleEntry[] = [
-        makeConsoleEntry('INFO', 'launcher', `Inicio del proceso para ${selectedCard.name}`),
-        makeConsoleEntry('INFO', 'launcher', `java_path efectivo: ${prepared.javaPath}`),
-        makeConsoleEntry('INFO', 'launcher', `java -version detectado: ${prepared.javaVersion}`),
-        makeConsoleEntry('INFO', 'launcher', `MainClass: ${prepared.mainClass}`),
-        makeConsoleEntry('INFO', 'launcher', `Classpath válido (${prepared.classpath.split(/[:;]/).length} entradas)`),
-        makeConsoleEntry('INFO', 'launcher', `JVM args: ${prepared.jvmArgs.length} | Game args: ${prepared.gameArgs.length}`),
-        ...prepared.logs.map((line) => makeConsoleEntry('INFO', 'launcher', line)),
-        makeConsoleEntry('INFO', 'game', 'Proceso listo para ejecución real con orden JVM -> mainClass -> game args'),
-      ]
-      setRuntimeConsole(entries.length > 2000 ? entries.slice(entries.length - 2000) : entries)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      setRuntimeConsole([
-        makeConsoleEntry('ERROR', 'launcher', `Validación de lanzamiento falló: ${message}`),
-      ])
-    }
-  }
 
   const startInstanceProcess = async () => {
     if (!selectedCard?.instanceRoot) return
@@ -1065,7 +1026,7 @@ function App() {
     }
 
     setIsStartingInstance(true)
-    await appendRuntimeSummary()
+    appendRuntime(makeConsoleEntry('INFO', 'launcher', 'Iniciando validación final y arranque en vivo de Minecraft...'))
 
     try {
       const result = await invoke<StartInstanceResult>('start_instance', {
@@ -1108,19 +1069,7 @@ function App() {
     }
   }
 
-  const pushRuntimeStream = () => {
-    const demoLines = [
-      '[STDOUT] Loading world renderer...',
-      '[WARN] Missing optional shader pack metadata.',
-      '[STDERR] Exception in thread main',
-      'UnsupportedClassVersionError: bad major version',
-      '[STDOUT] Tick loop stable at 60 TPS',
-    ]
 
-    demoLines.forEach((line) => {
-      appendRuntime(makeConsoleEntry(classifyConsoleLine(line), line.includes('STDERR') ? 'game' : 'launcher', line))
-    })
-  }
 
   const exportRuntimeLog = async () => {
     const content = runtimeConsole.map((entry) => `[${entry.timestamp}] [${entry.level}] [${entry.source}] ${entry.message}`).join('\n')
@@ -1602,7 +1551,6 @@ const onTopNavClick = (item: TopNavItem) => {
                     <button className="danger ghost-btn">■ Forzar cierre</button>
                   </div>
                   <div className="execution-secondary-actions">
-                    <button className="ghost-btn" onClick={pushRuntimeStream}>Simular stream</button>
                     <button className="ghost-btn" onClick={exportRuntimeLog}>Exportar .log</button>
                   </div>
                   <select value={consoleLevelFilter} onChange={(event) => setConsoleLevelFilter(event.target.value as 'Todos' | ConsoleLevel)}>

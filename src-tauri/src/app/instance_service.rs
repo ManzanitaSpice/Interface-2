@@ -4,13 +4,14 @@ use std::{
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::{Mutex, OnceLock},
+    sync::{Arc, Mutex, OnceLock},
     thread,
 };
 
 use serde::Serialize;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
+use tauri::{AppHandle, Emitter};
 use zip::ZipArchive;
 
 use crate::domain::auth::{
@@ -56,6 +57,14 @@ pub struct StartInstanceResult {
     pub java_path: String,
     pub logs: Vec<String>,
     pub refreshed_auth_session: LaunchAuthSession,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeOutputEvent {
+    instance_root: String,
+    stream: String,
+    line: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -512,7 +521,8 @@ pub fn validate_and_prepare_launch(
 }
 
 #[tauri::command]
-pub fn start_instance(
+pub async fn start_instance(
+    app: AppHandle,
     instance_root: String,
     auth_session: LaunchAuthSession,
 ) -> Result<StartInstanceResult, String> {
@@ -538,7 +548,13 @@ pub fn start_instance(
         );
     }
 
-    let prepared = match validate_and_prepare_launch(instance_root.clone(), auth_session) {
+    let instance_root_for_prepare = instance_root.clone();
+    let prepared = match tauri::async_runtime::spawn_blocking(move || {
+        validate_and_prepare_launch(instance_root_for_prepare, auth_session)
+    })
+    .await
+    .map_err(|err| format!("Falló la tarea de validación/lanzamiento: {err}"))?
+    {
         Ok(value) => value,
         Err(err) => {
             if let Ok(mut registry) = runtime_registry().lock() {
@@ -580,35 +596,95 @@ pub fn start_instance(
     let stderr = child.stderr.take();
     let instance_root_for_thread = instance_root.clone();
 
+    let app_for_thread = app.clone();
+
     thread::spawn(move || {
-        let mut stderr_tail = Vec::<String>::new();
+        let stderr_tail = Arc::new(Mutex::new(Vec::<String>::new()));
+        let mut stream_threads = Vec::new();
 
         if let Some(stdout_pipe) = stdout {
-            let reader = BufReader::new(stdout_pipe);
-            for line in reader.lines().map_while(Result::ok) {
-                if line.trim().is_empty() {
-                    continue;
+            let instance_for_stdout = instance_root_for_thread.clone();
+            let app_for_stdout = app_for_thread.clone();
+            let tail_for_stdout = Arc::clone(&stderr_tail);
+            stream_threads.push(thread::spawn(move || {
+                let reader = BufReader::new(stdout_pipe);
+                for line in reader.lines().map_while(Result::ok) {
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+                    log::info!("[MC-STDOUT][{}] {}", instance_for_stdout, line);
+                    let _ = app_for_stdout.emit(
+                        "instance_runtime_output",
+                        RuntimeOutputEvent {
+                            instance_root: instance_for_stdout.clone(),
+                            stream: "stdout".to_string(),
+                            line: line.clone(),
+                        },
+                    );
+                    if let Ok(mut tail) = tail_for_stdout.lock() {
+                        tail.push(format!("[stdout] {line}"));
+                        if tail.len() > 100 {
+                            let drop_count = tail.len() - 100;
+                            tail.drain(0..drop_count);
+                        }
+                    }
                 }
-                log::info!("[MC-STDOUT][{}] {}", instance_root_for_thread, line);
-            }
+            }));
         }
 
         if let Some(stderr_pipe) = stderr {
-            let reader = BufReader::new(stderr_pipe);
-            for line in reader.lines().map_while(Result::ok) {
-                if line.trim().is_empty() {
-                    continue;
+            let instance_for_stderr = instance_root_for_thread.clone();
+            let app_for_stderr = app_for_thread.clone();
+            let tail_for_stderr = Arc::clone(&stderr_tail);
+            stream_threads.push(thread::spawn(move || {
+                let reader = BufReader::new(stderr_pipe);
+                for line in reader.lines().map_while(Result::ok) {
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+                    log::warn!("[MC-STDERR][{}] {}", instance_for_stderr, line);
+                    let _ = app_for_stderr.emit(
+                        "instance_runtime_output",
+                        RuntimeOutputEvent {
+                            instance_root: instance_for_stderr.clone(),
+                            stream: "stderr".to_string(),
+                            line: line.clone(),
+                        },
+                    );
+                    if let Ok(mut tail) = tail_for_stderr.lock() {
+                        tail.push(format!("[stderr] {line}"));
+                        if tail.len() > 100 {
+                            let drop_count = tail.len() - 100;
+                            tail.drain(0..drop_count);
+                        }
+                    }
                 }
-                log::warn!("[MC-STDERR][{}] {}", instance_root_for_thread, line);
-                stderr_tail.push(line);
-                if stderr_tail.len() > 100 {
-                    let drop_count = stderr_tail.len() - 100;
-                    stderr_tail.drain(0..drop_count);
-                }
-            }
+            }));
+        }
+
+        for handle in stream_threads {
+            let _ = handle.join();
         }
 
         let exit_code = child.wait().ok().and_then(|status| status.code());
+        let final_tail = stderr_tail
+            .lock()
+            .map(|tail| tail.clone())
+            .unwrap_or_else(|_| Vec::new());
+
+        let _ = app_for_thread.emit(
+            "instance_runtime_output",
+            RuntimeOutputEvent {
+                instance_root: instance_root_for_thread.clone(),
+                stream: "system".to_string(),
+                line: format!(
+                    "Proceso finalizado (pid={pid}) con exit_code={}",
+                    exit_code
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "desconocido".to_string())
+                ),
+            },
+        );
 
         if let Ok(mut registry) = runtime_registry().lock() {
             registry.insert(
@@ -617,7 +693,7 @@ pub fn start_instance(
                     pid: Some(pid),
                     running: false,
                     exit_code,
-                    stderr_tail,
+                    stderr_tail: final_tail,
                 },
             );
         }
@@ -628,6 +704,15 @@ pub fn start_instance(
         java_path: prepared.java_path,
         logs: vec![
             "Comando de lanzamiento ejecutado con argumentos validados.".to_string(),
+            format!(
+                "Comando final ejecutado: {}",
+                std::iter::once(prepared.java_path.clone())
+                    .chain(prepared.jvm_args.iter().cloned())
+                    .chain(std::iter::once(prepared.main_class.clone()))
+                    .chain(prepared.game_args.iter().cloned())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ),
             "Salida estándar y de error conectadas para monitoreo; exit_code persistido al finalizar.".to_string(),
         ],
         refreshed_auth_session: prepared.refreshed_auth_session,
