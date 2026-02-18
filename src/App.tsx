@@ -68,7 +68,7 @@ type MinecraftVersionDetail = {
   javaVersion?: { majorVersion?: number }
 }
 
-type LoaderKey = 'none' | 'neoforge' | 'forge' | 'fabric' | 'quilit'
+type LoaderKey = 'none' | 'neoforge' | 'forge' | 'fabric' | 'quilt'
 type MinecraftFilter = 'Releases' | 'Snapshots' | 'Betas' | 'Alfas' | 'Experimentales'
 
 type LoaderVersionItem = {
@@ -104,7 +104,7 @@ function toJavaMajorOrUndefined(value: number | undefined): number | undefined {
 
 function mapLoaderToPayload(loader: LoaderKey): string {
   if (loader === 'none') return 'vanilla'
-  if (loader === 'quilit') return 'quilt'
+  if (loader === 'quilt') return 'quilt'
   return loader
 }
 
@@ -226,9 +226,9 @@ function App() {
   useEffect(() => {
     setSelectedLoaderVersion(null)
 
-    if (!selectedMinecraftVersion || selectedLoader === 'none' || selectedLoader === 'quilit') {
+    if (!selectedMinecraftVersion || selectedLoader === 'none') {
       setLoaderVersions([])
-      setLoaderError(selectedLoader === 'quilit' ? 'Quilit/Quilt aún no tiene integración API en esta pantalla.' : '')
+      setLoaderError('')
       return
     }
 
@@ -249,6 +249,27 @@ function App() {
             version: entry.loader?.version ?? '',
             publishedAt: '-',
             source: entry.stable ? 'stable' : 'latest',
+          }))
+          .filter((entry) => Boolean(entry.version))
+
+        if (!cancelled) {
+          setLoaderVersions(items)
+        }
+        return
+      }
+
+      if (selectedLoader === 'quilt') {
+        const endpoint = `https://meta.quiltmc.org/v3/versions/loader/${encodeURIComponent(selectedMinecraftVersion.id)}`
+        const response = await fetch(endpoint)
+        if (!response.ok) {
+          throw new Error(`Quilt API HTTP ${response.status}`)
+        }
+        const payload = (await response.json()) as Array<{ loader?: { version?: string } }>
+        const items: LoaderVersionItem[] = payload
+          .map((entry) => ({
+            version: entry.loader?.version ?? '',
+            publishedAt: '-',
+            source: 'latest',
           }))
           .filter((entry) => Boolean(entry.version))
 
@@ -664,15 +685,15 @@ function App() {
                   rightActions={['Todos', 'Stable', 'Latest', 'Maven']}
                   selectedAction={selectedLoaderFilter}
                   onActionSelect={(value) => setSelectedLoaderFilter(value as LoaderChannelFilter)}
-                  loaderActions={['Ninguno', 'Neoforge', 'Forge', 'Fabric', 'Quilit']}
-                  selectedLoaderAction={{ none: 'Ninguno', neoforge: 'Neoforge', forge: 'Forge', fabric: 'Fabric', quilit: 'Quilit' }[selectedLoader]}
+                  loaderActions={['Ninguno', 'Neoforge', 'Forge', 'Fabric', 'Quilt']}
+                  selectedLoaderAction={{ none: 'Ninguno', neoforge: 'Neoforge', forge: 'Forge', fabric: 'Fabric', quilt: 'Quilt' }[selectedLoader]}
                   onLoaderActionSelect={(value) => {
                     const normalized = value.toLowerCase()
                     if (normalized === 'ninguno') setSelectedLoader('none')
                     else if (normalized === 'neoforge') setSelectedLoader('neoforge')
                     else if (normalized === 'forge') setSelectedLoader('forge')
                     else if (normalized === 'fabric') setSelectedLoader('fabric')
-                    else setSelectedLoader('quilit')
+                    else setSelectedLoader('quilt')
                   }}
                   metaLine={
                     !selectedMinecraftVersion

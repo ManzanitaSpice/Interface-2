@@ -4,7 +4,10 @@ use std::{path::Path, process::Command};
 pub fn open_instance_folder(path: String) -> Result<(), String> {
     let target = Path::new(&path);
     if !target.exists() {
-        return Err(format!("La carpeta de la instancia no existe: {}", target.display()));
+        return Err(format!(
+            "La carpeta de la instancia no existe: {}",
+            target.display()
+        ));
     }
 
     if !target.is_dir() {

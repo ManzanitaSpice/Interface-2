@@ -4,7 +4,7 @@ use tauri::AppHandle;
 
 use crate::{
     domain::{
-        java::java_requirement::determine_required_java,
+        java::{java_detector::find_compatible_java, java_requirement::determine_required_java},
         models::{
             instance::{CreateInstancePayload, CreateInstanceResult, InstanceMetadata},
             java::JavaRuntime,
@@ -54,7 +54,19 @@ fn create_instance_impl(
         required_java.major()
     ));
 
-    let java_exec = ensure_embedded_java(&launcher_root, required_java, &mut logs)?;
+    let java_exec = if let Some(system_java) = find_compatible_java(required_java) {
+        logs.push(format!(
+            "Java del sistema detectado: {} (major {}). Se usará en lugar del embebido.",
+            system_java.path.display(),
+            system_java.major
+        ));
+        system_java.path
+    } else {
+        logs.push(
+            "No se encontró Java del sistema compatible. Se usará runtime embebido.".to_string(),
+        );
+        ensure_embedded_java(&launcher_root, required_java, &mut logs)?
+    };
 
     log_download_steps(&payload, &mut logs, required_java);
 
@@ -136,11 +148,10 @@ fn log_download_steps(payload: &CreateInstancePayload, logs: &mut Vec<String>, j
         "Validando versión seleccionada: {}",
         payload.minecraft_version
     ));
+    logs.push("version_manifest_v2 oficial de Mojang validado en interfaz.".to_string());
     logs.push(
-        "version_manifest_v2 oficial de Mojang validado en interfaz.".to_string(),
-    );
-    logs.push(
-        "version.json oficial consultado: se detectaron mainClass, libraries, assets y client.jar.".to_string(),
+        "version.json oficial consultado: se detectaron mainClass, libraries, assets y client.jar."
+            .to_string(),
     );
     logs.push(format!(
         "Java efectivo para la instalación: {}.",
