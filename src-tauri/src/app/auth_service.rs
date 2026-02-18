@@ -190,6 +190,7 @@ pub async fn authorize_microsoft_in_launcher(
     window.on_window_event({
         let tx_for_close = Arc::clone(&tx_holder);
         let app_for_close = app.clone();
+        let label_for_close = label.clone();
         move |event| {
             if !matches!(event, tauri::WindowEvent::Destroyed) {
                 return;
@@ -204,7 +205,7 @@ pub async fn authorize_microsoft_in_launcher(
                 }
             }
 
-            let _ = app_for_close.emit(MICROSOFT_AUTH_WINDOW_EVENT, window.label().to_string());
+            let _ = app_for_close.emit(MICROSOFT_AUTH_WINDOW_EVENT, label_for_close.clone());
         }
     });
 
