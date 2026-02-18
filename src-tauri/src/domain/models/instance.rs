@@ -6,6 +6,10 @@ pub struct LaunchAuthSession {
     pub profile_id: String,
     pub profile_name: String,
     pub minecraft_access_token: String,
+    #[serde(default)]
+    pub microsoft_refresh_token: Option<String>,
+    #[serde(default)]
+    pub premium_verified: bool,
 }
 
 #[derive(Debug, Deserialize)]

@@ -4,6 +4,7 @@ use serde::Deserialize;
 pub struct MicrosoftTokenResponse {
     pub access_token: String,
     pub refresh_token: Option<String>,
+    pub expires_in: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]

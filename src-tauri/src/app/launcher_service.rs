@@ -526,6 +526,10 @@ fn validate_official_minecraft_auth(
     auth_session: &LaunchAuthSession,
     logs: &mut Vec<String>,
 ) -> AppResult<()> {
+    if !auth_session.premium_verified {
+        return Err("La cuenta no posee licencia oficial de Minecraft.".to_string());
+    }
+
     if auth_session.minecraft_access_token.trim().is_empty() {
         return Err(
             "No hay access token de Minecraft válido; no se permite crear instancia en modo Demo."
@@ -564,7 +568,7 @@ fn validate_official_minecraft_auth(
         .unwrap_or(false);
 
     if !has_license {
-        return Err("La cuenta no tiene licencia de Minecraft".to_string());
+        return Err("La cuenta no posee licencia oficial de Minecraft.".to_string());
     }
 
     let profile_response = client

@@ -8,7 +8,7 @@ use tokio::sync::oneshot;
 use crate::domain::auth::{
     microsoft::{
         build_authorize_url, exchange_authorization_code, generate_code_verifier,
-        MICROSOFT_REDIRECT_URI,
+        refresh_microsoft_access_token, MICROSOFT_REDIRECT_URI,
     },
     profile::MinecraftProfile,
     xbox::{
@@ -35,6 +35,7 @@ pub struct MicrosoftAuthResult {
     pub uhs: String,
     pub minecraft_access_token: String,
     pub profile: MinecraftProfile,
+    pub premium_verified: bool,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -69,6 +70,7 @@ async fn finalize_microsoft_tokens(
         uhs: xsts.uhs,
         minecraft_access_token: minecraft.access_token,
         profile,
+        premium_verified: true,
     })
 }
 
@@ -274,4 +276,13 @@ pub async fn complete_microsoft_device_auth(
     code_verifier: String,
 ) -> Result<MicrosoftAuthResult, String> {
     complete_microsoft_auth(code, code_verifier).await
+}
+
+#[tauri::command]
+pub async fn refresh_microsoft_auth(
+    microsoft_refresh_token: String,
+) -> Result<MicrosoftAuthResult, String> {
+    let client = reqwest::Client::new();
+    let refreshed = refresh_microsoft_access_token(&client, &microsoft_refresh_token).await?;
+    finalize_microsoft_tokens(&client, refreshed).await
 }

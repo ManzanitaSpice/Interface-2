@@ -9,4 +9,6 @@ pub struct VersionManifest {
 pub struct ManifestVersionEntry {
     pub id: String,
     pub url: String,
+    #[serde(rename = "type")]
+    pub r#type: String,
 }
