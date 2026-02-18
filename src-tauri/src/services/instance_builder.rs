@@ -15,7 +15,7 @@ use crate::{
     shared::result::AppResult,
 };
 
-const MOJANG_MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+const MOJANG_MANIFEST_URL: &str = "https://launchermeta.mojang.com/mc/game/version_manifest.json";
 
 pub fn build_instance_structure(
     _instance_root: &Path,
@@ -45,9 +45,8 @@ pub fn build_instance_structure(
     let jar_path = version_file_base.join(format!("{minecraft_version}.jar"));
     let json_path = version_file_base.join(format!("{minecraft_version}.json"));
 
-    write_placeholder_file(&jar_path, "placeholder minecraft jar")?;
-
     let version_json = download_version_json(minecraft_version)?;
+    download_client_jar(&version_json, &jar_path)?;
     let pretty_version_json =
         serde_json::to_string_pretty(&version_json).map_err(|err| err.to_string())?;
     fs::write(&json_path, pretty_version_json).map_err(|err| {
@@ -60,6 +59,7 @@ pub fn build_instance_structure(
         "version.json oficial guardado en {}.",
         json_path.display()
     ));
+    logs.push(format!("client.jar oficial guardado en {}.", jar_path.display()));
 
     let launch_context = LaunchContext {
         classpath: "${classpath}".to_string(),
@@ -140,11 +140,11 @@ pub fn build_instance_structure(
 
 fn download_version_json(minecraft_version: &str) -> AppResult<Value> {
     let manifest = reqwest::blocking::get(MOJANG_MANIFEST_URL)
-        .map_err(|err| format!("No se pudo descargar version_manifest_v2: {err}"))?
+        .map_err(|err| format!("No se pudo descargar version_manifest oficial: {err}"))?
         .error_for_status()
-        .map_err(|err| format!("version_manifest_v2 respondió con error HTTP: {err}"))?
+        .map_err(|err| format!("version_manifest respondió con error HTTP: {err}"))?
         .json::<VersionManifest>()
-        .map_err(|err| format!("No se pudo deserializar version_manifest_v2: {err}"))?;
+        .map_err(|err| format!("No se pudo deserializar version_manifest oficial: {err}"))?;
 
     let version = manifest
         .versions
@@ -160,6 +160,26 @@ fn download_version_json(minecraft_version: &str) -> AppResult<Value> {
         .map_err(|err| format!("version.json respondió con error HTTP: {err}"))?
         .json::<Value>()
         .map_err(|err| format!("No se pudo deserializar version.json: {err}"))
+}
+
+fn download_client_jar(version_json: &Value, jar_path: &Path) -> AppResult<()> {
+    let client_url = version_json
+        .get("downloads")
+        .and_then(|downloads| downloads.get("client"))
+        .and_then(|client| client.get("url"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| "version.json no incluye downloads.client.url".to_string())?;
+
+    let bytes = reqwest::blocking::get(client_url)
+        .map_err(|err| format!("No se pudo descargar client.jar oficial: {err}"))?
+        .error_for_status()
+        .map_err(|err| format!("client.jar respondió con error HTTP: {err}"))?
+        .bytes()
+        .map_err(|err| format!("No se pudo leer bytes de client.jar: {err}"))?;
+
+    write_placeholder_file(jar_path, "")?;
+    fs::write(jar_path, &bytes)
+        .map_err(|err| format!("No se pudo guardar client.jar en {}: {err}", jar_path.display()))
 }
 
 pub fn persist_instance_metadata(

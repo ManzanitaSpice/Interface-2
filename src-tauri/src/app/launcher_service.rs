@@ -33,6 +33,57 @@ pub fn list_instances(app: AppHandle) -> Result<Vec<InstanceSummary>, String> {
     list_instances_impl(app)
 }
 
+#[tauri::command]
+pub fn delete_instance(app: AppHandle, instance_root: String) -> Result<(), String> {
+    let launcher_root = resolve_launcher_root(&app)?;
+    let instances_root = launcher_root.join("instances");
+    let target_path = std::path::PathBuf::from(&instance_root);
+
+    if !target_path.exists() {
+        return Err(format!(
+            "La instancia no existe en disco: {}",
+            target_path.display()
+        ));
+    }
+
+    if !target_path.is_dir() {
+        return Err(format!(
+            "La ruta de instancia no es un directorio: {}",
+            target_path.display()
+        ));
+    }
+
+    let canonical_instances_root = fs::canonicalize(&instances_root).map_err(|err| {
+        format!(
+            "No se pudo resolver la ruta de instancias {}: {}",
+            instances_root.display(),
+            err
+        )
+    })?;
+    let canonical_target = fs::canonicalize(&target_path).map_err(|err| {
+        format!(
+            "No se pudo resolver la ruta de la instancia {}: {}",
+            target_path.display(),
+            err
+        )
+    })?;
+
+    if !canonical_target.starts_with(&canonical_instances_root) {
+        return Err(format!(
+            "Ruta inválida para eliminar instancia fuera del directorio permitido: {}",
+            canonical_target.display()
+        ));
+    }
+
+    fs::remove_dir_all(&canonical_target).map_err(|err| {
+        format!(
+            "No se pudo eliminar la instancia {}: {}",
+            canonical_target.display(),
+            err
+        )
+    })
+}
+
 fn list_instances_impl(app: AppHandle) -> AppResult<Vec<InstanceSummary>> {
     let launcher_root = resolve_launcher_root(&app)?;
     let instances_root = launcher_root.join("instances");
@@ -248,7 +299,7 @@ fn log_download_steps(payload: &CreateInstancePayload, logs: &mut Vec<String>, j
         "Validando versión seleccionada: {}",
         payload.minecraft_version
     ));
-    logs.push("version_manifest_v2 oficial de Mojang validado en interfaz.".to_string());
+    logs.push("version_manifest oficial de Mojang validado en interfaz.".to_string());
     logs.push(
         "version.json oficial consultado: se detectaron mainClass, libraries, assets y client.jar."
             .to_string(),

@@ -265,6 +265,24 @@ pub fn validate_and_prepare_launch(
         resolved_libraries.classpath_entries.len()
     ));
 
+    let mut jars_to_validate = resolved_libraries
+        .classpath_entries
+        .iter()
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    jars_to_validate.push(client_jar.clone());
+    jars_to_validate.extend(
+        resolved_libraries
+            .native_jars
+            .iter()
+            .map(|native| native.path.clone()),
+    );
+    validate_jars_as_zip(&jars_to_validate)?;
+    logs.push(format!(
+        "✔ jars validados como zip: {}",
+        jars_to_validate.len()
+    ));
+
     let natives_dir = mc_root.join("natives");
     extract_natives(&resolved_libraries.native_jars, &natives_dir)?;
     logs.push(format!(
@@ -642,6 +660,17 @@ fn ensure_main_class_present_in_jar(jar_path: &Path, main_class: &str) -> Result
             target_entry
         )
     })
+}
+
+fn validate_jars_as_zip(jar_paths: &[PathBuf]) -> Result<(), String> {
+    for jar_path in jar_paths {
+        let file = fs::File::open(jar_path)
+            .map_err(|err| format!("No se pudo abrir jar {}: {err}", jar_path.display()))?;
+        ZipArchive::new(file)
+            .map_err(|err| format!("No se pudo leer jar {} como zip: {err}", jar_path.display()))?;
+    }
+
+    Ok(())
 }
 
 fn parse_runtime_from_metadata(metadata: &InstanceMetadata) -> Option<JavaRuntime> {

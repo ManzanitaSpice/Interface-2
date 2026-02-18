@@ -145,7 +145,7 @@ const instanceActions = ['Iniciar', 'Forzar Cierre', 'Editar', 'Cambiar Grupo', 
 const defaultGroup = 'Sin grupo'
 const sidebarMinWidth = 144
 const sidebarMaxWidth = 320
-const mojangManifestUrl = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json'
+const mojangManifestUrl = 'https://launchermeta.mojang.com/mc/game/version_manifest.json'
 
 function nowTimestamp() {
   return new Date().toLocaleTimeString('es-ES', { hour12: false })
@@ -244,6 +244,8 @@ function App() {
   const [isStartingInstance, setIsStartingInstance] = useState(false)
   const [isInstanceRunning, setIsInstanceRunning] = useState(false)
   const [lastRuntimeExitKey, setLastRuntimeExitKey] = useState('')
+  const [showDeleteInstanceConfirm, setShowDeleteInstanceConfirm] = useState(false)
+  const [isDeletingInstance, setIsDeletingInstance] = useState(false)
   const creationIconInputRef = useRef<HTMLInputElement | null>(null)
   const runtimeConsoleRef = useRef<HTMLDivElement | null>(null)
 
@@ -955,6 +957,11 @@ const onTopNavClick = (item: TopNavItem) => {
       return
     }
 
+    if (action === 'Eliminar') {
+      setShowDeleteInstanceConfirm(true)
+      return
+    }
+
     if (action !== 'Carpeta') return
 
     if (!selectedCard.instanceRoot) {
@@ -967,6 +974,25 @@ const onTopNavClick = (item: TopNavItem) => {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setCreationConsoleLogs((prev) => [...prev, `No se pudo abrir la carpeta de la instancia: ${message}`])
+    }
+  }
+
+  const deleteSelectedInstance = async () => {
+    if (!selectedCard?.instanceRoot || isDeletingInstance) return
+
+    setIsDeletingInstance(true)
+    try {
+      await invoke('delete_instance', { instanceRoot: selectedCard.instanceRoot })
+      const loadedCards = await invoke<InstanceSummary[]>('list_instances')
+      setCards(loadedCards)
+      setSelectedCard(null)
+      setShowDeleteInstanceConfirm(false)
+      setCreationConsoleLogs((prev) => [...prev, `Instancia eliminada: ${selectedCard.name}`])
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setCreationConsoleLogs((prev) => [...prev, `No se pudo eliminar la instancia: ${message}`])
+    } finally {
+      setIsDeletingInstance(false)
     }
   }
 
@@ -1078,9 +1104,16 @@ const onTopNavClick = (item: TopNavItem) => {
                   </header>
                   <div className="instance-right-actions">
                     {instanceActions.map((action) => (
-                      <button key={action} className={action === 'Editar' ? 'primary' : ''} onClick={() => handleInstanceAction(action)}>
-                        {action}
-                      </button>
+                      <div key={action} className="instance-action-item">
+                        <button className={action === 'Editar' ? 'primary' : ''} onClick={() => handleInstanceAction(action)}>
+                          {action}
+                        </button>
+                        {action === 'Editar' && (
+                          <button className="danger" onClick={() => handleInstanceAction('Eliminar')}>
+                            Eliminar
+                          </button>
+                        )}
+                      </div>
                     ))}
                   </div>
                 </aside>
@@ -1088,6 +1121,21 @@ const onTopNavClick = (item: TopNavItem) => {
             </div>
           </section>
         </main>
+      )}
+
+      {showDeleteInstanceConfirm && selectedCard && (
+        <div className="floating-modal-overlay" role="dialog" aria-modal="true" aria-label="Confirmar eliminación de instancia">
+          <div className="floating-modal">
+            <h3>¿Eliminar instancia?</h3>
+            <p>Se eliminará completamente la instancia <strong>{selectedCard.name}</strong> y todos sus archivos.</p>
+            <div className="floating-modal-actions">
+              <button onClick={() => setShowDeleteInstanceConfirm(false)} disabled={isDeletingInstance}>Cancelar</button>
+              <button className="danger" onClick={deleteSelectedInstance} disabled={isDeletingInstance}>
+                {isDeletingInstance ? 'Eliminando...' : 'Eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {activePage !== 'Inicio' &&
