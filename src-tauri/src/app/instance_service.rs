@@ -431,8 +431,30 @@ pub fn validate_and_prepare_launch(
     logs.push("✔ Manejo de cierre normal/error y persistencia de log completo".to_string());
 
     if !verified_auth.premium_verified {
-        return Err("La cuenta no posee licencia oficial de Minecraft.".to_string());
+        return Err("Cuenta sin licencia premium verificada. Lanzamiento bloqueado.".to_string());
     }
+
+    validate_required_online_launch_flags(&resolved.game).map_err(|err| {
+        format!(
+            "Argumentos críticos de sesión incompletos o inválidos. {err}. Lanzamiento bloqueado para evitar Demo."
+        )
+    })?;
+
+    let username = find_arg_value(&resolved.game, "--username").unwrap_or_default();
+    let uuid = find_arg_value(&resolved.game, "--uuid").unwrap_or_default();
+    let access_token = find_arg_value(&resolved.game, "--accessToken").unwrap_or_default();
+    let user_type = find_arg_value(&resolved.game, "--userType").unwrap_or_default();
+    let version_type = find_arg_value(&resolved.game, "--versionType").unwrap_or_default();
+
+    logs.push("CHECK CRÍTICO: argumentos enviados a Java".to_string());
+    logs.push(format!("--username {username}"));
+    logs.push(format!("--uuid {uuid}"));
+    logs.push(format!("--accessToken {access_token}"));
+    logs.push(format!("--userType {user_type}"));
+    logs.push(format!("--versionType {version_type}"));
+    logs.push(format!("TOKEN: {access_token}"));
+    logs.push(format!("UUID: {uuid}"));
+    logs.push(format!("USERNAME: {username}"));
 
     Ok(LaunchValidationResult {
         java_path: embedded_java,
@@ -633,6 +655,8 @@ fn validate_official_minecraft_auth(
         );
     }
 
+    logs.push("CHECK obligatorio: validando perfil oficial vía /minecraft/profile".to_string());
+
     let client = reqwest::blocking::Client::new();
     let mut active_minecraft_token = auth_session.minecraft_access_token.clone();
 
@@ -719,6 +743,8 @@ fn validate_official_minecraft_auth(
         return Err("El perfil de Minecraft no coincide con la sesión actual; token inválido o vencido. Se bloquea para evitar modo Demo.".to_string());
     }
 
+    logs.push("CHECK obligatorio: validando licencia vía /entitlements/mcstore".to_string());
+
     let runtime = tokio::runtime::Runtime::new()
         .map_err(|err| format!("No se pudo crear runtime para validar entitlements: {err}"))?;
     let has_license = runtime.block_on(async {
@@ -726,7 +752,7 @@ fn validate_official_minecraft_auth(
     })?;
 
     if !has_license {
-        return Err("La cuenta no posee licencia oficial de Minecraft.".to_string());
+        return Err("Cuenta sin licencia premium verificada. Lanzamiento bloqueado.".to_string());
     }
 
     logs.push("✔ Licencia oficial verificada en entitlements/mcstore (sin Demo).".to_string());
@@ -741,6 +767,51 @@ fn validate_official_minecraft_auth(
         minecraft_access_token: active_minecraft_token,
         premium_verified: true,
     })
+}
+
+fn find_arg_value(args: &[String], flag: &str) -> Option<String> {
+    args.windows(2).find_map(|window| match window {
+        [name, value] if name == flag => Some(value.clone()),
+        _ => None,
+    })
+}
+
+fn validate_required_online_launch_flags(game_args: &[String]) -> Result<(), String> {
+    let username =
+        find_arg_value(game_args, "--username").ok_or_else(|| "Falta --username".to_string())?;
+    let uuid = find_arg_value(game_args, "--uuid").ok_or_else(|| "Falta --uuid".to_string())?;
+    let token = find_arg_value(game_args, "--accessToken")
+        .ok_or_else(|| "Falta --accessToken".to_string())?;
+    let user_type =
+        find_arg_value(game_args, "--userType").ok_or_else(|| "Falta --userType".to_string())?;
+    let version_type = find_arg_value(game_args, "--versionType")
+        .ok_or_else(|| "Falta --versionType".to_string())?;
+
+    if username.trim().is_empty() {
+        return Err("--username vacío".to_string());
+    }
+
+    if uuid.trim().is_empty() {
+        return Err("--uuid vacío".to_string());
+    }
+
+    if token.trim().is_empty() {
+        return Err("--accessToken vacío".to_string());
+    }
+
+    if user_type != "msa" {
+        return Err(format!(
+            "--userType debe ser msa para evitar Demo, recibido: {user_type}"
+        ));
+    }
+
+    if version_type != "release" {
+        return Err(format!(
+            "--versionType debe ser release para lanzamiento oficial, recibido: {version_type}"
+        ));
+    }
+
+    Ok(())
 }
 
 fn contains_classpath_switch(jvm_args: &[String]) -> bool {
