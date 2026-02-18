@@ -27,6 +27,15 @@ pub struct CreateInstanceResult {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct InstanceSummary {
+    pub id: String,
+    pub name: String,
+    pub group: String,
+    pub instance_root: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InstanceMetadata {
     pub name: String,
     pub group: String,

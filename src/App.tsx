@@ -225,6 +225,32 @@ function App() {
     }
   }, [instanceDrafts, selectedCard])
 
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadInstances = async () => {
+      try {
+        const loadedCards = await invoke<InstanceSummary[]>('list_instances')
+        if (cancelled) return
+        setCards(loadedCards)
+        setSelectedCard((prev) => {
+          if (!prev) return null
+          return loadedCards.find((card) => card.id === prev.id) ?? null
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        setCreationConsoleLogs((prev) => [...prev, `No se pudieron cargar las instancias guardadas: ${message}`])
+      }
+    }
+
+    loadInstances()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     setManifestLoading(true)
