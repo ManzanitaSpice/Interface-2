@@ -92,6 +92,15 @@ pub fn build_instance_structure(
             .and_then(Value::as_str)
             .unwrap_or("release")
             .to_string(),
+        resolution_width: "854".to_string(),
+        resolution_height: "480".to_string(),
+        clientid: String::new(),
+        auth_xuid: String::new(),
+        xuid: String::new(),
+        quick_play_singleplayer: String::new(),
+        quick_play_multiplayer: String::new(),
+        quick_play_realms: String::new(),
+        quick_play_path: String::new(),
     };
 
     let resolved =

@@ -22,6 +22,15 @@ pub struct LaunchContext {
     pub assets_root: String,
     pub assets_index_name: String,
     pub version_type: String,
+    pub resolution_width: String,
+    pub resolution_height: String,
+    pub clientid: String,
+    pub auth_xuid: String,
+    pub xuid: String,
+    pub quick_play_singleplayer: String,
+    pub quick_play_multiplayer: String,
+    pub quick_play_realms: String,
+    pub quick_play_path: String,
 }
 
 #[derive(Debug, Clone)]
@@ -82,7 +91,7 @@ pub fn resolve_launch_arguments(
 
 fn resolve_argument_section(
     maybe_section: Option<&Value>,
-    replacements: &HashMap<&str, String>,
+    replacements: &HashMap<String, String>,
     rule_context: &RuleContext,
 ) -> Vec<String> {
     let Some(section) = maybe_section.and_then(Value::as_array) else {
@@ -124,39 +133,108 @@ fn resolve_argument_section(
     args
 }
 
-fn replacement_map(launch: &LaunchContext) -> HashMap<&str, String> {
+fn replacement_map(launch: &LaunchContext) -> HashMap<String, String> {
     let mut map = HashMap::new();
-    map.insert("${classpath}", launch.classpath.clone());
-    map.insert("${classpath_separator}", launch.classpath_separator.clone());
-    map.insert("${library_directory}", launch.library_directory.clone());
-    map.insert("${natives_directory}", launch.natives_dir.clone());
-    map.insert("${launcher_name}", launch.launcher_name.clone());
-    map.insert("${launcher_version}", launch.launcher_version.clone());
-    map.insert("${auth_player_name}", launch.auth_player_name.clone());
-    map.insert("${auth_uuid}", launch.auth_uuid.clone());
-    map.insert("${auth_access_token}", launch.auth_access_token.clone());
-    map.insert("${user_type}", launch.user_type.clone());
-    map.insert("${user_properties}", launch.user_properties.clone());
-    map.insert("${version_name}", launch.version_name.clone());
-    map.insert("${game_directory}", launch.game_directory.clone());
-    map.insert("${assets_root}", launch.assets_root.clone());
-    map.insert("${assets_index_name}", launch.assets_index_name.clone());
-    map.insert("${version_type}", launch.version_type.clone());
+    map.insert("classpath".to_string(), launch.classpath.clone());
+    map.insert(
+        "classpath_separator".to_string(),
+        launch.classpath_separator.clone(),
+    );
+    map.insert(
+        "library_directory".to_string(),
+        launch.library_directory.clone(),
+    );
+    map.insert("natives_directory".to_string(), launch.natives_dir.clone());
+    map.insert("launcher_name".to_string(), launch.launcher_name.clone());
+    map.insert(
+        "launcher_version".to_string(),
+        launch.launcher_version.clone(),
+    );
+    map.insert(
+        "auth_player_name".to_string(),
+        launch.auth_player_name.clone(),
+    );
+    map.insert("auth_uuid".to_string(), launch.auth_uuid.clone());
+    map.insert(
+        "auth_access_token".to_string(),
+        launch.auth_access_token.clone(),
+    );
+    map.insert("user_type".to_string(), launch.user_type.clone());
+    map.insert(
+        "user_properties".to_string(),
+        launch.user_properties.clone(),
+    );
+    map.insert("version_name".to_string(), launch.version_name.clone());
+    map.insert("game_directory".to_string(), launch.game_directory.clone());
+    map.insert("assets_root".to_string(), launch.assets_root.clone());
+    map.insert(
+        "assets_index_name".to_string(),
+        launch.assets_index_name.clone(),
+    );
+    map.insert("version_type".to_string(), launch.version_type.clone());
+    map.insert(
+        "resolution_width".to_string(),
+        launch.resolution_width.clone(),
+    );
+    map.insert(
+        "resolution_height".to_string(),
+        launch.resolution_height.clone(),
+    );
+    map.insert("clientid".to_string(), launch.clientid.clone());
+    map.insert("auth_xuid".to_string(), launch.auth_xuid.clone());
+    map.insert("xuid".to_string(), launch.xuid.clone());
+    map.insert(
+        "quickPlaySingleplayer".to_string(),
+        launch.quick_play_singleplayer.clone(),
+    );
+    map.insert(
+        "quickPlayMultiplayer".to_string(),
+        launch.quick_play_multiplayer.clone(),
+    );
+    map.insert(
+        "quickPlayRealms".to_string(),
+        launch.quick_play_realms.clone(),
+    );
+    map.insert("quickPlayPath".to_string(), launch.quick_play_path.clone());
 
-    map.insert("${username}", launch.auth_player_name.clone());
-    map.insert("${uuid}", launch.auth_uuid.clone());
-    map.insert("${accessToken}", launch.auth_access_token.clone());
-    map.insert("${gameDir}", launch.game_directory.clone());
-    map.insert("${assetsDir}", launch.assets_root.clone());
-    map.insert("${assetIndex}", launch.assets_index_name.clone());
+    map.insert("username".to_string(), launch.auth_player_name.clone());
+    map.insert("uuid".to_string(), launch.auth_uuid.clone());
+    map.insert("accessToken".to_string(), launch.auth_access_token.clone());
+    map.insert("gameDir".to_string(), launch.game_directory.clone());
+    map.insert("assetsDir".to_string(), launch.assets_root.clone());
+    map.insert("assetIndex".to_string(), launch.assets_index_name.clone());
+    map.insert("game_assets".to_string(), launch.assets_root.clone());
 
     map
 }
 
-fn replace_variables(raw: &str, replacements: &HashMap<&str, String>) -> String {
-    replacements
-        .iter()
-        .fold(raw.to_string(), |acc, (key, value)| acc.replace(key, value))
+fn replace_variables(raw: &str, replacements: &HashMap<String, String>) -> String {
+    let mut output = String::with_capacity(raw.len());
+    let mut cursor = raw;
+
+    while let Some(start) = cursor.find("${") {
+        output.push_str(&cursor[..start]);
+        let variable_start = start + 2;
+        let candidate = &cursor[variable_start..];
+
+        if let Some(end) = candidate.find('}') {
+            let key = &candidate[..end];
+            if let Some(value) = replacements.get(key) {
+                output.push_str(value);
+            } else {
+                output.push_str("${");
+                output.push_str(key);
+                output.push('}');
+            }
+            cursor = &candidate[end + 1..];
+        } else {
+            output.push_str(&cursor[start..]);
+            return output;
+        }
+    }
+
+    output.push_str(cursor);
+    output
 }
 
 pub fn unresolved_variables_in_args<'a>(args: impl IntoIterator<Item = &'a String>) -> Vec<String> {
@@ -215,6 +293,15 @@ mod tests {
             assets_root: "/assets".to_string(),
             assets_index_name: "17".to_string(),
             version_type: "release".to_string(),
+            resolution_width: "1280".to_string(),
+            resolution_height: "720".to_string(),
+            clientid: "client-id".to_string(),
+            auth_xuid: "auth-xuid".to_string(),
+            xuid: "xuid".to_string(),
+            quick_play_singleplayer: String::new(),
+            quick_play_multiplayer: String::new(),
+            quick_play_realms: String::new(),
+            quick_play_path: String::new(),
         }
     }
 
@@ -296,6 +383,39 @@ mod tests {
             result.game,
             vec!["--username", "Steve", "--gameDir", "/game"]
         );
+    }
+
+    #[test]
+    fn resolve_modern_optional_placeholders_for_resolution_and_quickplay() {
+        let version_json = json!({
+          "mainClass":"net.minecraft.client.main.Main",
+          "arguments": {
+            "jvm": [
+              "-Dwidth=${resolution_width}",
+              "-Dheight=${resolution_height}",
+              "-Dclientid=${clientid}",
+              "-Dxuid=${auth_xuid}",
+              "-Dquick=${quickPlayPath}"
+            ],
+            "game": []
+          }
+        });
+
+        let result = resolve_launch_arguments(
+            &version_json,
+            &sample_launch_context(),
+            &RuleContext {
+                os_name: OsName::Linux,
+                arch: "x86_64".to_string(),
+            },
+        )
+        .expect("debe resolver placeholders opcionales");
+
+        assert_eq!(result.jvm[0], "-Dwidth=1280");
+        assert_eq!(result.jvm[1], "-Dheight=720");
+        assert_eq!(result.jvm[2], "-Dclientid=client-id");
+        assert_eq!(result.jvm[3], "-Dxuid=auth-xuid");
+        assert_eq!(result.jvm[4], "-Dquick=");
     }
 
     #[test]

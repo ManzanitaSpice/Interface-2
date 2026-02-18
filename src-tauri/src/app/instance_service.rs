@@ -340,6 +340,15 @@ pub fn validate_and_prepare_launch(
             .and_then(Value::as_str)
             .unwrap_or("release")
             .to_string(),
+        resolution_width: "854".to_string(),
+        resolution_height: "480".to_string(),
+        clientid: String::new(),
+        auth_xuid: String::new(),
+        xuid: String::new(),
+        quick_play_singleplayer: String::new(),
+        quick_play_multiplayer: String::new(),
+        quick_play_realms: String::new(),
+        quick_play_path: String::new(),
     };
 
     let mut resolved =
@@ -359,6 +368,10 @@ pub fn validate_and_prepare_launch(
 
     let unresolved_vars = unresolved_variables_in_args(jvm_args.iter().chain(resolved.game.iter()));
     if !unresolved_vars.is_empty() {
+        logs.push(format!(
+            "⚠ variables sin resolver detectadas: {:?}",
+            unresolved_vars
+        ));
         return Err(format!(
             "Hay variables sin resolver en argumentos JVM/Game: {}",
             unresolved_vars.join(", ")
