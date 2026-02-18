@@ -21,6 +21,8 @@ use crate::{
 const MOJANG_MANIFEST_URL: &str = "https://launchermeta.mojang.com/mc/game/version_manifest.json";
 const MOJANG_RESOURCES_URL: &str = "https://resources.download.minecraft.net";
 const MOJANG_MANIFEST_HOST: &str = "launchermeta.mojang.com";
+const MOJANG_PISTON_META_HOST: &str = "piston-meta.mojang.com";
+const MOJANG_PISTON_DATA_HOST: &str = "piston-data.mojang.com";
 const MOJANG_RESOURCE_HOST: &str = "resources.download.minecraft.net";
 const MOJANG_LIBRARIES_HOST: &str = "libraries.minecraft.net";
 
@@ -192,6 +194,8 @@ fn ensure_official_url(url: &str) -> AppResult<()> {
     let host = parsed.host_str().unwrap_or_default();
     let allowed = [
         MOJANG_MANIFEST_HOST,
+        MOJANG_PISTON_META_HOST,
+        MOJANG_PISTON_DATA_HOST,
         MOJANG_RESOURCE_HOST,
         MOJANG_LIBRARIES_HOST,
     ];
