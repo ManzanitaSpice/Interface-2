@@ -18,7 +18,8 @@ use crate::{
     domain::{
         minecraft::{
             argument_resolver::{
-                resolve_launch_arguments, unresolved_variables_in_args, LaunchContext,
+                replace_launch_variables, resolve_launch_arguments, unresolved_variables_in_args,
+                LaunchContext,
             },
             rule_engine::RuleContext,
         },
@@ -223,6 +224,9 @@ pub fn validate_and_prepare_launch(
         client_jar.display()
     ));
 
+    ensure_main_class_present_in_jar(&client_jar, "net.minecraft.client.main.Main")?;
+    logs.push("✔ clase principal net.minecraft.client.main.Main verificada en jar".to_string());
+
     let rule_context = RuleContext::current();
     let mut resolved_libraries = resolve_libraries(&mc_root, &version_json, &rule_context);
     hydrate_missing_libraries(&resolved_libraries.missing_classpath_entries, &mut logs)?;
@@ -296,7 +300,7 @@ pub fn validate_and_prepare_launch(
     } else {
         ":"
     };
-    let mut classpath_entries = resolved_libraries.classpath_entries;
+    let mut classpath_entries = collect_library_jars(&mc_root.join("libraries"))?;
     classpath_entries.push(client_jar.display().to_string());
     let classpath = classpath_entries.join(sep);
     if classpath.trim().is_empty() {
@@ -346,7 +350,12 @@ pub fn validate_and_prepare_launch(
         format!("-Xmx{}M", metadata.ram_mb.max(512)),
     ];
     let mut jvm_args = memory_args;
-    jvm_args.extend(metadata.java_args.clone());
+    jvm_args.extend(
+        metadata
+            .java_args
+            .iter()
+            .map(|arg| replace_launch_variables(arg, &launch_context)),
+    );
     jvm_args.append(&mut resolved.jvm);
 
     if !contains_classpath_switch(&jvm_args) {
@@ -560,6 +569,79 @@ fn ensure_instance_embedded_java(
     }
 
     Ok(java_exec.display().to_string())
+}
+
+fn collect_library_jars(libraries_root: &Path) -> Result<Vec<String>, String> {
+    if !libraries_root.exists() {
+        return Err(format!(
+            "No existe el directorio de libraries para classpath: {}",
+            libraries_root.display()
+        ));
+    }
+
+    let mut entries = Vec::new();
+    collect_library_jars_recursive(libraries_root, &mut entries)?;
+    entries.sort();
+
+    if entries.is_empty() {
+        return Err(format!(
+            "No se encontraron jars en libraries para classpath: {}",
+            libraries_root.display()
+        ));
+    }
+
+    Ok(entries)
+}
+
+fn collect_library_jars_recursive(dir: &Path, entries: &mut Vec<String>) -> Result<(), String> {
+    let read_dir = fs::read_dir(dir)
+        .map_err(|err| format!("No se pudo listar {} para classpath: {err}", dir.display()))?;
+
+    for item in read_dir {
+        let item = item.map_err(|err| {
+            format!(
+                "No se pudo leer entrada de {} para classpath: {err}",
+                dir.display()
+            )
+        })?;
+        let path = item.path();
+        if path.is_dir() {
+            collect_library_jars_recursive(&path, entries)?;
+            continue;
+        }
+
+        let is_jar = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.eq_ignore_ascii_case("jar"))
+            .unwrap_or(false);
+        if is_jar {
+            entries.push(path.display().to_string());
+        }
+    }
+
+    Ok(())
+}
+
+fn ensure_main_class_present_in_jar(jar_path: &Path, main_class: &str) -> Result<(), String> {
+    let target_entry = format!("{}.class", main_class.replace('.', "/"));
+    let file = fs::File::open(jar_path).map_err(|err| {
+        format!(
+            "No se pudo abrir jar {} para verificar mainClass: {err}",
+            jar_path.display()
+        )
+    })?;
+    let mut archive = ZipArchive::new(file)
+        .map_err(|err| format!("No se pudo leer jar {} como zip: {err}", jar_path.display()))?;
+
+    archive.by_name(&target_entry).map(|_| ()).map_err(|_| {
+        format!(
+            "La clase principal '{}' no existe en {} (entrada esperada: {}).",
+            main_class,
+            jar_path.display(),
+            target_entry
+        )
+    })
 }
 
 fn parse_runtime_from_metadata(metadata: &InstanceMetadata) -> Option<JavaRuntime> {
