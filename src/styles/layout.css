@@ -51,19 +51,25 @@
   max-height: calc(100vh - 56px);
 }
 
-.creator-main,
-.edit-main-content {
+.creator-main {
   display: flex;
   flex-direction: column;
   min-height: calc(100vh - 56px);
   max-height: calc(100vh - 56px);
 }
 
+.edit-main-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  max-height: 100vh;
+}
+
 .edit-instance-layout {
   display: grid;
   grid-template-columns: var(--sidebar-width) 6px minmax(0, 1fr);
-  min-height: calc(100vh - 56px);
-  max-height: calc(100vh - 56px);
+  min-height: 100vh;
+  max-height: 100vh;
 }
 
 .third-top-bar,
