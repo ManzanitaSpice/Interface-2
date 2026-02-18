@@ -396,14 +396,16 @@ fn create_instance_impl(
         &mut logs,
         "Construyendo estructura interna de la instancia...",
     );
+    let mut build_logs = Vec::new();
+    let mut progress_logs = Vec::new();
     build_instance_structure(
         &instance_root,
         &minecraft_root,
         &payload.minecraft_version,
-        &mut logs,
+        &mut build_logs,
         &mut |completed, total, message| {
             let line = format!("{message} [progreso {completed}/{total}]");
-            push_creation_log(&app, &request_id, &mut logs, line);
+            progress_logs.push(line.clone());
             emit_creation_progress(
                 &app,
                 &request_id,
@@ -413,6 +415,10 @@ fn create_instance_impl(
             );
         },
     )?;
+    logs.extend(build_logs);
+    for line in progress_logs {
+        push_creation_log(&app, &request_id, &mut logs, line);
+    }
     if let Some(last) = logs.last().cloned() {
         let _ = app.emit(
             "instance_creation_progress",
