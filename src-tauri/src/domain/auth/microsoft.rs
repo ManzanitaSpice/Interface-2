@@ -9,8 +9,9 @@ pub const MICROSOFT_SCOPES: &str = "XboxLive.signin offline_access";
 pub const MICROSOFT_REDIRECT_URI: &str =
     "https://login.microsoftonline.com/common/oauth2/nativeclient";
 
-const AUTHORIZE_ENDPOINT: &str = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
-const TOKEN_ENDPOINT: &str = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
+const AUTHORIZE_ENDPOINT: &str =
+    "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize";
+const TOKEN_ENDPOINT: &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
 
 pub fn generate_code_verifier() -> String {
     let random = format!(
@@ -45,6 +46,7 @@ pub fn build_authorize_url(code_verifier: &str, redirect_uri: &str) -> Result<St
     #[derive(Serialize)]
     struct Query<'a> {
         response_type: &'a str,
+        response_mode: &'a str,
         client_id: &'a str,
         redirect_uri: &'a str,
         scope: &'a str,
@@ -54,6 +56,7 @@ pub fn build_authorize_url(code_verifier: &str, redirect_uri: &str) -> Result<St
 
     let query = Query {
         response_type: "code",
+        response_mode: "query",
         client_id: MICROSOFT_CLIENT_ID,
         redirect_uri,
         scope: MICROSOFT_SCOPES,
@@ -71,13 +74,14 @@ fn build_token_params(
     code: &str,
     code_verifier: &str,
     redirect_uri: &str,
-) -> [(&'static str, String); 5] {
+) -> [(&'static str, String); 6] {
     [
         ("grant_type", "authorization_code".to_string()),
         ("client_id", MICROSOFT_CLIENT_ID.to_string()),
         ("code", code.to_string()),
         ("redirect_uri", redirect_uri.to_string()),
         ("code_verifier", code_verifier.to_string()),
+        ("scope", MICROSOFT_SCOPES.to_string()),
     ]
 }
 
@@ -153,6 +157,9 @@ mod tests {
         assert!(params
             .iter()
             .any(|(key, value)| *key == "code" && value == "auth-code"));
+        assert!(params
+            .iter()
+            .any(|(key, value)| *key == "scope" && value == "XboxLive.signin offline_access"));
     }
 
     #[test]
@@ -160,8 +167,9 @@ mod tests {
         let verifier = "A".repeat(64);
         let url = build_authorize_url(&verifier, MICROSOFT_REDIRECT_URI).expect("url should build");
 
-        assert!(url.starts_with("https://login.microsoftonline.com/common/oauth2/v2.0/authorize?"));
+        assert!(url.starts_with("https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?"));
         assert!(url.contains("response_type=code"));
+        assert!(url.contains("response_mode=query"));
         assert!(url.contains("client_id=7ce1b3e8-48d7-4a9d-9329-7e11f988df39"));
         assert!(url.contains(
             "redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient"
