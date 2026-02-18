@@ -293,6 +293,7 @@ function App() {
   const [authStatus, setAuthStatus] = useState('')
   const [authError, setAuthError] = useState('')
   const creationIconInputRef = useRef<HTMLInputElement | null>(null)
+  const creationConsoleRef = useRef<HTMLDivElement | null>(null)
   const runtimeConsoleRef = useRef<HTMLDivElement | null>(null)
 
 
@@ -394,6 +395,11 @@ function App() {
     if (!autoScrollConsole || !runtimeConsoleRef.current) return
     runtimeConsoleRef.current.scrollTop = runtimeConsoleRef.current.scrollHeight
   }, [runtimeConsole, autoScrollConsole])
+
+  useEffect(() => {
+    if (!creationConsoleRef.current) return
+    creationConsoleRef.current.scrollTop = creationConsoleRef.current.scrollHeight
+  }, [creationConsoleLogs, isCreating])
 
   useEffect(() => {
     if (!isAuthCooldown) return
@@ -1423,7 +1429,7 @@ const onTopNavClick = (item: TopNavItem) => {
                   />
                 </div>
                 <div className="creation-console-and-progress">
-                  <aside className="creation-mini-console" role="log" aria-label="Consola de creación">
+                  <aside ref={creationConsoleRef} className="creation-mini-console" role="log" aria-label="Consola de creación">
                     {creationConsoleLogs.length === 0 && <p>Consola lista. Aquí verás la creación e instalación de la instancia.</p>}
                     {creationConsoleLogs.map((line, index) => (
                       <p key={`creation-log-${index}`}>{line}</p>
