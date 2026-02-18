@@ -339,23 +339,31 @@ function App() {
     setAuthError('')
     setAuthStatus('Preparando autenticación con Microsoft...')
 
+    let startedFlow = false
     try {
       const authStart = await invoke<MicrosoftAuthStart>('start_microsoft_auth')
-      const browserToUse = selectedBrowserId || 'default'
-      await invoke('open_url_in_browser', { url: authStart.authorizeUrl, browserId: browserToUse })
-
       setPendingMicrosoftCodeVerifier(authStart.codeVerifier)
       setPendingAuthorizeUrl(authStart.authorizeUrl)
+      startedFlow = true
+
+      const browserToUse = selectedBrowserId || 'default'
+      await invoke('open_url_in_browser', { url: authStart.authorizeUrl, browserId: browserToUse })
       setAuthStatus(
         `Se abrió el navegador (${browserToUse}). Autoriza la app y luego pega aquí el parámetro code de la URL de redirección.`,
       )
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      setAuthError(message)
-      setAuthStatus('')
-      setPendingMicrosoftCodeVerifier('')
-      setPendingAuthorizeUrl('')
-      setAuthRetryAt(Date.now() + authCodeRegenerateCooldownMs)
+
+      if (startedFlow) {
+        setAuthError(`${message}. Puedes continuar el flujo abriendo el enlace manualmente.`)
+        setAuthStatus('No se pudo abrir el navegador automáticamente, pero el enlace de inicio de sesión sigue disponible.')
+      } else {
+        setAuthError(message)
+        setAuthStatus('')
+        setPendingMicrosoftCodeVerifier('')
+        setPendingAuthorizeUrl('')
+        setAuthRetryAt(Date.now() + authCodeRegenerateCooldownMs)
+      }
     } finally {
       setIsAuthenticating(false)
     }
@@ -1242,15 +1250,11 @@ const onTopNavClick = (item: TopNavItem) => {
       {isAuthReady && !authSession && (
         <main className="content content-padded">
           <section className="floating-modal auth-login-card" style={{ margin: '2rem auto' }}>
-            <h3>Inicia sesión con Microsoft</h3>
-            <p>Para usar el launcher, autentícate con tu cuenta de Microsoft y completa el flujo OAuth con PKCE.</p>
-            <ul className="auth-required-params">
-              <li><code>response_type=code</code></li>
-              <li><code>client_id=7ce1b3e8-48d7-4a9d-9329-7e11f988df39</code></li>
-              <li><code>redirect_uri=https://login.microsoftonline.com/common/oauth2/nativeclient</code></li>
-              <li><code>scope=XboxLive.signin offline_access</code></li>
-              <li><code>code_challenge=&lt;PKCE_S256&gt;</code> y <code>code_challenge_method=S256</code></li>
-            </ul>
+            <div className="auth-login-card-header">
+              <span className="auth-login-chip">Acceso seguro</span>
+              <h3>Inicia sesión con Microsoft</h3>
+              <p>Usa el inicio de sesión oficial y autoriza tu cuenta para continuar en el launcher.</p>
+            </div>
             {authStatus && <p className="auth-feedback auth-feedback-status">{authStatus}</p>}
             {authError && <p className="auth-feedback auth-feedback-error">{authError}</p>}
             {isAuthCooldown && <p className="auth-feedback auth-feedback-warn">Espera {authRetrySeconds}s antes de generar un nuevo código de inicio de sesión.</p>}
@@ -1267,15 +1271,27 @@ const onTopNavClick = (item: TopNavItem) => {
             {pendingAuthorizeUrl && (
               <div className="auth-browser-hint">
                 <span>
-                  Si el navegador no abre automáticamente, copia y abre este enlace manualmente (incluye <code>response_type</code>, <code>client_id</code>, <code>redirect_uri</code>, <code>scope</code> y PKCE).
+                  Si el navegador no se abrió, continúa manualmente sin exponer datos técnicos del flujo.
                 </span>
-                <textarea value={pendingAuthorizeUrl} readOnly rows={3} />
-                <button
-                  onClick={() => void navigator.clipboard.writeText(pendingAuthorizeUrl)}
-                  disabled={isAuthenticating}
-                >
-                  Copiar enlace OAuth
-                </button>
+                <div className="auth-manual-actions">
+                  <button
+                    onClick={() => {
+                      void invoke('open_url_in_browser', { url: pendingAuthorizeUrl, browserId: selectedBrowserId || 'default' }).catch((error) => {
+                        const message = error instanceof Error ? error.message : String(error)
+                        setAuthError(message)
+                      })
+                    }}
+                    disabled={isAuthenticating || isAuthCooldown}
+                  >
+                    Reintentar abrir navegador
+                  </button>
+                  <button
+                    onClick={() => void navigator.clipboard.writeText(pendingAuthorizeUrl)}
+                    disabled={isAuthenticating}
+                  >
+                    Copiar enlace de acceso
+                  </button>
+                </div>
               </div>
             )}
             <label className="auth-field auth-field-spaced">

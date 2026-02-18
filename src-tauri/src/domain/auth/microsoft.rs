@@ -67,7 +67,22 @@ pub fn build_authorize_url(code_verifier: &str, redirect_uri: &str) -> Result<St
     Ok(format!("{AUTHORIZE_ENDPOINT}?{encoded_query}"))
 }
 
+fn build_token_params(
+    code: &str,
+    code_verifier: &str,
+    redirect_uri: &str,
+) -> [(&'static str, String); 5] {
+    [
+        ("grant_type", "authorization_code".to_string()),
+        ("client_id", MICROSOFT_CLIENT_ID.to_string()),
+        ("code", code.to_string()),
+        ("redirect_uri", redirect_uri.to_string()),
+        ("code_verifier", code_verifier.to_string()),
+    ]
+}
+
 pub async fn exchange_authorization_code(
+    client: &reqwest::Client,
     code: &str,
     code_verifier: &str,
     redirect_uri: &str,
@@ -79,15 +94,8 @@ pub async fn exchange_authorization_code(
         ));
     }
 
-    let params = [
-        ("grant_type", "authorization_code".to_string()),
-        ("client_id", MICROSOFT_CLIENT_ID.to_string()),
-        ("code", code.to_string()),
-        ("redirect_uri", redirect_uri.to_string()),
-        ("code_verifier", code_verifier.to_string()),
-    ];
+    let params = build_token_params(code, code_verifier, redirect_uri);
 
-    let client = reqwest::Client::new();
     let response = client
         .post(TOKEN_ENDPOINT)
         .form(&params)
@@ -121,12 +129,30 @@ pub async fn exchange_authorization_code(
 
 #[cfg(test)]
 mod tests {
-    use super::{build_authorize_url, generate_code_verifier, MICROSOFT_REDIRECT_URI};
+    use super::{
+        build_authorize_url, build_token_params, generate_code_verifier, MICROSOFT_CLIENT_ID,
+        MICROSOFT_REDIRECT_URI,
+    };
 
     #[test]
     fn pkce_code_verifier_has_valid_length() {
         let verifier = generate_code_verifier();
         assert!((43..=128).contains(&verifier.len()));
+    }
+
+    #[test]
+    fn token_request_includes_client_id_and_required_form_fields() {
+        let params = build_token_params("auth-code", "verifier-value", MICROSOFT_REDIRECT_URI);
+
+        assert!(params
+            .iter()
+            .any(|(key, value)| *key == "client_id" && value == MICROSOFT_CLIENT_ID));
+        assert!(params
+            .iter()
+            .any(|(key, value)| *key == "grant_type" && value == "authorization_code"));
+        assert!(params
+            .iter()
+            .any(|(key, value)| *key == "code" && value == "auth-code"));
     }
 
     #[test]
