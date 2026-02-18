@@ -12,8 +12,8 @@ use crate::domain::auth::{
     },
     profile::MinecraftProfile,
     xbox::{
-        authenticate_with_xbox_live, authorize_xsts, login_minecraft_with_xbox,
-        read_minecraft_profile,
+        authenticate_with_xbox_live, authorize_xsts, has_minecraft_license,
+        login_minecraft_with_xbox, read_minecraft_profile,
     },
 };
 
@@ -55,6 +55,10 @@ async fn finalize_microsoft_tokens(
     let xbox = authenticate_with_xbox_live(client, &microsoft_tokens.access_token).await?;
     let xsts = authorize_xsts(client, &xbox.token).await?;
     let minecraft = login_minecraft_with_xbox(client, &xsts.uhs, &xsts.token).await?;
+    let has_license = has_minecraft_license(client, &minecraft.access_token).await?;
+    if !has_license {
+        return Err("La cuenta no tiene licencia oficial de Minecraft (entitlements/mcstore vacío). No se permite modo Demo.".to_string());
+    }
     let profile = read_minecraft_profile(client, &minecraft.access_token).await?;
 
     Ok(MicrosoftAuthResult {

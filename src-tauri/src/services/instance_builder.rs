@@ -16,7 +16,7 @@ use crate::{
     shared::result::AppResult,
 };
 
-const MOJANG_MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+const MOJANG_MANIFEST_URL: &str = "https://launchermeta.mojang.com/mc/game/version_manifest.json";
 const MOJANG_RESOURCES_URL: &str = "https://resources.download.minecraft.net";
 
 pub fn build_instance_structure(
