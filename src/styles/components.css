@@ -129,6 +129,26 @@
   box-shadow: 0 12px 35px rgba(4, 10, 27, 0.45);
 }
 
+
+.auth-login-card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.auth-login-chip {
+  align-self: flex-start;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: color-mix(in srgb, white 78%, var(--accent));
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 0.22rem 0.65rem;
+  text-transform: uppercase;
+}
+
 .auth-field {
   display: flex;
   flex-direction: column;
@@ -187,6 +207,13 @@
   min-height: 78px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
   font-size: 0.75rem;
+}
+
+
+.auth-manual-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .auth-actions {
@@ -664,17 +691,3 @@
 }
 
 
-.auth-required-params {
-  margin: 0;
-  padding: 0.65rem 0.85rem;
-  border-radius: 0.6rem;
-  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
-  background: color-mix(in srgb, var(--bg-soft) 82%, #0b1220);
-  font-size: 0.82rem;
-  display: grid;
-  gap: 0.35rem;
-}
-
-.auth-required-params li {
-  margin-left: 1rem;
-}

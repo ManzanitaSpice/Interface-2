@@ -42,12 +42,13 @@ pub struct BrowserOption {
 }
 
 async fn finalize_microsoft_tokens(
+    client: &reqwest::Client,
     microsoft_tokens: crate::domain::auth::tokens::MicrosoftTokenResponse,
 ) -> Result<MicrosoftAuthResult, String> {
-    let xbox = authenticate_with_xbox_live(&microsoft_tokens.access_token).await?;
-    let xsts = authorize_xsts(&xbox.token).await?;
-    let minecraft = login_minecraft_with_xbox(&xsts.uhs, &xsts.token).await?;
-    let profile = read_minecraft_profile(&minecraft.access_token).await?;
+    let xbox = authenticate_with_xbox_live(client, &microsoft_tokens.access_token).await?;
+    let xsts = authorize_xsts(client, &xbox.token).await?;
+    let minecraft = login_minecraft_with_xbox(client, &xsts.uhs, &xsts.token).await?;
+    let profile = read_minecraft_profile(client, &minecraft.access_token).await?;
 
     Ok(MicrosoftAuthResult {
         microsoft_access_token: microsoft_tokens.access_token,
@@ -151,9 +152,7 @@ fn open_with_browser_command(browser_id: &str, url: &str) -> Result<(), String> 
         .spawn()
         .map(|_| ())
         .map_err(|err| {
-            format!(
-                "No se pudo abrir navegador '{browser_id}' ni fallback predeterminado: {err}"
-            )
+            format!("No se pudo abrir navegador '{browser_id}' ni fallback predeterminado: {err}")
         })
 }
 
@@ -259,9 +258,10 @@ pub async fn complete_microsoft_auth(
         return Err("El código de autorización de Microsoft está vacío.".to_string());
     }
 
+    let client = reqwest::Client::new();
     let microsoft_tokens =
-        exchange_authorization_code(&code, &code_verifier, MICROSOFT_REDIRECT_URI).await?;
-    finalize_microsoft_tokens(microsoft_tokens).await
+        exchange_authorization_code(&client, &code, &code_verifier, MICROSOFT_REDIRECT_URI).await?;
+    finalize_microsoft_tokens(&client, microsoft_tokens).await
 }
 
 #[tauri::command]

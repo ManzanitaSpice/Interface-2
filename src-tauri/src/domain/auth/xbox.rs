@@ -58,6 +58,7 @@ pub struct XstsToken {
 }
 
 pub async fn authenticate_with_xbox_live(
+    client: &reqwest::Client,
     microsoft_access_token: &str,
 ) -> Result<XboxLiveToken, String> {
     let payload = json!({
@@ -70,7 +71,6 @@ pub async fn authenticate_with_xbox_live(
         "TokenType": "JWT"
     });
 
-    let client = reqwest::Client::new();
     let response = client
         .post(XBOX_AUTH_URL)
         .header("Accept", "application/json")
@@ -105,10 +105,12 @@ pub async fn authenticate_with_xbox_live(
     })
 }
 
-pub async fn authorize_xsts(xbox_token: &str) -> Result<XstsToken, String> {
+pub async fn authorize_xsts(
+    client: &reqwest::Client,
+    xbox_token: &str,
+) -> Result<XstsToken, String> {
     let payload = build_xsts_request(xbox_token);
 
-    let client = reqwest::Client::new();
     let response = client
         .post(XSTS_AUTH_URL)
         .header("Accept", "application/json")
@@ -144,6 +146,7 @@ pub async fn authorize_xsts(xbox_token: &str) -> Result<XstsToken, String> {
 }
 
 pub async fn login_minecraft_with_xbox(
+    client: &reqwest::Client,
     uhs: &str,
     xsts_token: &str,
 ) -> Result<MinecraftLoginResponse, String> {
@@ -157,7 +160,6 @@ pub async fn login_minecraft_with_xbox(
         identity_token: build_minecraft_identity_token(uhs, xsts_token),
     };
 
-    let client = reqwest::Client::new();
     let response = client
         .post(MINECRAFT_LOGIN_URL)
         .header("Accept", "application/json")
@@ -187,9 +189,9 @@ pub async fn login_minecraft_with_xbox(
 }
 
 pub async fn read_minecraft_profile(
+    client: &reqwest::Client,
     minecraft_access_token: &str,
 ) -> Result<MinecraftProfile, String> {
-    let client = reqwest::Client::new();
     let response = client
         .get(MINECRAFT_PROFILE_URL)
         .header("Authorization", format!("Bearer {minecraft_access_token}"))
