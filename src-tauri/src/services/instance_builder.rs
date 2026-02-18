@@ -148,7 +148,7 @@ fn download_version_json(minecraft_version: &str) -> AppResult<Value> {
 }
 
 pub fn persist_instance_metadata(
-    _instance_root: &Path,
+    instance_root: &Path,
     metadata: &InstanceMetadata,
     logs: &mut Vec<String>,
 ) -> AppResult<()> {
