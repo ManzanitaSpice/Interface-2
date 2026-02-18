@@ -3,7 +3,6 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import './App.css'
 
-type TopNavItem = 'Mis Modpacks' | 'Novedades' | 'Explorador' | 'Servers' | 'Configuración Global'
 type MainPage =
   | 'Inicio'
   | 'Mis Modpacks'
@@ -12,6 +11,8 @@ type MainPage =
   | 'Servers'
   | 'Configuración Global'
   | 'Administradora de cuentas'
+  | 'Administradora de skins'
+  | 'Editor de skins'
   | 'Creador de Instancias'
   | 'Editar Instancia'
 
@@ -208,8 +209,12 @@ type ManagedAccount = {
   loggedAt: number
 }
 
+type SkinItem = {
+  id: string
+  name: string
+  updatedAt: string
+}
 
-const topNavItems: TopNavItem[] = ['Mis Modpacks', 'Novedades', 'Explorador', 'Servers', 'Configuración Global']
 
 const creatorSections: CreatorSection[] = ['Personalizado', 'CurseForge', 'Modrinth', 'Futuro 1', 'Futuro 2', 'Futuro 3']
 
@@ -311,6 +316,10 @@ function App() {
   const [authSession, setAuthSession] = useState<AuthSession | null>(null)
   const [managedAccounts, setManagedAccounts] = useState<ManagedAccount[]>([])
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+  const [selectedAccountId, setSelectedAccountId] = useState<string>('')
+  const [selectedSkinId, setSelectedSkinId] = useState<string>('')
+  const [openSkinTabs, setOpenSkinTabs] = useState<SkinItem[]>([])
+  const [activeSkinTabId, setActiveSkinTabId] = useState<string>('')
   const [isAuthReady, setIsAuthReady] = useState(false)
   const [isAuthenticating, setIsAuthenticating] = useState(false)
   const [authRetryAt, setAuthRetryAt] = useState(0)
@@ -321,6 +330,27 @@ function App() {
   const creationConsoleRef = useRef<HTMLDivElement | null>(null)
   const runtimeConsoleRef = useRef<HTMLDivElement | null>(null)
   const playtimeStartRef = useRef<number | null>(null)
+
+  const skinCatalog = useMemo<SkinItem[]>(() => {
+    if (!selectedAccountId) return []
+    const selectedAccount = managedAccounts.find((account) => account.profileId === selectedAccountId)
+    if (!selectedAccount) return []
+    return [
+      { id: `${selectedAccount.profileId}-default`, name: `${selectedAccount.profileName} Base`, updatedAt: 'Hoy' },
+      { id: `${selectedAccount.profileId}-pvp`, name: `${selectedAccount.profileName} PvP`, updatedAt: 'Ayer' },
+      { id: `${selectedAccount.profileId}-builder`, name: `${selectedAccount.profileName} Builder`, updatedAt: 'Hace 3 días' },
+    ]
+  }, [managedAccounts, selectedAccountId])
+
+  const selectedAccount = useMemo(
+    () => managedAccounts.find((account) => account.profileId === selectedAccountId) ?? null,
+    [managedAccounts, selectedAccountId],
+  )
+
+  const selectedSkin = useMemo(
+    () => skinCatalog.find((skin) => skin.id === selectedSkinId) ?? null,
+    [skinCatalog, selectedSkinId],
+  )
 
 
   const appendRuntime = (entry: ConsoleEntry) => {
@@ -1203,16 +1233,6 @@ function App() {
   }
 
 
-const onTopNavClick = (item: TopNavItem) => {
-    setSelectedCard(null)
-    if (item === 'Mis Modpacks') {
-      setCreationProgress((prev) => prev ? { completed: prev.total, total: prev.total } : prev)
-      setActivePage('Mis Modpacks')
-      return
-    }
-    setActivePage(item)
-  }
-
   const openEditor = () => {
     if (!selectedCard) {
       return
@@ -1329,6 +1349,22 @@ const onTopNavClick = (item: TopNavItem) => {
     setActivePage('Administradora de cuentas')
   }
 
+  useEffect(() => {
+    if (!managedAccounts.length) {
+      setSelectedAccountId('')
+      return
+    }
+    setSelectedAccountId((prev) => prev && managedAccounts.some((account) => account.profileId === prev) ? prev : managedAccounts[0].profileId)
+  }, [managedAccounts])
+
+  useEffect(() => {
+    if (!skinCatalog.length) {
+      setSelectedSkinId('')
+      return
+    }
+    setSelectedSkinId((prev) => prev && skinCatalog.some((skin) => skin.id === prev) ? prev : skinCatalog[0].id)
+  }, [skinCatalog])
+
   const accountManagerRows = managedAccounts.map((account) => ({
     ...account,
     typeLabel: account.type,
@@ -1373,9 +1409,6 @@ const onTopNavClick = (item: TopNavItem) => {
         </main>
       )}
 
-      {authSession && activePage !== 'Creador de Instancias' && activePage !== 'Editar Instancia' && (
-        <SecondaryTopBar activePage={activePage} onNavigate={onTopNavClick} />
-      )}
 
       {authSession && activePage === 'Inicio' && (
         <main className="content content-padded">
@@ -1430,7 +1463,11 @@ const onTopNavClick = (item: TopNavItem) => {
                     <p className="account-empty">Aún no hay cuentas registradas.</p>
                   )}
                   {accountManagerRows.map((account) => (
-                    <div key={account.profileId} className="account-row">
+                    <div
+                      key={account.profileId}
+                      className={`account-row selectable ${selectedAccountId === account.profileId ? 'active' : ''}`}
+                      onClick={() => setSelectedAccountId(account.profileId)}
+                    >
                       <span>{account.profileName}{account.isDefault ? ' (Predeterminada)' : ''}</span>
                       <span>{account.profileId}</span>
                       <span>{account.email}</span>
@@ -1449,34 +1486,111 @@ const onTopNavClick = (item: TopNavItem) => {
               <button onClick={() => window.location.reload()}>Refrescar</button>
               <button
                 onClick={() => {
+                  if (!selectedAccountId) return
                   setManagedAccounts((prev) => {
-                    const next = prev.slice(0, -1)
+                    const next = prev.filter((account) => account.profileId !== selectedAccountId)
                     persistManagedAccounts(next)
                     return next
                   })
                 }}
-                disabled={managedAccounts.length === 0}
+                disabled={!selectedAccountId}
               >
                 Remover
               </button>
               <button
                 onClick={() => {
-                  if (!authSession) return
+                  if (!selectedAccountId) return
                   setManagedAccounts((prev) => {
-                    const next = prev.map((account) => ({ ...account, isDefault: account.profileId === authSession.profileId }))
+                    const next = prev.map((account) => ({ ...account, isDefault: account.profileId === selectedAccountId }))
                     persistManagedAccounts(next)
                     return next
                   })
                 }}
-                disabled={!authSession}
+                disabled={!selectedAccountId}
               >
                 Establecer por Defecto
               </button>
-              <button disabled>Administrar Skins</button>
+              <button disabled={!selectedAccountId} onClick={() => setActivePage('Administradora de skins')}>Administrar Skins</button>
             </aside>
           </section>
         </main>
       )}
+
+      {authSession && activePage === 'Administradora de skins' && (
+        <main className="content content-padded">
+          <h1 className="page-title">Administradora de skins</h1>
+          <section className="skins-manager-layout">
+            <section className="skins-catalog-panel">
+              <header>
+                <h2>Catálogo de skins</h2>
+                <p>Cuenta seleccionada: {selectedAccount ? selectedAccount.profileName : 'Ninguna'}</p>
+              </header>
+              <div className="skins-grid">
+                {skinCatalog.length === 0 && <article className="instance-card placeholder">Selecciona una cuenta para ver skins.</article>}
+                {skinCatalog.map((skin) => (
+                  <article
+                    key={skin.id}
+                    className={`instance-card clickable ${selectedSkinId === skin.id ? 'active' : ''}`}
+                    onClick={() => setSelectedSkinId(skin.id)}
+                  >
+                    <strong>{skin.name}</strong>
+                    <small>Actualizada: {skin.updatedAt}</small>
+                  </article>
+                ))}
+              </div>
+            </section>
+
+            <aside className="account-manager-panel compact">
+              <button disabled={!selectedSkin} onClick={() => {
+                if (!selectedSkin) return
+                setOpenSkinTabs((prev) => prev.some((tab) => tab.id === selectedSkin.id) ? prev : [...prev, selectedSkin])
+                setActiveSkinTabId(selectedSkin.id)
+                setActivePage('Editor de skins')
+              }}>Editar</button>
+              <button disabled={!selectedSkin}>Aplicar</button>
+              <button disabled={!selectedSkin}>Eliminar</button>
+            </aside>
+          </section>
+        </main>
+      )}
+
+      {authSession && activePage === 'Editor de skins' && (
+        <main className="skin-editor-page">
+          <header className="edit-top-bar">
+            <button>Archivo</button>
+            <button>Edit</button>
+            <button>Imagen</button>
+            <button>Herramientas</button>
+            <button>Vision</button>
+          </header>
+          <header className="skin-tabs-bar">
+            {openSkinTabs.length === 0 && <span className="tab-empty">No hay skins abiertas.</span>}
+            {openSkinTabs.map((tab) => (
+              <button key={tab.id} className={activeSkinTabId === tab.id ? 'active' : ''} onClick={() => setActiveSkinTabId(tab.id)}>
+                {tab.name}
+              </button>
+            ))}
+          </header>
+          <section className="skin-editor-workspace">
+            <aside className="compact-sidebar left">
+              <button className="active">Capas</button>
+              <button>Pincel</button>
+              <button>Relleno</button>
+              <button>Borrador</button>
+            </aside>
+            <section className="skin-editor-canvas">
+              <h2>Vista 3D de skin</h2>
+              <p>Panel dinámico listo para rotación e interacción futura (texturas, pintado y edición).</p>
+            </section>
+            <aside className="compact-sidebar right">
+              <button>Color</button>
+              <button>Material</button>
+              <button>Historial</button>
+            </aside>
+          </section>
+        </main>
+      )}
+
 
       {authSession && activePage === 'Mis Modpacks' && (
         <main className="content content-padded">
@@ -1509,6 +1623,14 @@ const onTopNavClick = (item: TopNavItem) => {
                   >
                     <strong>{card.name}</strong>
                     <span className="instance-group-chip">Grupo: {card.group}</span>
+                    {(selectedCard?.id === card.id && (isStartingInstance || isInstanceRunning)) && (
+                      <>
+                        <span className="instance-state-chip">{isStartingInstance ? 'Iniciando' : 'Ejecutando'}</span>
+                        <div className="instance-run-progress" aria-label="Progreso de ejecución">
+                          <div className={`instance-run-progress-fill ${isInstanceRunning ? 'running' : ''}`} />
+                        </div>
+                      </>
+                    )}
                     <small>{card.instanceRoot ?? "Ruta pendiente"}</small>
                   </article>
                 ))}
@@ -1556,17 +1678,6 @@ const onTopNavClick = (item: TopNavItem) => {
         </div>
       )}
 
-      {activePage !== 'Inicio' &&
-        activePage !== 'Mis Modpacks' &&
-        activePage !== 'Creador de Instancias' &&
-        activePage !== 'Editar Instancia' && (
-          <main className="content content-padded">
-            <section className="instances-panel">
-              <h1>{activePage}</h1>
-              <p>Sección en preparación.</p>
-            </section>
-          </main>
-        )}
 
       {authSession && activePage === 'Creador de Instancias' && (
         <main className="creator-layout" style={{ '--sidebar-width': `${creatorSidebarWidth}px` } as CSSProperties}>
@@ -1890,11 +2001,6 @@ const onTopNavClick = (item: TopNavItem) => {
   )
 }
 
-type SecondaryTopBarProps = {
-  activePage: MainPage
-  onNavigate: (item: TopNavItem) => void
-}
-
 type PrincipalTopBarProps = {
   authSession: AuthSession | null
   onLogout: () => void
@@ -1923,18 +2029,6 @@ function PrincipalTopBar({ authSession, onLogout, onOpenAccountManager, accountM
         <span>Sin sesión iniciada</span>
       )}
     </header>
-  )
-}
-
-function SecondaryTopBar({ activePage, onNavigate }: SecondaryTopBarProps) {
-  return (
-    <nav className="top-bar secondary">
-      {topNavItems.map((item) => (
-        <button key={item} onClick={() => onNavigate(item)} className={activePage === item ? 'active' : ''}>
-          {item}
-        </button>
-      ))}
-    </nav>
   )
 }
 
