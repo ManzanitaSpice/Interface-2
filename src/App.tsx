@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import { useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import './App.css'
 
 type TopNavItem = 'Mis Modpacks' | 'Novedades' | 'Explorador' | 'Servers' | 'Configuración Global'
@@ -49,6 +49,33 @@ type CreateInstanceResult = {
   logs: string[]
 }
 
+type ManifestVersion = {
+  id: string
+  type: string
+  url: string
+  releaseTime: string
+}
+
+type MinecraftVersionDetail = {
+  mainClass?: string
+  libraries: Array<{ name: string }>
+  assets?: string
+  assetIndex?: { id?: string; url?: string }
+  downloads?: { client?: { url?: string; sha1?: string } }
+  arguments?: unknown
+  javaVersion?: { majorVersion?: number }
+}
+
+type LoaderKey = 'none' | 'neoforge' | 'forge' | 'fabric' | 'quilit'
+type MinecraftFilter = 'Snapshots' | 'Betas' | 'Alfas' | 'Experimentales'
+
+type LoaderVersionItem = {
+  version: string
+  publishedAt: string
+  source: string
+  downloadUrl?: string
+}
+
 const topNavItems: TopNavItem[] = ['Mis Modpacks', 'Novedades', 'Explorador', 'Servers', 'Configuración Global']
 
 const creatorSections: CreatorSection[] = ['Personalizado', 'Vanilla', 'Forge', 'Fabric', 'Quilt', 'NeoForge', 'Snapshot', 'Importar']
@@ -59,6 +86,39 @@ const instanceActions = ['Iniciar', 'Forzar Cierre', 'Editar', 'Cambiar Grupo', 
 const defaultGroup = 'Sin grupo'
 const sidebarMinWidth = 144
 const sidebarMaxWidth = 320
+const mojangManifestUrl = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json'
+
+function formatIsoDate(iso: string): string {
+  if (!iso) return '-'
+  return new Date(iso).toLocaleDateString('es-ES')
+}
+
+function toJavaMajorOrUndefined(value: number | undefined): number | undefined {
+  if (!value || !Number.isFinite(value)) return undefined
+  return Math.trunc(value)
+}
+
+function mapLoaderToPayload(loader: LoaderKey): string {
+  if (loader === 'none') return 'vanilla'
+  if (loader === 'quilit') return 'quilt'
+  return loader
+}
+
+function mapTypeToSpanish(type: string): string {
+  if (type === 'release') return 'Release'
+  if (type === 'snapshot') return 'Snapshot'
+  if (type === 'old_beta') return 'Beta'
+  if (type === 'old_alpha') return 'Alfa'
+  return type
+}
+
+function inferNeoForgeFamily(mcVersion: string): string | null {
+  const parts = mcVersion.split('.')
+  if (parts.length < 2 || parts[0] !== '1') return null
+  const minor = parts[1]
+  const patch = parts[2] ?? '0'
+  return `${minor}.${patch}`
+}
 
 function App() {
   const [activePage, setActivePage] = useState<MainPage>('Mis Modpacks')
@@ -76,6 +136,195 @@ function App() {
   const [editSidebarWidth, setEditSidebarWidth] = useState(168)
   const [creationConsoleLogs, setCreationConsoleLogs] = useState<string[]>([])
   const [isCreating, setIsCreating] = useState(false)
+  const [manifestVersions, setManifestVersions] = useState<ManifestVersion[]>([])
+  const [manifestLoading, setManifestLoading] = useState(false)
+  const [manifestError, setManifestError] = useState('')
+  const [selectedMcFilter, setSelectedMcFilter] = useState<MinecraftFilter>('Snapshots')
+  const [selectedLoader, setSelectedLoader] = useState<LoaderKey>('none')
+  const [selectedMinecraftVersion, setSelectedMinecraftVersion] = useState<ManifestVersion | null>(null)
+  const [selectedMinecraftDetail, setSelectedMinecraftDetail] = useState<MinecraftVersionDetail | null>(null)
+  const [selectedLoaderVersion, setSelectedLoaderVersion] = useState<LoaderVersionItem | null>(null)
+  const [loaderVersions, setLoaderVersions] = useState<LoaderVersionItem[]>([])
+  const [loaderLoading, setLoaderLoading] = useState(false)
+  const [loaderError, setLoaderError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    setManifestLoading(true)
+    setManifestError('')
+
+    fetch(mojangManifestUrl)
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`)
+        }
+        return (await response.json()) as { versions?: ManifestVersion[] }
+      })
+      .then((payload) => {
+        if (cancelled) return
+        setManifestVersions(payload.versions ?? [])
+      })
+      .catch((error) => {
+        if (cancelled) return
+        setManifestError(`No se pudo cargar el manifest oficial de Mojang: ${String(error)}`)
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setManifestLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!selectedMinecraftVersion) {
+      setSelectedMinecraftDetail(null)
+      return
+    }
+
+    let cancelled = false
+    setCreationConsoleLogs((prev) => [...prev, `Descargando version.json oficial de ${selectedMinecraftVersion.id}...`])
+
+    fetch(selectedMinecraftVersion.url)
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`)
+        }
+        return (await response.json()) as MinecraftVersionDetail
+      })
+      .then((detail) => {
+        if (cancelled) return
+        setSelectedMinecraftDetail(detail)
+        const libCount = detail.libraries?.length ?? 0
+        const javaMajor = detail.javaVersion?.majorVersion ?? 'desconocida'
+        const clientUrl = detail.downloads?.client?.url ?? 'sin URL de client.jar'
+        setCreationConsoleLogs((prev) => [
+          ...prev,
+          `version.json cargado: mainClass=${detail.mainClass ?? '-'} | java=${javaMajor} | libraries=${libCount}`,
+          `client.jar URL oficial: ${clientUrl}`,
+        ])
+      })
+      .catch((error) => {
+        if (cancelled) return
+        setSelectedMinecraftDetail(null)
+        setCreationConsoleLogs((prev) => [...prev, `Error al descargar version.json: ${String(error)}`])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedMinecraftVersion])
+
+  useEffect(() => {
+    setSelectedLoaderVersion(null)
+
+    if (!selectedMinecraftVersion || selectedLoader === 'none' || selectedLoader === 'quilit') {
+      setLoaderVersions([])
+      setLoaderError(selectedLoader === 'quilit' ? 'Quilit/Quilt aún no tiene integración API en esta pantalla.' : '')
+      return
+    }
+
+    let cancelled = false
+    setLoaderLoading(true)
+    setLoaderError('')
+
+    const load = async () => {
+      if (selectedLoader === 'fabric') {
+        const endpoint = `https://meta.fabricmc.net/v2/versions/loader/${encodeURIComponent(selectedMinecraftVersion.id)}`
+        const response = await fetch(endpoint)
+        if (!response.ok) {
+          throw new Error(`Fabric API HTTP ${response.status}`)
+        }
+        const payload = (await response.json()) as Array<{ loader?: { version?: string }; stable?: boolean }>
+        const items: LoaderVersionItem[] = payload
+          .map((entry) => ({
+            version: entry.loader?.version ?? '',
+            publishedAt: '-',
+            source: entry.stable ? 'stable' : 'latest',
+          }))
+          .filter((entry) => Boolean(entry.version))
+
+        if (!cancelled) {
+          setLoaderVersions(items)
+        }
+        return
+      }
+
+      if (selectedLoader === 'forge') {
+        const metadataUrl = 'https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml'
+        const response = await fetch(metadataUrl)
+        if (!response.ok) {
+          throw new Error(`Forge maven metadata HTTP ${response.status}`)
+        }
+        const xmlText = await response.text()
+        const doc = new DOMParser().parseFromString(xmlText, 'application/xml')
+        const versions = Array.from(doc.querySelectorAll('version')).map((node) => node.textContent?.trim() ?? '')
+        const prefix = `${selectedMinecraftVersion.id}-`
+        const items: LoaderVersionItem[] = versions
+          .filter((version) => version.startsWith(prefix))
+          .map((version) => {
+            const forgeVersion = version.slice(prefix.length)
+            return {
+              version: forgeVersion,
+              publishedAt: '-',
+              source: 'maven',
+              downloadUrl: `https://maven.minecraftforge.net/net/minecraftforge/forge/${selectedMinecraftVersion.id}-${forgeVersion}/forge-${selectedMinecraftVersion.id}-${forgeVersion}-installer.jar`,
+            }
+          })
+
+        if (!cancelled) {
+          setLoaderVersions(items)
+        }
+        return
+      }
+
+      if (selectedLoader === 'neoforge') {
+        const metadataUrl = 'https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml'
+        const response = await fetch(metadataUrl)
+        if (!response.ok) {
+          throw new Error(`NeoForge maven metadata HTTP ${response.status}`)
+        }
+        const xmlText = await response.text()
+        const doc = new DOMParser().parseFromString(xmlText, 'application/xml')
+        const versions = Array.from(doc.querySelectorAll('version')).map((node) => node.textContent?.trim() ?? '')
+        const family = inferNeoForgeFamily(selectedMinecraftVersion.id)
+        const items: LoaderVersionItem[] = versions
+          .filter((version) => {
+            if (!family) return true
+            return version === family || version.startsWith(`${family}.`)
+          })
+          .map((version) => ({
+            version,
+            publishedAt: '-',
+            source: 'maven',
+            downloadUrl: `https://maven.neoforged.net/releases/net/neoforged/neoforge/${version}/neoforge-${version}-installer.jar`,
+          }))
+
+        if (!cancelled) {
+          setLoaderVersions(items)
+        }
+      }
+    }
+
+    load()
+      .catch((error) => {
+        if (cancelled) return
+        setLoaderVersions([])
+        setLoaderError(`No se pudieron resolver versiones de loader para ${selectedLoader}: ${String(error)}`)
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoaderLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedLoader, selectedMinecraftVersion])
 
   const filteredCards = useMemo(() => {
     const term = instanceSearch.trim().toLowerCase()
@@ -86,9 +335,29 @@ function App() {
     return cards.filter((card) => card.name.toLowerCase().includes(term) || card.group.toLowerCase().includes(term))
   }, [cards, instanceSearch])
 
+  const minecraftRows = useMemo<[string, string, string][]>(() => {
+    const searchTerm = minecraftSearch.trim().toLowerCase()
+    return manifestVersions
+      .filter((version) => {
+        if (selectedMcFilter === 'Snapshots') return version.type === 'snapshot'
+        if (selectedMcFilter === 'Betas') return version.type === 'old_beta'
+        if (selectedMcFilter === 'Alfas') return version.type === 'old_alpha'
+        return version.id.toLowerCase().includes('experimental')
+      })
+      .filter((version) => !searchTerm || version.id.toLowerCase().includes(searchTerm))
+      .map((version) => [version.id, formatIsoDate(version.releaseTime), mapTypeToSpanish(version.type)])
+  }, [manifestVersions, minecraftSearch, selectedMcFilter])
+
+  const loaderRows = useMemo<[string, string, string][]>(() => {
+    const searchTerm = loaderSearch.trim().toLowerCase()
+    return loaderVersions
+      .filter((entry) => !searchTerm || entry.version.toLowerCase().includes(searchTerm))
+      .map((entry) => [entry.version, entry.publishedAt, entry.source])
+  }, [loaderSearch, loaderVersions])
+
   const createInstance = async () => {
     const cleanName = instanceName.trim()
-    if (!cleanName || isCreating) {
+    if (!cleanName || isCreating || !selectedMinecraftVersion) {
       return
     }
 
@@ -101,9 +370,10 @@ function App() {
         payload: {
           name: cleanName,
           group: cleanGroup,
-          minecraftVersion: '1.21.4',
-          loader: 'fabric',
-          loaderVersion: '0.16',
+          minecraftVersion: selectedMinecraftVersion.id,
+          loader: mapLoaderToPayload(selectedLoader),
+          loaderVersion: selectedLoaderVersion?.version ?? '',
+          requiredJavaMajor: toJavaMajorOrUndefined(selectedMinecraftDetail?.javaVersion?.majorVersion),
           ramMb: 4096,
           javaArgs: ['-XX:+UseG1GC'],
         },
@@ -325,13 +595,54 @@ function App() {
                   title="Interfaz Minecraft"
                   search={minecraftSearch}
                   onSearch={setMinecraftSearch}
-                  rows={[]}
+                  rows={minecraftRows}
+                  selectedKey={selectedMinecraftVersion?.id ?? null}
+                  onSelectRow={(rowVersion) => {
+                    const found = manifestVersions.find((item) => item.id === rowVersion)
+                    if (found) {
+                      setSelectedMinecraftVersion(found)
+                    }
+                  }}
+                  rightActions={['Snapshots', 'Betas', 'Alfas', 'Experimentales']}
+                  selectedAction={selectedMcFilter}
+                  onActionSelect={(value) => setSelectedMcFilter(value as MinecraftFilter)}
+                  metaLine={
+                    manifestLoading
+                      ? 'Cargando version_manifest_v2 oficial de Mojang...'
+                      : manifestError
+                        ? manifestError
+                        : `Fuente oficial: ${mojangManifestUrl}`
+                  }
                 />
                 <ListInterface
                   title="Interfaz Loaders"
                   search={loaderSearch}
                   onSearch={setLoaderSearch}
-                  rows={[]}
+                  rows={loaderRows}
+                  selectedKey={selectedLoaderVersion?.version ?? null}
+                  onSelectRow={(rowVersion) => {
+                    const found = loaderVersions.find((item) => item.version === rowVersion)
+                    if (found) {
+                      setSelectedLoaderVersion(found)
+                    }
+                  }}
+                  rightActions={['Ninguno', 'Neoforge', 'Forge', 'Fabric', 'Quilit']}
+                  selectedAction={{ none: 'Ninguno', neoforge: 'Neoforge', forge: 'Forge', fabric: 'Fabric', quilit: 'Quilit' }[selectedLoader]}
+                  onActionSelect={(value) => {
+                    const normalized = value.toLowerCase()
+                    if (normalized === 'ninguno') setSelectedLoader('none')
+                    else if (normalized === 'neoforge') setSelectedLoader('neoforge')
+                    else if (normalized === 'forge') setSelectedLoader('forge')
+                    else if (normalized === 'fabric') setSelectedLoader('fabric')
+                    else setSelectedLoader('quilit')
+                  }}
+                  metaLine={
+                    !selectedMinecraftVersion
+                      ? 'Selecciona primero una versión de Minecraft para resolver loaders compatibles.'
+                      : loaderLoading
+                        ? `Cargando loaders compatibles para MC ${selectedMinecraftVersion.id}...`
+                        : loaderError || `Loader seleccionado: ${selectedLoader}`
+                  }
                 />
               </div>
             ) : (
@@ -342,7 +653,7 @@ function App() {
             )}
 
             <footer className="creator-footer-actions">
-              <button className="primary" onClick={createInstance} disabled={isCreating}>
+              <button className="primary" onClick={createInstance} disabled={isCreating || !selectedMinecraftVersion}>
                 {isCreating ? 'Creando...' : 'Ok'}
               </button>
               <button onClick={() => setActivePage('Mis Modpacks')}>Cancelar</button>
@@ -446,9 +757,26 @@ type ListInterfaceProps = {
   search: string
   onSearch: (value: string) => void
   rows: [string, string, string][]
+  rightActions: string[]
+  selectedAction: string
+  onActionSelect: (action: string) => void
+  selectedKey: string | null
+  onSelectRow: (key: string) => void
+  metaLine?: string
 }
 
-function ListInterface({ title, search, onSearch, rows }: ListInterfaceProps) {
+function ListInterface({
+  title,
+  search,
+  onSearch,
+  rows,
+  rightActions,
+  selectedAction,
+  onActionSelect,
+  selectedKey,
+  onSelectRow,
+  metaLine,
+}: ListInterfaceProps) {
   return (
     <section className="list-interface">
       <header>
@@ -470,19 +798,24 @@ function ListInterface({ title, search, onSearch, rows }: ListInterfaceProps) {
             <span>Tipo</span>
           </div>
           {rows.map((row) => (
-            <div className="table-row" key={`${title}-${row[0]}`}>
+            <button className={`table-row table-row-button ${selectedKey === row[0] ? 'active' : ''}`} key={`${title}-${row[0]}`} onClick={() => onSelectRow(row[0])}>
               <span>{row[0]}</span>
               <span>{row[1]}</span>
               <span>{row[2]}</span>
-            </div>
+            </button>
           ))}
         </div>
 
-        <aside className="mini-right-sidebar">
-          <p>Opciones dinámicas pendientes de integración.</p>
+        <aside className="mini-right-sidebar buttons-only">
+          {rightActions.map((action) => (
+            <button key={`${title}-${action}`} className={selectedAction === action ? 'active' : ''} onClick={() => onActionSelect(action)}>
+              {action}
+            </button>
+          ))}
         </aside>
       </div>
 
+      {metaLine && <p className="list-interface-meta">{metaLine}</p>}
       {rows.length === 0 && <p className="list-interface-empty">Sin versiones cargadas todavía.</p>}
     </section>
   )
