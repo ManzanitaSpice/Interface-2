@@ -79,11 +79,6 @@ impl JavaRuntime {
 }
 
 #[derive(Debug, Deserialize)]
-struct AdoptiumPackageChecksum {
-    checksum: String,
-}
-
-#[derive(Debug, Deserialize)]
 struct AdoptiumBinaryPackage {
     link: String,
     checksum: String,
@@ -405,26 +400,48 @@ fn resolve_temurin_asset(
         "No se encontró release de Temurin para el runtime solicitado.".to_string()
     })?;
 
-    let file_name = release.binary.package.name;
-    let checksum = if release.binary.package.checksum.is_empty() {
+    let download_link = release.binary.package.link;
+    let file_name = if release.binary.package.name.trim().is_empty() {
+        download_link
+            .rsplit('/')
+            .next()
+            .unwrap_or("runtime-archive")
+            .to_string()
+    } else {
+        release.binary.package.name
+    };
+
+    let checksum = if release.binary.package.checksum.trim().is_empty() {
         let checksum_link = release
             .binary
             .package
             .checksum_link
             .ok_or_else(|| "Release sin checksum disponible.".to_string())?;
-        client
+
+        let checksum_body = client
             .get(&checksum_link)
             .send()
             .and_then(|resp| resp.error_for_status())
             .map_err(|err| format!("No se pudo leer checksum remoto: {err}"))?
-            .json::<AdoptiumPackageChecksum>()
-            .map_err(|err| format!("Checksum remoto inválido: {err}"))?
-            .checksum
+            .text()
+            .map_err(|err| format!("No se pudo parsear checksum remoto: {err}"))?;
+
+        parse_checksum(&checksum_body)?
     } else {
         release.binary.package.checksum
     };
 
-    Ok((release.binary.package.link, checksum, file_name))
+    Ok((download_link, checksum, file_name))
+}
+
+fn parse_checksum(raw: &str) -> Result<String, String> {
+    let maybe_hex = raw
+        .split_whitespace()
+        .find(|token| token.len() == 64 && token.chars().all(|ch| ch.is_ascii_hexdigit()));
+
+    maybe_hex
+        .map(|value| value.to_string())
+        .ok_or_else(|| "Checksum remoto inválido: no contiene un SHA-256 legible.".to_string())
 }
 
 fn extract_archive(archive: &[u8], file_name: &str, destination: &Path) -> Result<(), String> {
