@@ -1422,22 +1422,24 @@ const onTopNavClick = (item: TopNavItem) => {
                     onChange={(event) => setGroupName(event.target.value)}
                   />
                 </div>
-                <aside className="creation-mini-console" role="log" aria-label="Consola de creación">
-                  {creationConsoleLogs.length === 0 && <p>Consola lista. Aquí verás la creación e instalación de la instancia.</p>}
-                  {creationConsoleLogs.map((line, index) => (
-                    <p key={`creation-log-${index}`}>{line}</p>
-                  ))}
-                </aside>
-              </div>
-              <div className="creation-progress-wrap" aria-label="Progreso de creación de instancia">
-                <div
-                  className="creation-progress-fill"
-                  style={{
-                    width: `${creationProgress && creationProgress.total > 0
-                      ? Math.min(100, Math.round((creationProgress.completed / creationProgress.total) * 100))
-                      : 0}%`,
-                  }}
-                />
+                <div className="creation-console-and-progress">
+                  <aside className="creation-mini-console" role="log" aria-label="Consola de creación">
+                    {creationConsoleLogs.length === 0 && <p>Consola lista. Aquí verás la creación e instalación de la instancia.</p>}
+                    {creationConsoleLogs.map((line, index) => (
+                      <p key={`creation-log-${index}`}>{line}</p>
+                    ))}
+                  </aside>
+                  <div className="creation-progress-wrap" aria-label="Progreso de creación de instancia">
+                    <div
+                      className="creation-progress-fill"
+                      style={{
+                        width: `${creationProgress && creationProgress.total > 0
+                          ? Math.min(100, Math.round((creationProgress.completed / creationProgress.total) * 100))
+                          : 0}%`,
+                      }}
+                    />
+                  </div>
+                </div>
               </div>
             </header>
 
