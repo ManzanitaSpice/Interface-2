@@ -26,6 +26,10 @@ use crate::{
 struct InstanceCreationProgressEvent {
     request_id: Option<String>,
     message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    completed: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    total: Option<u64>,
 }
 
 fn push_creation_log(
@@ -41,6 +45,26 @@ fn push_creation_log(
         InstanceCreationProgressEvent {
             request_id: request_id.clone(),
             message,
+            completed: None,
+            total: None,
+        },
+    );
+}
+
+fn emit_creation_progress(
+    app: &AppHandle,
+    request_id: &Option<String>,
+    completed: u64,
+    total: u64,
+    message: impl Into<String>,
+) {
+    let _ = app.emit(
+        "instance_creation_progress",
+        InstanceCreationProgressEvent {
+            request_id: request_id.clone(),
+            message: message.into(),
+            completed: Some(completed),
+            total: Some(total),
         },
     );
 }
@@ -142,6 +166,7 @@ fn list_instances_impl(app: AppHandle) -> AppResult<Vec<InstanceSummary>> {
 
         let metadata_path = path.join(".instance.json");
         if !metadata_path.exists() {
+            let _ = fs::remove_dir_all(&path);
             continue;
         }
 
@@ -150,15 +175,38 @@ fn list_instances_impl(app: AppHandle) -> AppResult<Vec<InstanceSummary>> {
             Err(_) => continue,
         };
 
-        let metadata: InstanceMetadata = match serde_json::from_str(&metadata_raw) {
+        let metadata_json: serde_json::Value = match serde_json::from_str(&metadata_raw) {
             Ok(value) => value,
             Err(_) => continue,
         };
 
+        let name = metadata_json
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if name.is_empty() {
+            continue;
+        }
+
+        let group = metadata_json
+            .get("group")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("Sin grupo")
+            .to_string();
+
+        let id = metadata_json
+            .get("internal_uuid")
+            .or_else(|| metadata_json.get("internalUuid"))
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| format!("legacy:{}", path.display()));
+
         instances.push(InstanceSummary {
-            id: metadata.internal_uuid,
-            name: metadata.name,
-            group: metadata.group,
+            id,
+            name,
+            group,
             instance_root: path.display().to_string(),
         });
     }
@@ -175,7 +223,12 @@ fn create_instance_impl(
     let mut logs: Vec<String> = Vec::new();
     let request_id = payload.creation_request_id.clone();
 
-    push_creation_log(&app, &request_id, &mut logs, "Iniciando validación de payload...");
+    push_creation_log(
+        &app,
+        &request_id,
+        &mut logs,
+        "Iniciando validación de payload...",
+    );
     validate_payload(&payload)?;
     push_creation_log(&app, &request_id, &mut logs, "Payload válido.");
 
@@ -187,9 +240,19 @@ fn create_instance_impl(
 
     let launcher_root = resolve_launcher_root(&app)?;
     validate_instance_constraints(&launcher_root, &payload)?;
-    push_creation_log(&app, &request_id, &mut logs, format!("Base launcher: {}", launcher_root.display()));
+    push_creation_log(
+        &app,
+        &request_id,
+        &mut logs,
+        format!("Base launcher: {}", launcher_root.display()),
+    );
 
-    push_creation_log(&app, &request_id, &mut logs, "Creando/verificando directorios base del launcher...");
+    push_creation_log(
+        &app,
+        &request_id,
+        &mut logs,
+        "Creando/verificando directorios base del launcher...",
+    );
     crate::infrastructure::filesystem::directories::create_launcher_directories(
         &launcher_root,
         &mut logs,
@@ -200,6 +263,8 @@ fn create_instance_impl(
             InstanceCreationProgressEvent {
                 request_id: request_id.clone(),
                 message: last,
+                completed: None,
+                total: None,
             },
         );
     }
@@ -241,7 +306,12 @@ fn create_instance_impl(
         );
     }
 
-    push_creation_log(&app, &request_id, &mut logs, "Preparando runtime Java embebido...");
+    push_creation_log(
+        &app,
+        &request_id,
+        &mut logs,
+        "Preparando runtime Java embebido...",
+    );
     let java_exec = ensure_embedded_java(&launcher_root, required_java, &mut logs)?;
     if let Some(last) = logs.last().cloned() {
         let _ = app.emit(
@@ -249,17 +319,29 @@ fn create_instance_impl(
             InstanceCreationProgressEvent {
                 request_id: request_id.clone(),
                 message: last,
+                completed: None,
+                total: None,
             },
         );
     }
 
     log_download_steps(&payload, &mut logs, required_java);
-    for line in logs.iter().rev().take(6).cloned().collect::<Vec<_>>().into_iter().rev() {
+    for line in logs
+        .iter()
+        .rev()
+        .take(6)
+        .cloned()
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+    {
         let _ = app.emit(
             "instance_creation_progress",
             InstanceCreationProgressEvent {
                 request_id: request_id.clone(),
                 message: line,
+                completed: None,
+                total: None,
             },
         );
     }
@@ -269,7 +351,12 @@ fn create_instance_impl(
     let instance_root = launcher_root.join("instances").join(&sanitized_name);
     let minecraft_root = instance_root.join("minecraft");
 
-    push_creation_log(&app, &request_id, &mut logs, "Creando carpeta base de la instancia...");
+    push_creation_log(
+        &app,
+        &request_id,
+        &mut logs,
+        "Creando carpeta base de la instancia...",
+    );
     fs::create_dir_all(&instance_root).map_err(|err| {
         format!(
             "No se pudo crear la carpeta base de la instancia ({}): {}",
@@ -277,14 +364,54 @@ fn create_instance_impl(
             err
         )
     })?;
-    push_creation_log(&app, &request_id, &mut logs, format!("Creada carpeta base: {}", instance_root.display()));
+    push_creation_log(
+        &app,
+        &request_id,
+        &mut logs,
+        format!("Creada carpeta base: {}", instance_root.display()),
+    );
 
-    push_creation_log(&app, &request_id, &mut logs, "Construyendo estructura interna de la instancia...");
+    struct InstanceCleanupGuard {
+        path: std::path::PathBuf,
+        keep: bool,
+    }
+
+    impl Drop for InstanceCleanupGuard {
+        fn drop(&mut self) {
+            if self.keep {
+                return;
+            }
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    let mut cleanup_guard = InstanceCleanupGuard {
+        path: instance_root.clone(),
+        keep: false,
+    };
+
+    push_creation_log(
+        &app,
+        &request_id,
+        &mut logs,
+        "Construyendo estructura interna de la instancia...",
+    );
     build_instance_structure(
         &instance_root,
         &minecraft_root,
         &payload.minecraft_version,
         &mut logs,
+        &mut |completed, total, message| {
+            let line = format!("{message} [progreso {completed}/{total}]");
+            push_creation_log(&app, &request_id, &mut logs, line);
+            emit_creation_progress(
+                &app,
+                &request_id,
+                completed,
+                total,
+                "Progreso de descarga actualizado",
+            );
+        },
     )?;
     if let Some(last) = logs.last().cloned() {
         let _ = app.emit(
@@ -292,6 +419,8 @@ fn create_instance_impl(
             InstanceCreationProgressEvent {
                 request_id: request_id.clone(),
                 message: last,
+                completed: None,
+                total: None,
             },
         );
     }
@@ -312,9 +441,20 @@ fn create_instance_impl(
         internal_uuid: internal_uuid.clone(),
     };
 
-    push_creation_log(&app, &request_id, &mut logs, "Guardando metadata final de la instancia...");
+    push_creation_log(
+        &app,
+        &request_id,
+        &mut logs,
+        "Guardando metadata final de la instancia...",
+    );
     persist_instance_metadata(&instance_root, &metadata, &mut logs)?;
-    push_creation_log(&app, &request_id, &mut logs, "Instancia creada y registrada exitosamente.");
+    push_creation_log(
+        &app,
+        &request_id,
+        &mut logs,
+        "Instancia creada y registrada exitosamente.",
+    );
+    cleanup_guard.keep = true;
 
     Ok(CreateInstanceResult {
         id: internal_uuid,

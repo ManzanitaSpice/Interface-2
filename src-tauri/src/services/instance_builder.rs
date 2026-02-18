@@ -24,6 +24,7 @@ pub fn build_instance_structure(
     minecraft_root: &Path,
     minecraft_version: &str,
     logs: &mut Vec<String>,
+    on_progress: &mut dyn FnMut(u64, u64, String),
 ) -> AppResult<()> {
     let structure_dirs = [
         minecraft_root.join("assets"),
@@ -48,7 +49,19 @@ pub fn build_instance_structure(
     let json_path = version_file_base.join(format!("{minecraft_version}.json"));
 
     let version_json = download_version_json(minecraft_version)?;
+    let rule_context = RuleContext::current();
+    let planned_libraries = planned_library_downloads(&version_json, &rule_context);
+    let planned_assets = planned_asset_downloads(&version_json)?;
+    let total_downloads = 2_u64 + planned_libraries as u64 + planned_assets as u64;
+    let mut completed_downloads = 0_u64;
+
     download_client_jar(&version_json, &jar_path)?;
+    completed_downloads += 1;
+    on_progress(
+        completed_downloads,
+        total_downloads,
+        format!("Descarga de cliente completada ({completed_downloads}/{total_downloads})."),
+    );
     let pretty_version_json =
         serde_json::to_string_pretty(&version_json).map_err(|err| err.to_string())?;
     fs::write(&json_path, pretty_version_json).map_err(|err| {
@@ -66,14 +79,26 @@ pub fn build_instance_structure(
         jar_path.display()
     ));
 
-    let rule_context = RuleContext::current();
-    let downloaded_libraries = download_libraries(&version_json, minecraft_root, &rule_context)?;
+    let downloaded_libraries = download_libraries(
+        &version_json,
+        minecraft_root,
+        &rule_context,
+        &mut completed_downloads,
+        total_downloads,
+        on_progress,
+    )?;
     logs.push(format!(
         "Librerías oficiales descargadas: {} artefactos.",
         downloaded_libraries
     ));
 
-    let downloaded_assets = download_assets(&version_json, minecraft_root)?;
+    let downloaded_assets = download_assets(
+        &version_json,
+        minecraft_root,
+        &mut completed_downloads,
+        total_downloads,
+        on_progress,
+    )?;
     logs.push(format!(
         "Assets oficiales descargados: {} objetos.",
         downloaded_assets
@@ -195,6 +220,9 @@ fn download_libraries(
     version_json: &Value,
     minecraft_root: &Path,
     rule_context: &RuleContext,
+    completed_downloads: &mut u64,
+    total_downloads: u64,
+    on_progress: &mut dyn FnMut(u64, u64, String),
 ) -> AppResult<usize> {
     let mut downloaded = 0usize;
 
@@ -220,6 +248,12 @@ fn download_libraries(
             if download_binary(url, &output_path, false)? {
                 downloaded += 1;
             }
+            *completed_downloads += 1;
+            on_progress(
+                *completed_downloads,
+                total_downloads,
+                format!("Librerías: {}/{}", *completed_downloads, total_downloads),
+            );
         }
 
         if let Some((url, path)) = native_download_entry(&library, rule_context) {
@@ -227,6 +261,15 @@ fn download_libraries(
             if download_binary(url, &output_path, false)? {
                 downloaded += 1;
             }
+            *completed_downloads += 1;
+            on_progress(
+                *completed_downloads,
+                total_downloads,
+                format!(
+                    "Librerías/Natives: {}/{}",
+                    *completed_downloads, total_downloads
+                ),
+            );
         }
     }
 
@@ -266,7 +309,13 @@ fn native_download_entry<'a>(
     Some((entry.get("url")?.as_str()?, entry.get("path")?.as_str()?))
 }
 
-fn download_assets(version_json: &Value, minecraft_root: &Path) -> AppResult<usize> {
+fn download_assets(
+    version_json: &Value,
+    minecraft_root: &Path,
+    completed_downloads: &mut u64,
+    total_downloads: u64,
+    on_progress: &mut dyn FnMut(u64, u64, String),
+) -> AppResult<usize> {
     let asset_index = version_json
         .get("assetIndex")
         .ok_or_else(|| "version.json no incluye assetIndex".to_string())?;
@@ -290,6 +339,12 @@ fn download_assets(version_json: &Value, minecraft_root: &Path) -> AppResult<usi
 
     let index_path = indexes_dir.join(format!("{index_id}.json"));
     download_binary(index_url, &index_path, true)?;
+    *completed_downloads += 1;
+    on_progress(
+        *completed_downloads,
+        total_downloads,
+        format!("Asset index: {}/{}", *completed_downloads, total_downloads),
+    );
 
     let raw_index = fs::read_to_string(&index_path).map_err(|err| {
         format!(
@@ -315,9 +370,66 @@ fn download_assets(version_json: &Value, minecraft_root: &Path) -> AppResult<usi
         if download_binary(&url, &object_path, false)? {
             downloaded += 1;
         }
+        *completed_downloads += 1;
+        if *completed_downloads % 25 == 0 || *completed_downloads == total_downloads {
+            on_progress(
+                *completed_downloads,
+                total_downloads,
+                format!("Assets: {}/{}", *completed_downloads, total_downloads),
+            );
+        }
     }
 
     Ok(downloaded)
+}
+
+fn planned_library_downloads(version_json: &Value, rule_context: &RuleContext) -> usize {
+    version_json
+        .get("libraries")
+        .and_then(Value::as_array)
+        .map(|libraries| {
+            libraries
+                .iter()
+                .filter(|library| {
+                    let rules = library
+                        .get("rules")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+                    evaluate_rules(&rules, rule_context)
+                })
+                .map(|library| {
+                    let mut count = 0;
+                    if artifact_download_entry(library).is_some() {
+                        count += 1;
+                    }
+                    if native_download_entry(library, rule_context).is_some() {
+                        count += 1;
+                    }
+                    count
+                })
+                .sum()
+        })
+        .unwrap_or(0)
+}
+
+fn planned_asset_downloads(version_json: &Value) -> AppResult<usize> {
+    let asset_index = version_json
+        .get("assetIndex")
+        .ok_or_else(|| "version.json no incluye assetIndex".to_string())?;
+    let index_url = asset_index
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "assetIndex.url no está presente".to_string())?;
+
+    let parsed_index = reqwest::blocking::get(index_url)
+        .map_err(|err| format!("No se pudo descargar asset index oficial: {err}"))?
+        .error_for_status()
+        .map_err(|err| format!("asset index devolvió error HTTP: {err}"))?
+        .json::<AssetIndex>()
+        .map_err(|err| format!("No se pudo deserializar asset index oficial: {err}"))?;
+
+    Ok(parsed_index.objects.len())
 }
 
 fn download_binary(url: &str, target_path: &Path, force: bool) -> AppResult<bool> {
