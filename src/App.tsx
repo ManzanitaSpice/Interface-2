@@ -134,6 +134,31 @@ type LoaderChannelFilter = 'Todos' | 'Stable' | 'Latest' | 'Maven'
 
 type InstanceSettingsTab = 'General' | 'Java' | 'Ajustes' | 'Comandos Personalizados' | 'Variables de Entorno'
 
+type MicrosoftAuthStart = {
+  authorizeUrl: string
+  codeVerifier: string
+  redirectUri: string
+}
+
+type MicrosoftAuthResult = {
+  minecraftAccessToken: string
+  microsoftAccessToken: string
+  microsoftRefreshToken?: string
+  profile: {
+    id: string
+    name: string
+  }
+}
+
+type AuthSession = {
+  profileId: string
+  profileName: string
+  minecraftAccessToken: string
+  microsoftAccessToken: string
+  microsoftRefreshToken?: string
+  loggedAt: number
+}
+
 
 const topNavItems: TopNavItem[] = ['Mis Modpacks', 'Novedades', 'Explorador', 'Servers', 'Configuración Global']
 
@@ -146,6 +171,7 @@ const defaultGroup = 'Sin grupo'
 const sidebarMinWidth = 144
 const sidebarMaxWidth = 320
 const mojangManifestUrl = 'https://launchermeta.mojang.com/mc/game/version_manifest.json'
+const authSessionKey = 'launcher_microsoft_auth_session_v1'
 
 function nowTimestamp() {
   return new Date().toLocaleTimeString('es-ES', { hour12: false })
@@ -246,6 +272,11 @@ function App() {
   const [lastRuntimeExitKey, setLastRuntimeExitKey] = useState('')
   const [showDeleteInstanceConfirm, setShowDeleteInstanceConfirm] = useState(false)
   const [isDeletingInstance, setIsDeletingInstance] = useState(false)
+  const [authSession, setAuthSession] = useState<AuthSession | null>(null)
+  const [isAuthReady, setIsAuthReady] = useState(false)
+  const [isAuthenticating, setIsAuthenticating] = useState(false)
+  const [authStatus, setAuthStatus] = useState('')
+  const [authError, setAuthError] = useState('')
   const creationIconInputRef = useRef<HTMLInputElement | null>(null)
   const runtimeConsoleRef = useRef<HTMLDivElement | null>(null)
 
@@ -257,9 +288,125 @@ function App() {
     })
   }
 
+  const persistAuthSession = (session: AuthSession | null) => {
+    if (!session) {
+      localStorage.removeItem(authSessionKey)
+      return
+    }
+    localStorage.setItem(authSessionKey, JSON.stringify(session))
+  }
+
+  const logout = () => {
+    setAuthSession(null)
+    persistAuthSession(null)
+    setAuthStatus('Sesión cerrada correctamente.')
+    setAuthError('')
+  }
+
+  const finishMicrosoftAuth = async (code: string, codeVerifier: string) => {
+    const result = await invoke<MicrosoftAuthResult>('complete_microsoft_auth', { code, codeVerifier })
+    const session: AuthSession = {
+      profileId: result.profile.id,
+      profileName: result.profile.name,
+      minecraftAccessToken: result.minecraftAccessToken,
+      microsoftAccessToken: result.microsoftAccessToken,
+      microsoftRefreshToken: result.microsoftRefreshToken,
+      loggedAt: Date.now(),
+    }
+    setAuthSession(session)
+    persistAuthSession(session)
+    setAuthStatus(`Sesión iniciada como ${session.profileName}.`)
+    setAuthError('')
+  }
+
+  const startMicrosoftLogin = async () => {
+    if (isAuthenticating) return
+    setIsAuthenticating(true)
+    setAuthError('')
+    setAuthStatus('Preparando autenticación con Microsoft...')
+
+    try {
+      const start = await invoke<MicrosoftAuthStart>('start_microsoft_auth')
+      const authUrl = new URL(start.authorizeUrl)
+      const authWindow = window.open(authUrl.toString(), '_blank', 'noopener,noreferrer,width=520,height=760')
+      if (!authWindow) {
+        throw new Error('No se pudo abrir la ventana del navegador para el login de Microsoft.')
+      }
+
+      setAuthStatus('Completa el login en la ventana de Microsoft...')
+
+      await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          reject(new Error('Tiempo de espera agotado al autenticar con Microsoft.'))
+        }, 180_000)
+
+        const poller = window.setInterval(() => {
+          if (authWindow.closed) {
+            window.clearInterval(poller)
+            window.clearTimeout(timeout)
+            reject(new Error('La ventana de login se cerró antes de completar la autenticación.'))
+            return
+          }
+
+          try {
+            const href = authWindow.location.href
+            if (!href) return
+            const current = new URL(href)
+            if (!current.href.startsWith(start.redirectUri)) return
+
+            const code = current.searchParams.get('code')
+            const error = current.searchParams.get('error_description') ?? current.searchParams.get('error')
+
+            window.clearInterval(poller)
+            window.clearTimeout(timeout)
+            authWindow.close()
+
+            if (error) {
+              reject(new Error(`Microsoft devolvió un error: ${decodeURIComponent(error)}`))
+              return
+            }
+
+            if (!code) {
+              reject(new Error('No se recibió código de autorización de Microsoft.'))
+              return
+            }
+
+            void finishMicrosoftAuth(code, start.codeVerifier)
+              .then(resolve)
+              .catch(reject)
+          } catch {
+            // Ignorado: mientras esté en dominio externo del login, puede lanzar cross-origin.
+          }
+        }, 500)
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setAuthError(message)
+      setAuthStatus('')
+    } finally {
+      setIsAuthenticating(false)
+    }
+  }
+
   const iconButtonStyle = instanceIconPreview.startsWith('data:image')
     ? ({ backgroundImage: `url(${instanceIconPreview})`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'transparent' } as CSSProperties)
     : undefined
+
+  useEffect(() => {
+    const stored = localStorage.getItem(authSessionKey)
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored) as AuthSession
+        if (parsed.profileId && parsed.profileName && parsed.minecraftAccessToken) {
+          setAuthSession(parsed)
+          setAuthStatus(`Sesión restaurada para ${parsed.profileName}.`)
+        }
+      } catch {
+        localStorage.removeItem(authSessionKey)
+      }
+    }
+    setIsAuthReady(true)
+  }, [])
 
   useEffect(() => {
     if (!autoScrollConsole || !runtimeConsoleRef.current) return
@@ -1032,12 +1179,38 @@ const onTopNavClick = (item: TopNavItem) => {
 
   return (
     <div className="app-shell">
-      <PrincipalTopBar />
-      {activePage !== 'Creador de Instancias' && activePage !== 'Editar Instancia' && (
+      <PrincipalTopBar authSession={authSession} onLogout={logout} />
+
+      {!isAuthReady && (
+        <main className="content content-padded">
+          <section className="section-placeholder">
+            <h2>Verificando sesión...</h2>
+            <p>Comprobando si ya existe un login de Microsoft guardado.</p>
+          </section>
+        </main>
+      )}
+
+      {isAuthReady && !authSession && (
+        <main className="content content-padded">
+          <section className="floating-modal" style={{ margin: '2rem auto' }}>
+            <h3>Inicia sesión con Microsoft</h3>
+            <p>Para usar el launcher, autentícate con tu cuenta de Microsoft.</p>
+            {authStatus && <p>{authStatus}</p>}
+            {authError && <p style={{ color: '#fecaca' }}>{authError}</p>}
+            <div className="floating-modal-actions">
+              <button className="primary" onClick={() => void startMicrosoftLogin()} disabled={isAuthenticating}>
+                {isAuthenticating ? 'Conectando...' : 'Continuar con Microsoft'}
+              </button>
+            </div>
+          </section>
+        </main>
+      )}
+
+      {authSession && activePage !== 'Creador de Instancias' && activePage !== 'Editar Instancia' && (
         <SecondaryTopBar activePage={activePage} onNavigate={onTopNavClick} />
       )}
 
-      {activePage === 'Inicio' && (
+      {authSession && activePage === 'Inicio' && (
         <main className="content content-padded">
           <section className="instances-panel">
             <h1>Panel de Tarjetas de Instancias</h1>
@@ -1060,7 +1233,7 @@ const onTopNavClick = (item: TopNavItem) => {
         </main>
       )}
 
-      {activePage === 'Mis Modpacks' && (
+      {authSession && activePage === 'Mis Modpacks' && (
         <main className="content content-padded">
           <h1 className="page-title">Mis Modpacks</h1>
           <section className="instances-panel huge-panel">
@@ -1150,7 +1323,7 @@ const onTopNavClick = (item: TopNavItem) => {
           </main>
         )}
 
-      {activePage === 'Creador de Instancias' && (
+      {authSession && activePage === 'Creador de Instancias' && (
         <main className="creator-layout" style={{ '--sidebar-width': `${creatorSidebarWidth}px` } as CSSProperties}>
           <aside className="compact-sidebar left">
             {creatorSections.map((section) => (
@@ -1289,7 +1462,7 @@ const onTopNavClick = (item: TopNavItem) => {
         </main>
       )}
 
-      {activePage === 'Editar Instancia' && selectedCard && (
+      {authSession && activePage === 'Editar Instancia' && selectedCard && (
         <main className="edit-instance-layout" style={{ '--sidebar-width': `${editSidebarWidth}px` } as CSSProperties}>
           <aside className="edit-left-sidebar">
             {editSections.map((section) => (
@@ -1466,11 +1639,23 @@ type SecondaryTopBarProps = {
   onNavigate: (item: TopNavItem) => void
 }
 
-function PrincipalTopBar() {
+type PrincipalTopBarProps = {
+  authSession: AuthSession | null
+  onLogout: () => void
+}
+
+function PrincipalTopBar({ authSession, onLogout }: PrincipalTopBarProps) {
   return (
     <header className="top-bar principal">
       <strong>Launcher Control Center</strong>
-      <span>Barra principal superior</span>
+      {authSession ? (
+        <span>
+          {authSession.profileName}
+          <button style={{ marginLeft: '0.65rem' }} onClick={onLogout}>Cerrar sesión</button>
+        </span>
+      ) : (
+        <span>Sin sesión iniciada</span>
+      )}
     </header>
   )
 }
