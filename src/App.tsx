@@ -30,16 +30,16 @@ type CreatorSection =
 
 type EditSection =
   | 'Ejecución'
-  | 'Información'
-  | 'Versiones'
+  | 'Version'
   | 'Mods'
-  | 'Recursos'
-  | 'Java'
-  | 'Backups'
-  | 'Logs'
-  | 'Red'
-  | 'Permisos'
-  | 'Avanzado'
+  | 'Resource Packs'
+  | 'Shader Packs'
+  | 'Notas'
+  | 'Mundos'
+  | 'Servidores'
+  | 'Capturas de Pantalla'
+  | 'Configuración'
+  | 'Otros registros'
 
 type CreateInstanceResult = {
   id: string
@@ -54,6 +54,18 @@ type InstanceSummary = {
   name: string
   group: string
   instanceRoot: string
+}
+
+type InstanceMetadataView = {
+  name: string
+  group: string
+  minecraftVersion: string
+  loader: string
+  loaderVersion: string
+  ramMb: number
+  javaArgs: string[]
+  javaPath: string
+  javaRuntime: string
 }
 
 type ManifestVersion = {
@@ -96,11 +108,14 @@ type LoaderVersionItem = {
 
 type LoaderChannelFilter = 'Todos' | 'Stable' | 'Latest' | 'Maven'
 
+type InstanceSettingsTab = 'General' | 'Java' | 'Ajustes' | 'Comandos Personalizados' | 'Variables de Entorno'
+
+
 const topNavItems: TopNavItem[] = ['Mis Modpacks', 'Novedades', 'Explorador', 'Servers', 'Configuración Global']
 
 const creatorSections: CreatorSection[] = ['Personalizado', 'CurseForge', 'Modrinth', 'Futuro 1', 'Futuro 2', 'Futuro 3']
 
-const editSections: EditSection[] = ['Ejecución', 'Información', 'Versiones', 'Mods', 'Recursos', 'Java', 'Backups', 'Logs', 'Red', 'Permisos', 'Avanzado']
+const editSections: EditSection[] = ['Ejecución', 'Version', 'Mods', 'Resource Packs', 'Shader Packs', 'Notas', 'Mundos', 'Servidores', 'Capturas de Pantalla', 'Configuración', 'Otros registros']
 
 const instanceActions = ['Iniciar', 'Forzar Cierre', 'Editar', 'Cambiar Grupo', 'Carpeta', 'Exportar', 'Copiar', 'Crear atajo']
 const defaultGroup = 'Sin grupo'
@@ -197,9 +212,10 @@ function App() {
   const [runtimeConsole, setRuntimeConsole] = useState<ConsoleEntry[]>([])
   const [consoleLevelFilter, setConsoleLevelFilter] = useState<'Todos' | ConsoleLevel>('Todos')
   const [launcherLogFilter, setLauncherLogFilter] = useState<'Todos' | ConsoleSource>('Todos')
-  const [gameStarted, setGameStarted] = useState(false)
   const [autoScrollConsole, setAutoScrollConsole] = useState(true)
   const [instanceDrafts, setInstanceDrafts] = useState<Record<string, InstanceSummary>>({})
+  const [selectedInstanceMetadata, setSelectedInstanceMetadata] = useState<InstanceMetadataView | null>(null)
+  const [selectedSettingsTab, setSelectedSettingsTab] = useState<InstanceSettingsTab>('General')
   const creationIconInputRef = useRef<HTMLInputElement | null>(null)
   const runtimeConsoleRef = useRef<HTMLDivElement | null>(null)
 
@@ -224,6 +240,34 @@ function App() {
       setSelectedCard(maybeDraft)
     }
   }, [instanceDrafts, selectedCard])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadInstanceMetadata = async () => {
+      if (!selectedCard?.instanceRoot || activePage !== 'Editar Instancia') {
+        setSelectedInstanceMetadata(null)
+        return
+      }
+
+      try {
+        const metadata = await invoke<InstanceMetadataView>('get_instance_metadata', { instanceRoot: selectedCard.instanceRoot })
+        if (!cancelled) {
+          setSelectedInstanceMetadata(metadata)
+        }
+      } catch (error) {
+        if (cancelled) return
+        const message = error instanceof Error ? error.message : String(error)
+        appendRuntime(makeConsoleEntry('ERROR', 'launcher', `No se pudo cargar la configuración de la instancia: ${message}`))
+      }
+    }
+
+    loadInstanceMetadata()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activePage, selectedCard])
 
 
   useEffect(() => {
@@ -607,7 +651,6 @@ function App() {
       makeConsoleEntry('INFO', 'game', 'Minecraft client started'),
     ]
     setRuntimeConsole(entries)
-    setGameStarted(true)
   }
 
   const pushRuntimeStream = () => {
@@ -626,16 +669,35 @@ function App() {
 
   const exportRuntimeLog = async () => {
     const content = runtimeConsole.map((entry) => `[${entry.timestamp}] [${entry.level}] [${entry.source}] ${entry.message}`).join('\n')
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `launcher-${selectedCard?.name ?? 'instance'}.log`
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    URL.revokeObjectURL(url)
-    appendRuntime(makeConsoleEntry('INFO', 'launcher', 'Log exportado correctamente.'))
+    const fileName = `launcher-${selectedCard?.name ?? 'instance'}.log`
+
+    try {
+      if ('showSaveFilePicker' in window) {
+        const handle = await (window as { showSaveFilePicker: (options: unknown) => Promise<{ createWritable: () => Promise<{ write: (content: string) => Promise<void>; close: () => Promise<void> }> }> }).showSaveFilePicker({
+          suggestedName: fileName,
+          types: [{ description: 'Archivos de log', accept: { 'text/plain': ['.log'] } }],
+        })
+        const writable = await handle.createWritable()
+        await writable.write(content)
+        await writable.close()
+        appendRuntime(makeConsoleEntry('INFO', 'launcher', 'Log exportado correctamente.'))
+        return
+      }
+
+      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = fileName
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      appendRuntime(makeConsoleEntry('WARN', 'launcher', 'Tu entorno no soporta selector de guardado nativo. Se usó descarga directa.'))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      appendRuntime(makeConsoleEntry('WARN', 'launcher', `Exportación cancelada o fallida: ${message}`))
+    }
   }
 
 
@@ -654,14 +716,26 @@ const onTopNavClick = (item: TopNavItem) => {
     }
 
     setSelectedEditSection('Ejecución')
+    setSelectedSettingsTab('General')
     setActivePage('Editar Instancia')
   }
 
   const handleInstanceAction = async (action: string) => {
     if (!selectedCard) return
 
+    if (action === 'Iniciar') {
+      openEditor()
+      appendRuntimeSummary()
+      return
+    }
+
     if (action === 'Editar') {
       openEditor()
+      return
+    }
+
+    if (action === 'Exportar') {
+      await exportRuntimeLog()
       return
     }
 
@@ -721,7 +795,7 @@ const onTopNavClick = (item: TopNavItem) => {
         <SecondaryTopBar activePage={activePage} onNavigate={onTopNavClick} />
       )}
 
-      {(activePage === 'Creador de Instancias' || activePage === 'Editar Instancia') && <PrincipalTopBar />}
+      {activePage === 'Creador de Instancias' && <PrincipalTopBar />}
 
       {activePage === 'Inicio' && (
         <main className="content content-padded">
@@ -962,19 +1036,14 @@ const onTopNavClick = (item: TopNavItem) => {
           />
 
           <section className="edit-main-content">
-            <header className="edit-top-bar">
-              <strong>Editar Instancia: {selectedCard.name}</strong>
-              <button onClick={() => setActivePage('Mis Modpacks')}>Volver a Mis Modpacks</button>
-            </header>
-
             {selectedEditSection === 'Ejecución' ? (
-              <section className="execution-view">
-                <header className="fourth-top-bar">
-                  <strong>Ejecución</strong>
-                  <span>{gameStarted ? 'Inicio exitoso detectado' : 'Listo para iniciar diagnóstico en tiempo real'}</span>
-                </header>
-
+              <section className="execution-view execution-view-full">
                 <div className="execution-toolbar">
+                  <button className="primary" onClick={appendRuntimeSummary}>
+                    Iniciar
+                  </button>
+                  <button onClick={pushRuntimeStream}>Simular stream</button>
+                  <button onClick={exportRuntimeLog}>Exportar .log</button>
                   <select value={consoleLevelFilter} onChange={(event) => setConsoleLevelFilter(event.target.value as 'Todos' | ConsoleLevel)}>
                     <option value="Todos">Nivel: Todos</option>
                     <option value="INFO">INFO</option>
@@ -991,6 +1060,13 @@ const onTopNavClick = (item: TopNavItem) => {
                     <input type="checkbox" checked={autoScrollConsole} onChange={(event) => setAutoScrollConsole(event.target.checked)} />
                     AutoScroll
                   </label>
+                  <input
+                    type="search"
+                    value={logSearch}
+                    onChange={(event) => setLogSearch(event.target.value)}
+                    placeholder="Buscar en consola"
+                    aria-label="Buscar en consola"
+                  />
                 </div>
 
                 <div className="execution-log-console" role="log" aria-label="Consola de logs" ref={runtimeConsoleRef}>
@@ -1005,23 +1081,57 @@ const onTopNavClick = (item: TopNavItem) => {
                     ))}
                   {runtimeConsole.length === 0 && <p>[{nowTimestamp()}] [launcher] [INFO] Consola lista para iniciar.</p>}
                 </div>
+              </section>
+            ) : selectedEditSection === 'Configuración' ? (
+              <section className="instance-settings-view">
+                <header className="settings-tabs-bar">
+                  {(['General', 'Java', 'Ajustes', 'Comandos Personalizados', 'Variables de Entorno'] as InstanceSettingsTab[]).map((tab) => (
+                    <button key={tab} className={selectedSettingsTab === tab ? 'active' : ''} onClick={() => setSelectedSettingsTab(tab)}>
+                      {tab}
+                    </button>
+                  ))}
+                </header>
 
-                <input
-                  type="search"
-                  value={logSearch}
-                  onChange={(event) => setLogSearch(event.target.value)}
-                  placeholder="Buscar en consola"
-                  aria-label="Buscar en consola"
-                />
+                {selectedSettingsTab === 'General' && (
+                  <div className="settings-pane-grid">
+                    <article>
+                      <h3>Instancia</h3>
+                      <p><strong>Nombre:</strong> {selectedInstanceMetadata?.name ?? selectedCard.name}</p>
+                      <p><strong>Grupo:</strong> {selectedInstanceMetadata?.group ?? selectedCard.group}</p>
+                      <p><strong>Minecraft:</strong> {selectedInstanceMetadata?.minecraftVersion ?? '-'}</p>
+                      <p><strong>Loader:</strong> {selectedInstanceMetadata?.loader ?? '-'} {selectedInstanceMetadata?.loaderVersion ?? ''}</p>
+                    </article>
+                  </div>
+                )}
 
-                <footer className="execution-actions">
-                  <button className="primary" onClick={appendRuntimeSummary}>
-                    Iniciar
-                  </button>
-                  <button onClick={pushRuntimeStream}>Simular stream</button>
-                  <button onClick={exportRuntimeLog}>Exportar .log</button>
-                  <button onClick={() => setActivePage('Mis Modpacks')}>Cerrar</button>
-                </footer>
+                {selectedSettingsTab === 'Java' && (
+                  <div className="settings-pane-grid">
+                    <article>
+                      <h3>Instalación de Java</h3>
+                      <p><strong>Runtime:</strong> {selectedInstanceMetadata?.javaRuntime ?? '-'}</p>
+                      <p><strong>Ruta Java:</strong> {selectedInstanceMetadata?.javaPath ?? '-'}</p>
+                    </article>
+                    <article>
+                      <h3>Memoria</h3>
+                      <p><strong>RAM asignada automáticamente:</strong> {selectedInstanceMetadata?.ramMb ?? 0} MiB</p>
+                    </article>
+                    <article>
+                      <h3>Argumentos de Java</h3>
+                      <textarea
+                        readOnly
+                        value={(selectedInstanceMetadata?.javaArgs ?? []).join(' ')}
+                        placeholder="Sin argumentos personalizados"
+                      />
+                    </article>
+                  </div>
+                )}
+
+                {(selectedSettingsTab === 'Ajustes' || selectedSettingsTab === 'Comandos Personalizados' || selectedSettingsTab === 'Variables de Entorno') && (
+                  <section className="section-placeholder">
+                    <h2>{selectedSettingsTab}</h2>
+                    <p>Opciones reales de esta instancia cargadas por defecto tras su creación.</p>
+                  </section>
+                )}
               </section>
             ) : (
               <section className="section-placeholder">

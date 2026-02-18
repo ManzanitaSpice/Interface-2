@@ -1,4 +1,6 @@
-use std::{path::Path, process::Command};
+use std::{fs, path::Path, process::Command};
+
+use crate::domain::models::instance::InstanceMetadata;
 
 #[tauri::command]
 pub fn open_instance_folder(path: String) -> Result<(), String> {
@@ -39,4 +41,24 @@ pub fn open_instance_folder(path: String) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn get_instance_metadata(instance_root: String) -> Result<InstanceMetadata, String> {
+    let metadata_path = Path::new(&instance_root).join(".instance.json");
+    let raw = fs::read_to_string(&metadata_path).map_err(|err| {
+        format!(
+            "No se pudo leer la metadata de la instancia en {}: {}",
+            metadata_path.display(),
+            err
+        )
+    })?;
+
+    serde_json::from_str::<InstanceMetadata>(&raw).map_err(|err| {
+        format!(
+            "No se pudo deserializar la metadata de la instancia en {}: {}",
+            metadata_path.display(),
+            err
+        )
+    })
 }

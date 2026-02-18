@@ -18,18 +18,12 @@ use crate::{
 const MOJANG_MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 
 pub fn build_instance_structure(
-    instance_root: &Path,
+    _instance_root: &Path,
     minecraft_root: &Path,
     minecraft_version: &str,
     logs: &mut Vec<String>,
 ) -> AppResult<()> {
     let structure_dirs = [
-        instance_root.join("logs"),
-        instance_root.join("mods"),
-        instance_root.join("config"),
-        instance_root.join("resourcepacks"),
-        instance_root.join("shaderpacks"),
-        instance_root.join("saves"),
         minecraft_root.join("assets"),
         minecraft_root.join("libraries"),
         minecraft_root.join("versions").join(minecraft_version),
@@ -45,7 +39,7 @@ pub fn build_instance_structure(
         fs::create_dir_all(&dir)
             .map_err(|err| format!("No se pudo crear el directorio {}: {err}", dir.display()))?;
     }
-    logs.push("Estructura interna de instancia y .minecraft creada.".to_string());
+    logs.push("Estructura creada con raíz limpia (minecraft + .instance.json).".to_string());
 
     let version_file_base = minecraft_root.join("versions").join(minecraft_version);
     let jar_path = version_file_base.join(format!("{minecraft_version}.jar"));
@@ -154,7 +148,7 @@ fn download_version_json(minecraft_version: &str) -> AppResult<Value> {
 }
 
 pub fn persist_instance_metadata(
-    instance_root: &Path,
+    _instance_root: &Path,
     metadata: &InstanceMetadata,
     logs: &mut Vec<String>,
 ) -> AppResult<()> {
