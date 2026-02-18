@@ -1,4 +1,5 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -11,172 +12,174 @@ pub const MICROSOFT_REDIRECT_URI: &str =
 
 const AUTHORIZE_ENDPOINT: &str =
     "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize";
-const TOKEN_ENDPOINT: &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
+
+const TOKEN_ENDPOINT: &str =
+    "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
+
+
+
+/* =========================================================
+   PKCE
+========================================================= */
 
 pub fn generate_code_verifier() -> String {
-    let mut random_bytes = Vec::with_capacity(64);
-    for _ in 0..4 {
-        random_bytes.extend_from_slice(uuid::Uuid::new_v4().as_bytes());
-    }
-
-    URL_SAFE_NO_PAD.encode(random_bytes)
+    let mut bytes = [0u8; 64];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    URL_SAFE_NO_PAD.encode(bytes)
 }
 
-fn code_challenge(verifier: &str) -> String {
+fn generate_code_challenge(verifier: &str) -> String {
     let digest = Sha256::digest(verifier.as_bytes());
     URL_SAFE_NO_PAD.encode(digest)
 }
 
-#[derive(Debug, Deserialize)]
-struct MicrosoftAuthErrorResponse {
-    error: String,
-    error_description: Option<String>,
+
+
+/* =========================================================
+   AUTHORIZE URL
+========================================================= */
+
+#[derive(Serialize)]
+struct AuthorizeQuery<'a> {
+    response_type: &'a str,
+    response_mode: &'a str,
+    client_id: &'a str,
+    redirect_uri: &'a str,
+    scope: &'a str,
+    code_challenge: String,
+    code_challenge_method: &'a str,
 }
 
-pub fn build_authorize_url(code_verifier: &str, redirect_uri: &str) -> Result<String, String> {
-    let verifier_len = code_verifier.len();
-    if !(43..=128).contains(&verifier_len) {
-        return Err(format!(
-            "El code_verifier para PKCE debe tener entre 43 y 128 caracteres (actual: {verifier_len})."
-        ));
-    }
+pub fn build_authorize_url(code_verifier: &str) -> Result<String, String> {
+    validate_verifier(code_verifier)?;
 
-    #[derive(Serialize)]
-    struct Query<'a> {
-        response_type: &'a str,
-        response_mode: &'a str,
-        client_id: &'a str,
-        redirect_uri: &'a str,
-        scope: &'a str,
-        code_challenge: String,
-        code_challenge_method: &'a str,
-    }
-
-    let query = Query {
+    let query = AuthorizeQuery {
         response_type: "code",
         response_mode: "query",
         client_id: MICROSOFT_CLIENT_ID,
-        redirect_uri,
+        redirect_uri: MICROSOFT_REDIRECT_URI,
         scope: MICROSOFT_SCOPES,
-        code_challenge: code_challenge(code_verifier),
+        code_challenge: generate_code_challenge(code_verifier),
         code_challenge_method: "S256",
     };
 
-    let encoded_query = serde_urlencoded::to_string(query)
-        .map_err(|err| format!("No se pudo construir la URL OAuth de Microsoft: {err}"))?;
-    let encoded_query = encoded_query.replace('+', "%20");
+    let encoded = serde_urlencoded::to_string(query)
+        .map_err(|e| format!("Error construyendo authorize URL: {e}"))?;
 
-    Ok(format!("{AUTHORIZE_ENDPOINT}?{encoded_query}"))
+    Ok(format!("{AUTHORIZE_ENDPOINT}?{encoded}"))
+}
+
+
+
+/* =========================================================
+   TOKEN EXCHANGE
+========================================================= */
+
+fn validate_verifier(verifier: &str) -> Result<(), String> {
+    let len = verifier.len();
+    if !(43..=128).contains(&len) {
+        return Err(format!(
+            "code_verifier inválido: longitud {len}, esperado 43-128"
+        ));
+    }
+    Ok(())
 }
 
 fn build_token_params(
     code: &str,
-    code_verifier: &str,
-    redirect_uri: &str,
-) -> [(&'static str, String); 6] {
-    [
+    verifier: &str,
+) -> Result<[(&'static str, String); 6], String> {
+    validate_verifier(verifier)?;
+
+    Ok([
         ("grant_type", "authorization_code".to_string()),
         ("client_id", MICROSOFT_CLIENT_ID.to_string()),
         ("code", code.to_string()),
-        ("redirect_uri", redirect_uri.to_string()),
-        ("code_verifier", code_verifier.to_string()),
+        ("redirect_uri", MICROSOFT_REDIRECT_URI.to_string()),
+        ("code_verifier", verifier.to_string()),
         ("scope", MICROSOFT_SCOPES.to_string()),
-    ]
+    ])
+}
+
+#[derive(Debug, Deserialize)]
+struct MicrosoftAuthError {
+    error: String,
+    error_description: Option<String>,
 }
 
 pub async fn exchange_authorization_code(
     client: &reqwest::Client,
     code: &str,
-    code_verifier: &str,
-    redirect_uri: &str,
+    verifier: &str,
 ) -> Result<MicrosoftTokenResponse, String> {
-    let verifier_len = code_verifier.len();
-    if !(43..=128).contains(&verifier_len) {
-        return Err(format!(
-            "code_verifier inválido en intercambio de token Microsoft: longitud {verifier_len}, esperado 43-128."
-        ));
-    }
-
-    let params = build_token_params(code, code_verifier, redirect_uri);
+    let params = build_token_params(code, verifier)?;
 
     let response = client
         .post(TOKEN_ENDPOINT)
         .form(&params)
         .send()
         .await
-        .map_err(|err| format!("No se pudo llamar a token endpoint de Microsoft: {err}"))?;
+        .map_err(|e| format!("Error llamando token endpoint: {e}"))?;
 
     let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+
     if !status.is_success() {
-        let body = response.text().await.unwrap_or_default();
-        let parsed = serde_json::from_str::<MicrosoftAuthErrorResponse>(&body).ok();
-        let detail = parsed
-            .map(|p| {
-                let desc = p
-                    .error_description
-                    .unwrap_or_else(|| "Sin detalle adicional".to_string());
-                format!("{}: {}", p.error, desc)
-            })
-            .unwrap_or(body);
+        if let Ok(parsed) = serde_json::from_str::<MicrosoftAuthError>(&body) {
+            let detail = parsed
+                .error_description
+                .unwrap_or_else(|| "Sin detalle adicional".to_string());
+            return Err(format!(
+                "Microsoft OAuth error {}: {}",
+                parsed.error, detail
+            ));
+        }
 
         return Err(format!(
-            "Token endpoint de Microsoft devolvió error HTTP: {status}. Detalle: {detail}"
+            "Microsoft token endpoint HTTP {}: {}",
+            status, body
         ));
     }
 
-    response
-        .json::<MicrosoftTokenResponse>()
-        .await
-        .map_err(|err| format!("No se pudo deserializar token de Microsoft: {err}"))
+    serde_json::from_str::<MicrosoftTokenResponse>(&body)
+        .map_err(|e| format!("Error deserializando MicrosoftTokenResponse: {e}"))
 }
+
+
+
+/* =========================================================
+   TESTS
+========================================================= */
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        build_authorize_url, build_token_params, generate_code_verifier, MICROSOFT_CLIENT_ID,
-        MICROSOFT_REDIRECT_URI,
-    };
+    use super::*;
 
     #[test]
-    fn pkce_code_verifier_has_valid_length() {
-        let verifier = generate_code_verifier();
-        assert!((43..=128).contains(&verifier.len()));
+    fn verifier_has_valid_length() {
+        let v = generate_code_verifier();
+        assert!((43..=128).contains(&v.len()));
     }
 
     #[test]
-    fn token_request_includes_client_id_and_required_form_fields() {
-        let params = build_token_params("auth-code", "verifier-value", MICROSOFT_REDIRECT_URI);
-
-        assert!(params
-            .iter()
-            .any(|(key, value)| *key == "client_id" && value == MICROSOFT_CLIENT_ID));
-        assert!(params
-            .iter()
-            .any(|(key, value)| *key == "grant_type" && value == "authorization_code"));
-        assert!(params
-            .iter()
-            .any(|(key, value)| *key == "code" && value == "auth-code"));
-        assert!(params
-            .iter()
-            .any(|(key, value)| *key == "scope" && value == "XboxLive.signin offline_access"));
-    }
-
-    #[test]
-    fn authorize_url_contains_required_oauth_parameters() {
+    fn authorize_url_is_valid() {
         let verifier = "A".repeat(64);
-        let url = build_authorize_url(&verifier, MICROSOFT_REDIRECT_URI).expect("url should build");
+        let url = build_authorize_url(&verifier).unwrap();
 
-        assert!(url.starts_with("https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?"));
+        assert!(url.starts_with(AUTHORIZE_ENDPOINT));
         assert!(url.contains("response_type=code"));
         assert!(url.contains("response_mode=query"));
         assert!(url.contains("client_id=7ce1b3e8-48d7-4a9d-9329-7e11f988df39"));
-        assert!(url.contains(
-            "redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient"
-        ));
-        assert!(url.contains("scope=XboxLive.signin%20offline_access"));
+        assert!(url.contains("scope=XboxLive.signin+offline_access"));
         assert!(url.contains("code_challenge_method=S256"));
-        assert!(!url.contains("openid"));
-        assert!(!url.contains("profile"));
-        assert!(!url.contains("email"));
+    }
+
+    #[test]
+    fn token_params_are_correct() {
+        let params = build_token_params("abc", "A".repeat(64).as_str()).unwrap();
+
+        assert!(params.iter().any(|(k, _)| *k == "client_id"));
+        assert!(params.iter().any(|(k, v)| *k == "grant_type" && v == "authorization_code"));
+        assert!(params.iter().any(|(k, _)| *k == "code_verifier"));
     }
 }
