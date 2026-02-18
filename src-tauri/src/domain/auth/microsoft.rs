@@ -5,13 +5,12 @@ use sha2::{Digest, Sha256};
 use crate::domain::auth::tokens::MicrosoftTokenResponse;
 
 pub const MICROSOFT_CLIENT_ID: &str = "7ce1b3e8-48d7-4a9d-9329-7e11f988df39";
-pub const MICROSOFT_TENANT: &str = "common";
 pub const MICROSOFT_SCOPES: &str = "XboxLive.signin offline_access";
 pub const MICROSOFT_REDIRECT_URI: &str =
     "https://login.microsoftonline.com/common/oauth2/nativeclient";
 
-const AUTHORIZE_BASE_URL: &str = "https://login.microsoftonline.com";
-const TOKEN_BASE_URL: &str = "https://login.microsoftonline.com";
+const AUTHORIZE_ENDPOINT: &str = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
+const TOKEN_ENDPOINT: &str = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
 
 pub fn generate_code_verifier() -> String {
     let random = format!(
@@ -43,11 +42,6 @@ pub fn build_authorize_url(code_verifier: &str, redirect_uri: &str) -> Result<St
         ));
     }
 
-    let authorize_endpoint = format!(
-        "{}/{}/oauth2/v2.0/authorize",
-        AUTHORIZE_BASE_URL, MICROSOFT_TENANT
-    );
-
     #[derive(Serialize)]
     struct Query<'a> {
         response_type: &'a str,
@@ -70,7 +64,7 @@ pub fn build_authorize_url(code_verifier: &str, redirect_uri: &str) -> Result<St
     let encoded_query = serde_urlencoded::to_string(query)
         .map_err(|err| format!("No se pudo construir la URL OAuth de Microsoft: {err}"))?;
 
-    Ok(format!("{authorize_endpoint}?{encoded_query}"))
+    Ok(format!("{AUTHORIZE_ENDPOINT}?{encoded_query}"))
 }
 
 pub async fn exchange_authorization_code(
@@ -85,8 +79,6 @@ pub async fn exchange_authorization_code(
         ));
     }
 
-    let token_endpoint = format!("{}/{}/oauth2/v2.0/token", TOKEN_BASE_URL, MICROSOFT_TENANT);
-
     let params = [
         ("grant_type", "authorization_code".to_string()),
         ("client_id", MICROSOFT_CLIENT_ID.to_string()),
@@ -97,7 +89,7 @@ pub async fn exchange_authorization_code(
 
     let client = reqwest::Client::new();
     let response = client
-        .post(token_endpoint)
+        .post(TOKEN_ENDPOINT)
         .form(&params)
         .send()
         .await
@@ -125,4 +117,33 @@ pub async fn exchange_authorization_code(
         .json::<MicrosoftTokenResponse>()
         .await
         .map_err(|err| format!("No se pudo deserializar token de Microsoft: {err}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_authorize_url, generate_code_verifier, MICROSOFT_REDIRECT_URI};
+
+    #[test]
+    fn pkce_code_verifier_has_valid_length() {
+        let verifier = generate_code_verifier();
+        assert!((43..=128).contains(&verifier.len()));
+    }
+
+    #[test]
+    fn authorize_url_contains_required_oauth_parameters() {
+        let verifier = "A".repeat(64);
+        let url = build_authorize_url(&verifier, MICROSOFT_REDIRECT_URI).expect("url should build");
+
+        assert!(url.starts_with("https://login.microsoftonline.com/common/oauth2/v2.0/authorize?"));
+        assert!(url.contains("response_type=code"));
+        assert!(url.contains("client_id=7ce1b3e8-48d7-4a9d-9329-7e11f988df39"));
+        assert!(url.contains(
+            "redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient"
+        ));
+        assert!(url.contains("scope=XboxLive.signin+offline_access"));
+        assert!(url.contains("code_challenge_method=S256"));
+        assert!(!url.contains("openid"));
+        assert!(!url.contains("profile"));
+        assert!(!url.contains("email"));
+    }
 }
