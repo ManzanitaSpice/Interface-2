@@ -15,7 +15,8 @@ pub fn run() {
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
-            app::launcher_service::create_instance
+            app::launcher_service::create_instance,
+            app::instance_service::open_instance_folder
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
