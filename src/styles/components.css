@@ -210,6 +210,23 @@
 }
 
 
+
+.auth-step-list {
+  margin: 0;
+  padding-left: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.84rem;
+  line-height: 1.35;
+  color: color-mix(in srgb, white 78%, var(--text));
+}
+
+.auth-step-list code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 0.76rem;
+}
+
 .auth-manual-actions {
   display: flex;
   gap: 0.5rem;

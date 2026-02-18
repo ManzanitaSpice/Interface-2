@@ -1273,6 +1273,16 @@ const onTopNavClick = (item: TopNavItem) => {
                 <span>
                   Si el navegador no se abrió, continúa manualmente sin exponer datos técnicos del flujo.
                 </span>
+                <ol className="auth-step-list">
+                  <li>
+                    Abre el enlace completo en un navegador. <strong>No pegues parámetros sueltos en CMD o PowerShell.</strong>
+                  </li>
+                  <li>Inicia sesión y autoriza la app con tu cuenta Microsoft.</li>
+                  <li>
+                    Copia el valor de <code>?code=...</code> (o pega la URL completa de redirección) en el cuadro inferior.
+                  </li>
+                  <li>Pulsa <strong>Completar login</strong> para que el launcher haga el intercambio del token automáticamente.</li>
+                </ol>
                 <div className="auth-manual-actions">
                   <button
                     onClick={() => {
