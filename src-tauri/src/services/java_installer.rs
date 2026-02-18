@@ -128,23 +128,42 @@ fn extract_zip_archive(archive: &[u8], destination: &Path) -> AppResult<()> {
         };
 
         if entry.name().ends_with('/') {
-            fs::create_dir_all(&out_path)?;
+            fs::create_dir_all(&out_path)
+                .map_err(|err| format!("No se pudo crear carpeta al extraer ZIP: {err}"))?;
             continue;
         }
 
         if let Some(parent) = out_path.parent() {
-            fs::create_dir_all(parent)?;
+            fs::create_dir_all(parent).map_err(|err| {
+                format!("No se pudo crear directorio padre al extraer ZIP: {err}")
+            })?;
         }
 
-        let mut file = fs::File::create(&out_path)?;
-        std::io::copy(&mut entry, &mut file)?;
+        let mut file = fs::File::create(&out_path).map_err(|err| {
+            format!(
+                "No se pudo crear archivo extraído {}: {err}",
+                out_path.display()
+            )
+        })?;
+        std::io::copy(&mut entry, &mut file).map_err(|err| {
+            format!(
+                "No se pudo escribir archivo extraído {}: {err}",
+                out_path.display()
+            )
+        })?;
     }
 
     flatten_single_top_level_dir(destination)
 }
 
 fn flatten_single_top_level_dir(destination: &Path) -> AppResult<()> {
-    let mut entries = fs::read_dir(destination)?
+    let mut entries = fs::read_dir(destination)
+        .map_err(|err| {
+            format!(
+                "No se pudo leer el directorio de runtime {}: {err}",
+                destination.display()
+            )
+        })?
         .filter_map(Result::ok)
         .collect::<Vec<_>>();
 
@@ -153,7 +172,13 @@ fn flatten_single_top_level_dir(destination: &Path) -> AppResult<()> {
     }
 
     let top_dir = entries.remove(0).path();
-    let children = fs::read_dir(&top_dir)?
+    let children = fs::read_dir(&top_dir)
+        .map_err(|err| {
+            format!(
+                "No se pudo leer carpeta interna {}: {err}",
+                top_dir.display()
+            )
+        })?
         .filter_map(Result::ok)
         .collect::<Vec<_>>();
 
@@ -164,9 +189,20 @@ fn flatten_single_top_level_dir(destination: &Path) -> AppResult<()> {
             .and_then(OsStr::to_str)
             .ok_or_else(|| "Ruta inválida al reorganizar runtime Java.".to_string())?;
         let to = destination.join(name);
-        fs::rename(from, to)?;
+        fs::rename(&from, &to).map_err(|err| {
+            format!(
+                "No se pudo mover {} a {} al reorganizar runtime: {err}",
+                from.display(),
+                to.display()
+            )
+        })?;
     }
 
-    fs::remove_dir_all(top_dir)?;
+    fs::remove_dir_all(&top_dir).map_err(|err| {
+        format!(
+            "No se pudo limpiar carpeta temporal {}: {err}",
+            top_dir.display()
+        )
+    })?;
     Ok(())
 }

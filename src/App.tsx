@@ -1,4 +1,4 @@
-import { core } from '@tauri-apps/api'
+import { invoke } from '@tauri-apps/api/core'
 import { useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import './App.css'
 
@@ -97,7 +97,7 @@ function App() {
     setCreationConsoleLogs(['Iniciando creación de instancia...'])
 
     try {
-      const result = await core.invoke<CreateInstanceResult>('create_instance', {
+      const result = await invoke<CreateInstanceResult>('create_instance', {
         payload: {
           name: cleanName,
           group: cleanGroup,
@@ -325,21 +325,13 @@ function App() {
                   title="Interfaz Minecraft"
                   search={minecraftSearch}
                   onSearch={setMinecraftSearch}
-                  rows={[
-                    ['1.21.4', '2025-01-15', 'Release'],
-                    ['1.20.6', '2024-04-29', 'Release'],
-                    ['1.20.1', '2023-06-12', 'LTS'],
-                  ]}
+                  rows={[]}
                 />
                 <ListInterface
                   title="Interfaz Loaders"
                   search={loaderSearch}
                   onSearch={setLoaderSearch}
-                  rows={[
-                    ['Forge 51.0', '2025-01-10', 'Estable'],
-                    ['Fabric 0.16', '2024-12-14', 'Estable'],
-                    ['NeoForge 21.4', '2025-02-02', 'Beta'],
-                  ]}
+                  rows={[]}
                 />
               </div>
             ) : (
@@ -487,11 +479,11 @@ function ListInterface({ title, search, onSearch, rows }: ListInterfaceProps) {
         </div>
 
         <aside className="mini-right-sidebar">
-          {['Filtro', 'Orden', 'Tag', 'Previa', 'Fix', 'Pin'].map((item) => (
-            <button key={`${title}-${item}`}>{item}</button>
-          ))}
+          <p>Opciones dinámicas pendientes de integración.</p>
         </aside>
       </div>
+
+      {rows.length === 0 && <p className="list-interface-empty">Sin versiones cargadas todavía.</p>}
     </section>
   )
 }
