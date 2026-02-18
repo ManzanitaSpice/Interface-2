@@ -16,7 +16,8 @@ pub fn create_launcher_directories(root: &Path, logs: &mut Vec<String>) -> AppRe
     ];
 
     for dir in dirs {
-        fs::create_dir_all(&dir)?;
+        fs::create_dir_all(&dir)
+            .map_err(|err| format!("No se pudo crear el directorio {}: {err}", dir.display()))?;
     }
 
     let launcher_config = root.join("config/launcher.json");
@@ -24,12 +25,23 @@ pub fn create_launcher_directories(root: &Path, logs: &mut Vec<String>) -> AppRe
         fs::write(
             &launcher_config,
             "{\n  \"defaultPage\": \"Mis Modpacks\",\n  \"javaPath\": \"runtime/java17/bin/java\"\n}\n",
-        )?;
+        )
+        .map_err(|err| {
+            format!(
+                "No se pudo crear el archivo de configuración {}: {err}",
+                launcher_config.display()
+            )
+        })?;
     }
 
     let accounts_config = root.join("config/accounts.json");
     if !accounts_config.exists() {
-        fs::write(&accounts_config, "[]\n")?;
+        fs::write(&accounts_config, "[]\n").map_err(|err| {
+            format!(
+                "No se pudo crear el archivo de cuentas {}: {err}",
+                accounts_config.display()
+            )
+        })?;
     }
 
     logs.push("Estructura global del launcher verificada/creada.".to_string());

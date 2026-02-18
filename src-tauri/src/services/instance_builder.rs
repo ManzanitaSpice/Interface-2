@@ -29,7 +29,8 @@ pub fn build_instance_structure(
     ];
 
     for dir in structure_dirs {
-        fs::create_dir_all(&dir)?;
+        fs::create_dir_all(&dir)
+            .map_err(|err| format!("No se pudo crear el directorio {}: {err}", dir.display()))?;
     }
     logs.push("Estructura interna de instancia y .minecraft creada.".to_string());
 
@@ -56,7 +57,12 @@ pub fn persist_instance_metadata(
 ) -> AppResult<()> {
     let metadata_path = instance_root.join(".instance.json");
     let metadata_content = serde_json::to_string_pretty(metadata).map_err(|err| err.to_string())?;
-    fs::write(&metadata_path, metadata_content)?;
+    fs::write(&metadata_path, metadata_content).map_err(|err| {
+        format!(
+            "No se pudo guardar la metadata de la instancia en {}: {err}",
+            metadata_path.display()
+        )
+    })?;
     logs.push(format!(
         "Metadata guardada en {} (java: {}).",
         metadata_path.display(),
