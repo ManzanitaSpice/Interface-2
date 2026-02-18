@@ -7,6 +7,8 @@ use super::rule_engine::{evaluate_rules, RuleContext};
 #[derive(Debug, Clone)]
 pub struct LaunchContext {
     pub classpath: String,
+    pub classpath_separator: String,
+    pub library_directory: String,
     pub natives_dir: String,
     pub launcher_name: String,
     pub launcher_version: String,
@@ -125,6 +127,8 @@ fn resolve_argument_section(
 fn replacement_map(launch: &LaunchContext) -> HashMap<&str, String> {
     let mut map = HashMap::new();
     map.insert("${classpath}", launch.classpath.clone());
+    map.insert("${classpath_separator}", launch.classpath_separator.clone());
+    map.insert("${library_directory}", launch.library_directory.clone());
     map.insert("${natives_directory}", launch.natives_dir.clone());
     map.insert("${launcher_name}", launch.launcher_name.clone());
     map.insert("${launcher_version}", launch.launcher_version.clone());
@@ -155,6 +159,37 @@ fn replace_variables(raw: &str, replacements: &HashMap<&str, String>) -> String 
         .fold(raw.to_string(), |acc, (key, value)| acc.replace(key, value))
 }
 
+pub fn unresolved_variables_in_args<'a>(args: impl IntoIterator<Item = &'a String>) -> Vec<String> {
+    let mut unresolved = Vec::new();
+
+    for arg in args {
+        unresolved.extend(extract_unresolved_variables(arg));
+    }
+
+    unresolved.sort();
+    unresolved.dedup();
+    unresolved
+}
+
+fn extract_unresolved_variables(arg: &str) -> Vec<String> {
+    let mut variables = Vec::new();
+    let mut cursor = arg;
+
+    while let Some(start) = cursor.find("${") {
+        let variable_start = start + 2;
+        let candidate = &cursor[variable_start..];
+
+        if let Some(end) = candidate.find('}') {
+            variables.push(candidate[..end].to_string());
+            cursor = &candidate[end + 1..];
+        } else {
+            break;
+        }
+    }
+
+    variables
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -165,6 +200,8 @@ mod tests {
     fn sample_launch_context() -> LaunchContext {
         LaunchContext {
             classpath: "CP".to_string(),
+            classpath_separator: ":".to_string(),
+            library_directory: "/libraries".to_string(),
             natives_dir: "NAT".to_string(),
             launcher_name: "Launcher".to_string(),
             launcher_version: "1.0".to_string(),
@@ -211,6 +248,33 @@ mod tests {
     }
 
     #[test]
+    fn resolve_modern_arguments_with_classpath_separator_and_library_directory() {
+        let version_json = json!({
+          "mainClass":"net.minecraft.client.main.Main",
+          "arguments": {
+            "jvm": [
+              "-Dseparator=${classpath_separator}",
+              "-Dlibrary=${library_directory}"
+            ],
+            "game": []
+          }
+        });
+
+        let result = resolve_launch_arguments(
+            &version_json,
+            &sample_launch_context(),
+            &RuleContext {
+                os_name: OsName::Linux,
+                arch: "x86_64".to_string(),
+            },
+        )
+        .expect("debe resolver");
+
+        assert_eq!(result.jvm[0], "-Dseparator=:");
+        assert_eq!(result.jvm[1], "-Dlibrary=/libraries");
+    }
+
+    #[test]
     fn resolve_legacy_arguments() {
         let version_json = json!({
           "mainClass":"net.minecraft.client.main.Main",
@@ -231,6 +295,28 @@ mod tests {
         assert_eq!(
             result.game,
             vec!["--username", "Steve", "--gameDir", "/game"]
+        );
+    }
+
+    #[test]
+    fn unresolved_variables_are_reported_by_name() {
+        let args = vec![
+            "-Dfoo=${launcher_name}".to_string(),
+            "--token=${auth_access_token}".to_string(),
+            "--broken=${not_closed".to_string(),
+            "--multi=${version_name}:${version_type}".to_string(),
+        ];
+
+        let unresolved = unresolved_variables_in_args(args.iter());
+
+        assert_eq!(
+            unresolved,
+            vec![
+                "auth_access_token".to_string(),
+                "launcher_name".to_string(),
+                "version_name".to_string(),
+                "version_type".to_string(),
+            ]
         );
     }
 }
