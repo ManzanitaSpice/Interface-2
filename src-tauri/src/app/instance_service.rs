@@ -46,6 +46,7 @@ pub struct LaunchValidationResult {
     pub game_args: Vec<String>,
     pub main_class: String,
     pub logs: Vec<String>,
+    pub refreshed_auth_session: LaunchAuthSession,
 }
 
 #[derive(Debug, Serialize)]
@@ -54,6 +55,7 @@ pub struct StartInstanceResult {
     pub pid: u32,
     pub java_path: String,
     pub logs: Vec<String>,
+    pub refreshed_auth_session: LaunchAuthSession,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -456,6 +458,41 @@ pub fn validate_and_prepare_launch(
     logs.push(format!("UUID: {uuid}"));
     logs.push(format!("USERNAME: {username}"));
 
+    if resolved.game.iter().any(|arg| arg == "--demo") {
+        return Err(
+            "Se detectó --demo en los argumentos de juego. Lanzamiento bloqueado.".to_string(),
+        );
+    }
+
+    if username != verified_auth.profile_name {
+        return Err(format!(
+            "--username no coincide con el perfil oficial validado. esperado={} recibido={}",
+            verified_auth.profile_name, username
+        ));
+    }
+
+    if uuid != verified_auth.profile_id {
+        return Err(format!(
+            "--uuid no coincide byte a byte con profile.id validado. esperado={} recibido={}",
+            verified_auth.profile_id, uuid
+        ));
+    }
+
+    if access_token != verified_auth.minecraft_access_token {
+        return Err(
+            "--accessToken no coincide con el token activo validado; lanzamiento bloqueado."
+                .to_string(),
+        );
+    }
+
+    let command_preview = std::iter::once(embedded_java.clone())
+        .chain(jvm_args.iter().cloned())
+        .chain(std::iter::once(resolved.main_class.clone()))
+        .chain(resolved.game.iter().cloned())
+        .collect::<Vec<_>>()
+        .join(" ");
+    logs.push(format!("COMANDO FINAL JAVA: {command_preview}"));
+
     Ok(LaunchValidationResult {
         java_path: embedded_java,
         java_version: first_line(&java_version_text),
@@ -464,6 +501,13 @@ pub fn validate_and_prepare_launch(
         game_args: resolved.game,
         main_class: resolved.main_class,
         logs,
+        refreshed_auth_session: LaunchAuthSession {
+            profile_id: verified_auth.profile_id,
+            profile_name: verified_auth.profile_name,
+            minecraft_access_token: verified_auth.minecraft_access_token,
+            microsoft_refresh_token: auth_session.microsoft_refresh_token,
+            premium_verified: verified_auth.premium_verified,
+        },
     })
 }
 
@@ -586,6 +630,7 @@ pub fn start_instance(
             "Comando de lanzamiento ejecutado con argumentos validados.".to_string(),
             "Salida estándar y de error conectadas para monitoreo; exit_code persistido al finalizar.".to_string(),
         ],
+        refreshed_auth_session: prepared.refreshed_auth_session,
     })
 }
 

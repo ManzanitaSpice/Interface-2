@@ -85,12 +85,26 @@ type LaunchValidationResult = {
   gameArgs: string[]
   mainClass: string
   logs: string[]
+  refreshedAuthSession: {
+    profileId: string
+    profileName: string
+    minecraftAccessToken: string
+    microsoftRefreshToken?: string | null
+    premiumVerified: boolean
+  }
 }
 
 type StartInstanceResult = {
   pid: number
   javaPath: string
   logs: string[]
+  refreshedAuthSession: {
+    profileId: string
+    profileName: string
+    minecraftAccessToken: string
+    microsoftRefreshToken?: string | null
+    premiumVerified: boolean
+  }
 }
 
 type RuntimeStatus = {
@@ -1007,6 +1021,19 @@ function App() {
       })
 
       setLaunchPreparation(prepared)
+
+      const refreshedSession: AuthSession = {
+        ...authSession,
+        profileId: prepared.refreshedAuthSession.profileId,
+        profileName: prepared.refreshedAuthSession.profileName,
+        minecraftAccessToken: prepared.refreshedAuthSession.minecraftAccessToken,
+        microsoftRefreshToken: prepared.refreshedAuthSession.microsoftRefreshToken ?? undefined,
+        premiumVerified: prepared.refreshedAuthSession.premiumVerified,
+        loggedAt: Date.now(),
+      }
+      setAuthSession(refreshedSession)
+      persistAuthSession(refreshedSession)
+
       const entries: ConsoleEntry[] = [
         makeConsoleEntry('INFO', 'launcher', `Inicio del proceso para ${selectedCard.name}`),
         makeConsoleEntry('INFO', 'launcher', `java_path efectivo: ${prepared.javaPath}`),
@@ -1051,6 +1078,18 @@ function App() {
           premiumVerified: authSession.premiumVerified,
         },
       })
+
+      const refreshedSession: AuthSession = {
+        ...authSession,
+        profileId: result.refreshedAuthSession.profileId,
+        profileName: result.refreshedAuthSession.profileName,
+        minecraftAccessToken: result.refreshedAuthSession.minecraftAccessToken,
+        microsoftRefreshToken: result.refreshedAuthSession.microsoftRefreshToken ?? undefined,
+        premiumVerified: result.refreshedAuthSession.premiumVerified,
+        loggedAt: Date.now(),
+      }
+      setAuthSession(refreshedSession)
+      persistAuthSession(refreshedSession)
 
       setRuntimeConsole((prev) => {
         const next = [
