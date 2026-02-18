@@ -181,6 +181,8 @@ pub async fn authorize_microsoft_in_launcher(
                 if let Some(window) = app_for_navigation.get_webview_window(&label_for_navigation) {
                     let _ = window.close();
                 }
+
+                false
             })
             .build()
             .map_err(|err| format!("No se pudo abrir la ventana de login de Microsoft: {err}"))?;
