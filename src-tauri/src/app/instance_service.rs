@@ -1,8 +1,6 @@
 use std::{
     collections::HashMap,
     fs,
-    hash::{Hash, Hasher},
-    io,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -754,6 +752,347 @@ fn contains_classpath_switch(jvm_args: &[String]) -> bool {
     jvm_args
         .windows(2)
         .any(|window| matches!(window, [flag, _value] if flag == "-cp" || flag == "-classpath"))
+}
+
+#[derive(Debug, Clone)]
+struct MissingLibraryEntry {
+    path: String,
+}
+
+#[derive(Debug, Clone)]
+struct NativeJarEntry {
+    path: String,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedLibraries {
+    classpath_entries: Vec<String>,
+    missing_classpath_entries: Vec<MissingLibraryEntry>,
+    native_jars: Vec<NativeJarEntry>,
+    missing_native_entries: Vec<String>,
+}
+
+fn load_merged_version_json(mc_root: &Path, version_id: &str) -> Result<Value, String> {
+    fn load_version_json(mc_root: &Path, version_id: &str) -> Result<Value, String> {
+        let path = mc_root
+            .join("versions")
+            .join(version_id)
+            .join(format!("{version_id}.json"));
+        let raw = fs::read_to_string(&path)
+            .map_err(|err| format!("No se pudo leer version json {}: {err}", path.display()))?;
+        serde_json::from_str(&raw)
+            .map_err(|err| format!("No se pudo parsear version json {}: {err}", path.display()))
+    }
+
+    fn merge_values(base: Value, child: Value) -> Value {
+        match (base, child) {
+            (Value::Object(mut b), Value::Object(c)) => {
+                for (key, child_value) in c {
+                    let merged = match b.remove(&key) {
+                        Some(base_value)
+                            if key == "arguments" || key == "downloads" || key == "assetIndex" =>
+                        {
+                            merge_values(base_value, child_value)
+                        }
+                        _ => child_value,
+                    };
+                    b.insert(key, merged);
+                }
+                Value::Object(b)
+            }
+            (_, child) => child,
+        }
+    }
+
+    let child = load_version_json(mc_root, version_id)?;
+    if let Some(parent_id) = child.get("inheritsFrom").and_then(Value::as_str) {
+        let parent = load_merged_version_json(mc_root, parent_id)?;
+        Ok(merge_values(parent, child))
+    } else {
+        Ok(child)
+    }
+}
+
+fn ensure_main_class_present_in_jar(jar_path: &Path, main_class: &str) -> Result<(), String> {
+    let file = fs::File::open(jar_path)
+        .map_err(|err| format!("No se pudo abrir jar {}: {err}", jar_path.display()))?;
+    let mut archive = ZipArchive::new(file)
+        .map_err(|err| format!("Jar inválido {}: {err}", jar_path.display()))?;
+    let class_entry = format!("{}.class", main_class.replace('.', "/"));
+    archive.by_name(&class_entry).map(|_| ()).map_err(|_| {
+        format!(
+            "La clase principal {main_class} no existe en {}",
+            jar_path.display()
+        )
+    })
+}
+
+fn build_maven_library_path(mc_root: &Path, library: &Value) -> Option<String> {
+    let name = library.get("name")?.as_str()?;
+    let mut parts = name.split(':');
+    let group = parts.next()?;
+    let artifact = parts.next()?;
+    let version = parts.next()?;
+    let classifier_and_ext = parts.next();
+
+    let group_path = group.replace('.', "/");
+    let (classifier, extension) = if let Some(rest) = classifier_and_ext {
+        if let Some((classifier, ext)) = rest.split_once('@') {
+            (Some(classifier.to_string()), ext.to_string())
+        } else {
+            (Some(rest.to_string()), "jar".to_string())
+        }
+    } else {
+        (None, "jar".to_string())
+    };
+
+    let file_name = if let Some(classifier) = classifier {
+        format!("{artifact}-{version}-{classifier}.{extension}")
+    } else {
+        format!("{artifact}-{version}.{extension}")
+    };
+
+    Some(
+        mc_root
+            .join("libraries")
+            .join(group_path)
+            .join(artifact)
+            .join(version)
+            .join(file_name)
+            .display()
+            .to_string(),
+    )
+}
+
+fn resolve_libraries(
+    mc_root: &Path,
+    version_json: &Value,
+    rule_context: &RuleContext,
+) -> ResolvedLibraries {
+    let mut classpath_entries = Vec::new();
+    let mut missing_classpath_entries = Vec::new();
+    let mut native_jars = Vec::new();
+    let mut missing_native_entries = Vec::new();
+
+    let os_key = if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else {
+        "osx"
+    };
+
+    for lib in version_json
+        .get("libraries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        let rules = lib
+            .get("rules")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if !crate::domain::minecraft::rule_engine::evaluate_rules(&rules, rule_context) {
+            continue;
+        }
+
+        let artifact_path = lib
+            .get("downloads")
+            .and_then(|v| v.get("artifact"))
+            .and_then(|v| v.get("path"))
+            .and_then(Value::as_str)
+            .map(|p| mc_root.join("libraries").join(p).display().to_string())
+            .or_else(|| build_maven_library_path(mc_root, &lib));
+
+        if let Some(path) = artifact_path {
+            if Path::new(&path).exists() {
+                classpath_entries.push(path);
+            } else {
+                missing_classpath_entries.push(MissingLibraryEntry { path });
+            }
+        }
+
+        let native_classifier = lib
+            .get("natives")
+            .and_then(|v| v.get(os_key))
+            .and_then(Value::as_str);
+
+        if let Some(classifier) = native_classifier {
+            let native_key = classifier.replace("${arch}", std::env::consts::ARCH);
+            let native_path = lib
+                .get("downloads")
+                .and_then(|v| v.get("classifiers"))
+                .and_then(|v| v.get(&native_key))
+                .and_then(|v| v.get("path"))
+                .and_then(Value::as_str)
+                .map(|p| mc_root.join("libraries").join(p).display().to_string());
+
+            match native_path {
+                Some(path) if Path::new(&path).exists() => {
+                    native_jars.push(NativeJarEntry { path })
+                }
+                Some(path) => missing_native_entries.push(path),
+                None => missing_native_entries.push(format!(
+                    "native no encontrado para {} ({native_key})",
+                    lib.get("name").and_then(Value::as_str).unwrap_or("unknown")
+                )),
+            }
+        }
+    }
+
+    ResolvedLibraries {
+        classpath_entries,
+        missing_classpath_entries,
+        native_jars,
+        missing_native_entries,
+    }
+}
+
+fn hydrate_missing_libraries(
+    missing_entries: &[MissingLibraryEntry],
+    logs: &mut Vec<String>,
+) -> Result<(), String> {
+    if missing_entries.is_empty() {
+        return Ok(());
+    }
+
+    for entry in missing_entries {
+        let path = Path::new(&entry.path);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|err| {
+                format!(
+                    "No se pudo crear directorio para librería faltante {}: {err}",
+                    parent.display()
+                )
+            })?;
+        }
+        logs.push(format!(
+            "⚠ librería faltante detectada (descarga automática no implementada): {}",
+            entry.path
+        ));
+    }
+    Ok(())
+}
+
+fn validate_jars_as_zip(jars: &[PathBuf]) -> Result<(), String> {
+    for jar in jars {
+        let file = fs::File::open(jar)
+            .map_err(|err| format!("No se pudo abrir jar {}: {err}", jar.display()))?;
+        ZipArchive::new(file)
+            .map_err(|err| format!("Jar inválido/corrupto {}: {err}", jar.display()))?;
+    }
+    Ok(())
+}
+
+fn extract_natives(native_jars: &[NativeJarEntry], natives_dir: &Path) -> Result<(), String> {
+    fs::create_dir_all(natives_dir).map_err(|err| {
+        format!(
+            "No se pudo crear carpeta natives {}: {err}",
+            natives_dir.display()
+        )
+    })?;
+
+    for native in native_jars {
+        let file = fs::File::open(&native.path)
+            .map_err(|err| format!("No se pudo abrir native jar {}: {err}", native.path))?;
+        let mut archive = ZipArchive::new(file)
+            .map_err(|err| format!("Native jar inválido {}: {err}", native.path))?;
+        for i in 0..archive.len() {
+            let mut entry = archive
+                .by_index(i)
+                .map_err(|err| format!("No se pudo leer entrada zip en {}: {err}", native.path))?;
+            let name = entry.name().to_string();
+            if entry.is_dir() || name.starts_with("META-INF/") {
+                continue;
+            }
+            let out_path = natives_dir.join(&name);
+            if let Some(parent) = out_path.parent() {
+                fs::create_dir_all(parent).map_err(|err| {
+                    format!(
+                        "No se pudo crear directorio de natives {}: {err}",
+                        parent.display()
+                    )
+                })?;
+            }
+            let mut out = fs::File::create(&out_path)
+                .map_err(|err| format!("No se pudo crear native {}: {err}", out_path.display()))?;
+            std::io::copy(&mut entry, &mut out).map_err(|err| {
+                format!("No se pudo extraer native {}: {err}", out_path.display())
+            })?;
+        }
+    }
+    Ok(())
+}
+
+fn parse_runtime_major(input: &str) -> Option<JavaRuntime> {
+    let digits = input
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect::<String>();
+    let major = digits.parse::<u32>().ok()?;
+    match major {
+        0..=11 => Some(JavaRuntime::Java8),
+        12..=20 => Some(JavaRuntime::Java17),
+        _ => Some(JavaRuntime::Java21),
+    }
+}
+
+fn parse_runtime_from_metadata(metadata: &InstanceMetadata) -> Option<JavaRuntime> {
+    let normalized = metadata.java_runtime.to_lowercase();
+    if normalized.contains("21") {
+        return Some(JavaRuntime::Java21);
+    }
+    if normalized.contains("17") {
+        return Some(JavaRuntime::Java17);
+    }
+    if normalized.contains('8') {
+        return Some(JavaRuntime::Java8);
+    }
+
+    parse_runtime_major(&metadata.java_version).or_else(|| parse_runtime_major(&metadata.java_path))
+}
+
+fn persist_instance_java_path(
+    instance_path: &Path,
+    metadata: &InstanceMetadata,
+    java_exec: &Path,
+    logs: &mut Vec<String>,
+) -> Result<(), String> {
+    let mut updated = metadata.clone();
+    updated.java_path = java_exec.display().to_string();
+    updated.java_runtime = format!(
+        "java{}",
+        parse_runtime_from_metadata(&updated)
+            .map(|r| r.major())
+            .unwrap_or(17)
+    );
+    updated.java_version = format!(
+        "{}.0.x",
+        parse_runtime_from_metadata(&updated)
+            .map(|r| r.major())
+            .unwrap_or(17)
+    );
+
+    let metadata_path = instance_path.join(".instance.json");
+    fs::write(
+        &metadata_path,
+        serde_json::to_string_pretty(&updated)
+            .map_err(|err| format!("No se pudo serializar metadata actualizada: {err}"))?,
+    )
+    .map_err(|err| {
+        format!(
+            "No se pudo persistir metadata actualizada en {}: {err}",
+            metadata_path.display()
+        )
+    })?;
+
+    logs.push(format!(
+        "✔ .instance.json actualizado con java_path embebido: {}",
+        java_exec.display()
+    ));
+
+    Ok(())
 }
 
 #[cfg(test)]
