@@ -1,7 +1,7 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use uuid::Uuid;
 
 use crate::domain::auth::tokens::MicrosoftTokenResponse;
 
@@ -13,27 +13,28 @@ pub const MICROSOFT_REDIRECT_URI: &str =
 const AUTHORIZE_ENDPOINT: &str =
     "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize";
 
-const TOKEN_ENDPOINT: &str =
-    "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
-
-
+const TOKEN_ENDPOINT: &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
 
 /* =========================================================
    PKCE
 ========================================================= */
 
 pub fn generate_code_verifier() -> String {
-    let mut bytes = [0u8; 64];
-    rand::thread_rng().fill_bytes(&mut bytes);
-    URL_SAFE_NO_PAD.encode(bytes)
+    let raw = format!(
+        "{}{}{}{}",
+        Uuid::new_v4().as_simple(),
+        Uuid::new_v4().as_simple(),
+        Uuid::new_v4().as_simple(),
+        Uuid::new_v4().as_simple()
+    );
+
+    raw.chars().take(128).collect()
 }
 
 fn generate_code_challenge(verifier: &str) -> String {
     let digest = Sha256::digest(verifier.as_bytes());
     URL_SAFE_NO_PAD.encode(digest)
 }
-
-
 
 /* =========================================================
    AUTHORIZE URL
@@ -69,8 +70,6 @@ pub fn build_authorize_url(code_verifier: &str) -> Result<String, String> {
     Ok(format!("{AUTHORIZE_ENDPOINT}?{encoded}"))
 }
 
-
-
 /* =========================================================
    TOKEN EXCHANGE
 ========================================================= */
@@ -85,10 +84,7 @@ fn validate_verifier(verifier: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn build_token_params(
-    code: &str,
-    verifier: &str,
-) -> Result<[(&'static str, String); 6], String> {
+fn build_token_params(code: &str, verifier: &str) -> Result<[(&'static str, String); 6], String> {
     validate_verifier(verifier)?;
 
     Ok([
@@ -145,8 +141,6 @@ pub async fn exchange_authorization_code(
         .map_err(|e| format!("Error deserializando MicrosoftTokenResponse: {e}"))
 }
 
-
-
 /* =========================================================
    TESTS
 ========================================================= */
@@ -179,7 +173,9 @@ mod tests {
         let params = build_token_params("abc", "A".repeat(64).as_str()).unwrap();
 
         assert!(params.iter().any(|(k, _)| *k == "client_id"));
-        assert!(params.iter().any(|(k, v)| *k == "grant_type" && v == "authorization_code"));
+        assert!(params
+            .iter()
+            .any(|(k, v)| *k == "grant_type" && v == "authorization_code"));
         assert!(params.iter().any(|(k, _)| *k == "code_verifier"));
     }
 }

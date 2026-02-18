@@ -240,7 +240,7 @@ pub fn open_url_in_browser(url: String, browser_id: String) -> Result<(), String
 #[tauri::command]
 pub fn start_microsoft_auth() -> Result<MicrosoftAuthStart, String> {
     let code_verifier = generate_code_verifier();
-    let authorize_url = build_authorize_url(&code_verifier, MICROSOFT_REDIRECT_URI)?;
+    let authorize_url = build_authorize_url(&code_verifier)?;
 
     Ok(MicrosoftAuthStart {
         authorize_url,
@@ -259,8 +259,7 @@ pub async fn complete_microsoft_auth(
     }
 
     let client = reqwest::Client::new();
-    let microsoft_tokens =
-        exchange_authorization_code(&client, &code, &code_verifier, MICROSOFT_REDIRECT_URI).await?;
+    let microsoft_tokens = exchange_authorization_code(&client, &code, &code_verifier).await?;
     finalize_microsoft_tokens(&client, microsoft_tokens).await
 }
 
