@@ -39,7 +39,12 @@ pub fn ensure_embedded_java(
                     runtime_root.display()
                 )
             })?;
-            fs::create_dir_all(&runtime_root)?;
+            fs::create_dir_all(&runtime_root).map_err(|err| {
+                format!(
+                    "No se pudo recrear directorio runtime {}: {err}",
+                    runtime_root.display()
+                )
+            })?;
         } else {
             logs.push(format!(
                 "Java {} ya instalado: {}",
