@@ -59,7 +59,13 @@ fn create_instance_impl(
     let instance_root = launcher_root.join("instances").join(&sanitized_name);
     let minecraft_root = instance_root.join("minecraft");
 
-    fs::create_dir_all(&instance_root)?;
+    fs::create_dir_all(&instance_root).map_err(|err| {
+        format!(
+            "No se pudo crear la carpeta base de la instancia ({}): {}",
+            instance_root.display(),
+            err
+        )
+    })?;
     logs.push(format!("Creada carpeta base: {}", instance_root.display()));
 
     build_instance_structure(
