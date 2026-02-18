@@ -8,6 +8,7 @@ pub struct CreateInstancePayload {
     pub minecraft_version: String,
     pub loader: String,
     pub loader_version: String,
+    pub required_java_major: Option<u32>,
     pub ram_mb: u32,
     pub java_args: Vec<String>,
 }
