@@ -14,14 +14,12 @@ const AUTHORIZE_ENDPOINT: &str =
 const TOKEN_ENDPOINT: &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
 
 pub fn generate_code_verifier() -> String {
-    let random = format!(
-        "{}{}{}{}",
-        uuid::Uuid::new_v4().as_simple(),
-        uuid::Uuid::new_v4().as_simple(),
-        uuid::Uuid::new_v4().as_simple(),
-        uuid::Uuid::new_v4().as_simple()
-    );
-    random.chars().take(128).collect()
+    let mut random_bytes = Vec::with_capacity(64);
+    for _ in 0..4 {
+        random_bytes.extend_from_slice(uuid::Uuid::new_v4().as_bytes());
+    }
+
+    URL_SAFE_NO_PAD.encode(random_bytes)
 }
 
 fn code_challenge(verifier: &str) -> String {
@@ -66,6 +64,7 @@ pub fn build_authorize_url(code_verifier: &str, redirect_uri: &str) -> Result<St
 
     let encoded_query = serde_urlencoded::to_string(query)
         .map_err(|err| format!("No se pudo construir la URL OAuth de Microsoft: {err}"))?;
+    let encoded_query = encoded_query.replace('+', "%20");
 
     Ok(format!("{AUTHORIZE_ENDPOINT}?{encoded_query}"))
 }
@@ -174,7 +173,7 @@ mod tests {
         assert!(url.contains(
             "redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient"
         ));
-        assert!(url.contains("scope=XboxLive.signin+offline_access"));
+        assert!(url.contains("scope=XboxLive.signin%20offline_access"));
         assert!(url.contains("code_challenge_method=S256"));
         assert!(!url.contains("openid"));
         assert!(!url.contains("profile"));
