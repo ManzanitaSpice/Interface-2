@@ -543,3 +543,8 @@
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   border-color: var(--accent);
 }
+
+.toolbar-toggle-btn.active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: var(--accent);
+}

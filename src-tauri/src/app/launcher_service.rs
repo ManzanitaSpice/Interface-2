@@ -119,19 +119,19 @@ fn create_instance_impl(
         required_java.major()
     ));
 
-    let java_exec = if let Some(system_java) = find_compatible_java(required_java) {
+    if let Some(system_java) = find_compatible_java(required_java) {
         logs.push(format!(
-            "Java del sistema detectado: {} (major {}). Se usará en lugar del embebido.",
+            "Java del sistema detectado: {} (major {}). Se prioriza runtime embebido para ruta controlada.",
             system_java.path.display(),
             system_java.major
         ));
-        system_java.path
     } else {
         logs.push(
             "No se encontró Java del sistema compatible. Se usará runtime embebido.".to_string(),
         );
-        ensure_embedded_java(&launcher_root, required_java, &mut logs)?
-    };
+    }
+
+    let java_exec = ensure_embedded_java(&launcher_root, required_java, &mut logs)?;
 
     log_download_steps(&payload, &mut logs, required_java);
 
