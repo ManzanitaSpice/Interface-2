@@ -1,5 +1,6 @@
 use std::{fs, path::Path};
 
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::{
@@ -7,7 +8,7 @@ use crate::{
         minecraft::{
             argument_resolver::{resolve_launch_arguments, LaunchContext},
             manifest::{ManifestVersionEntry, VersionManifest},
-            rule_engine::RuleContext,
+            rule_engine::{evaluate_rules, RuleContext},
         },
         models::instance::InstanceMetadata,
     },
@@ -15,7 +16,8 @@ use crate::{
     shared::result::AppResult,
 };
 
-const MOJANG_MANIFEST_URL: &str = "https://launchermeta.mojang.com/mc/game/version_manifest.json";
+const MOJANG_MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+const MOJANG_RESOURCES_URL: &str = "https://resources.download.minecraft.net";
 
 pub fn build_instance_structure(
     _instance_root: &Path,
@@ -59,7 +61,23 @@ pub fn build_instance_structure(
         "version.json oficial guardado en {}.",
         json_path.display()
     ));
-    logs.push(format!("client.jar oficial guardado en {}.", jar_path.display()));
+    logs.push(format!(
+        "client.jar oficial guardado en {}.",
+        jar_path.display()
+    ));
+
+    let rule_context = RuleContext::current();
+    let downloaded_libraries = download_libraries(&version_json, minecraft_root, &rule_context)?;
+    logs.push(format!(
+        "Librerías oficiales descargadas: {} artefactos.",
+        downloaded_libraries
+    ));
+
+    let downloaded_assets = download_assets(&version_json, minecraft_root)?;
+    logs.push(format!(
+        "Assets oficiales descargados: {} objetos.",
+        downloaded_assets
+    ));
 
     let launch_context = LaunchContext {
         classpath: "${classpath}".to_string(),
@@ -170,16 +188,178 @@ fn download_client_jar(version_json: &Value, jar_path: &Path) -> AppResult<()> {
         .and_then(Value::as_str)
         .ok_or_else(|| "version.json no incluye downloads.client.url".to_string())?;
 
-    let bytes = reqwest::blocking::get(client_url)
-        .map_err(|err| format!("No se pudo descargar client.jar oficial: {err}"))?
-        .error_for_status()
-        .map_err(|err| format!("client.jar respondió con error HTTP: {err}"))?
-        .bytes()
-        .map_err(|err| format!("No se pudo leer bytes de client.jar: {err}"))?;
+    download_binary(client_url, jar_path, true)
+}
 
-    write_placeholder_file(jar_path, "")?;
-    fs::write(jar_path, &bytes)
-        .map_err(|err| format!("No se pudo guardar client.jar en {}: {err}", jar_path.display()))
+fn download_libraries(
+    version_json: &Value,
+    minecraft_root: &Path,
+    rule_context: &RuleContext,
+) -> AppResult<usize> {
+    let mut downloaded = 0usize;
+
+    let libraries = version_json
+        .get("libraries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    for library in libraries {
+        let rules = library
+            .get("rules")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+
+        if !evaluate_rules(&rules, rule_context) {
+            continue;
+        }
+
+        if let Some((url, path)) = artifact_download_entry(&library) {
+            let output_path = minecraft_root.join("libraries").join(path);
+            if download_binary(url, &output_path, false)? {
+                downloaded += 1;
+            }
+        }
+
+        if let Some((url, path)) = native_download_entry(&library, rule_context) {
+            let output_path = minecraft_root.join("libraries").join(path);
+            if download_binary(url, &output_path, false)? {
+                downloaded += 1;
+            }
+        }
+    }
+
+    Ok(downloaded)
+}
+
+fn artifact_download_entry(library: &Value) -> Option<(&str, &str)> {
+    let artifact = library.get("downloads")?.get("artifact")?;
+    Some((
+        artifact.get("url")?.as_str()?,
+        artifact.get("path")?.as_str()?,
+    ))
+}
+
+fn native_download_entry<'a>(
+    library: &'a Value,
+    rule_context: &RuleContext,
+) -> Option<(&'a str, &'a str)> {
+    let os_key = match rule_context.os {
+        crate::domain::minecraft::rule_engine::OsName::Windows => "windows",
+        crate::domain::minecraft::rule_engine::OsName::Linux => "linux",
+        crate::domain::minecraft::rule_engine::OsName::Macos => "osx",
+        crate::domain::minecraft::rule_engine::OsName::Unknown => return None,
+    };
+
+    let classifier = library
+        .get("natives")?
+        .get(os_key)?
+        .as_str()?
+        .replace("${arch}", &rule_context.arch);
+
+    let entry = library
+        .get("downloads")?
+        .get("classifiers")?
+        .get(classifier)?;
+
+    Some((entry.get("url")?.as_str()?, entry.get("path")?.as_str()?))
+}
+
+fn download_assets(version_json: &Value, minecraft_root: &Path) -> AppResult<usize> {
+    let asset_index = version_json
+        .get("assetIndex")
+        .ok_or_else(|| "version.json no incluye assetIndex".to_string())?;
+
+    let index_url = asset_index
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "assetIndex.url no está presente".to_string())?;
+    let index_id = asset_index
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "assetIndex.id no está presente".to_string())?;
+
+    let indexes_dir = minecraft_root.join("assets").join("indexes");
+    fs::create_dir_all(&indexes_dir).map_err(|err| {
+        format!(
+            "No se pudo crear carpeta de asset indexes {}: {err}",
+            indexes_dir.display()
+        )
+    })?;
+
+    let index_path = indexes_dir.join(format!("{index_id}.json"));
+    download_binary(index_url, &index_path, true)?;
+
+    let raw_index = fs::read_to_string(&index_path).map_err(|err| {
+        format!(
+            "No se pudo leer asset index {}: {err}",
+            index_path.display()
+        )
+    })?;
+    let parsed_index = serde_json::from_str::<AssetIndex>(&raw_index)
+        .map_err(|err| format!("asset index inválido {}: {err}", index_path.display()))?;
+
+    let mut downloaded = 0usize;
+    for object in parsed_index.objects.values() {
+        if object.hash.len() < 2 {
+            continue;
+        }
+        let prefix = &object.hash[..2];
+        let object_path = minecraft_root
+            .join("assets")
+            .join("objects")
+            .join(prefix)
+            .join(&object.hash);
+        let url = format!("{MOJANG_RESOURCES_URL}/{prefix}/{}", object.hash);
+        if download_binary(&url, &object_path, false)? {
+            downloaded += 1;
+        }
+    }
+
+    Ok(downloaded)
+}
+
+fn download_binary(url: &str, target_path: &Path, force: bool) -> AppResult<bool> {
+    if !force && target_path.exists() {
+        return Ok(false);
+    }
+
+    if let Some(parent) = target_path.parent() {
+        fs::create_dir_all(parent).map_err(|err| {
+            format!(
+                "No se pudo crear directorio {} para descarga: {err}",
+                parent.display()
+            )
+        })?;
+    }
+
+    let bytes = reqwest::blocking::get(url)
+        .map_err(|err| format!("No se pudo descargar recurso oficial {url}: {err}"))?
+        .error_for_status()
+        .map_err(|err| format!("Recurso oficial devolvió error HTTP ({url}): {err}"))?
+        .bytes()
+        .map_err(|err| format!("No se pudo leer bytes descargados de {url}: {err}"))?;
+
+    write_placeholder_file(target_path, "")?;
+    fs::write(target_path, &bytes).map_err(|err| {
+        format!(
+            "No se pudo guardar archivo descargado en {}: {err}",
+            target_path.display()
+        )
+    })?;
+
+    Ok(true)
+}
+
+#[derive(Debug, Deserialize)]
+struct AssetIndex {
+    objects: std::collections::HashMap<String, AssetObject>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AssetObject {
+    hash: String,
 }
 
 pub fn persist_instance_metadata(
