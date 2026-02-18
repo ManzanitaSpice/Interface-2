@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
+import { core } from '@tauri-apps/api'
 import { useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import './App.css'
 
@@ -97,7 +97,7 @@ function App() {
     setCreationConsoleLogs(['Iniciando creación de instancia...'])
 
     try {
-      const result = await invoke<CreateInstanceResult>('create_instance', {
+      const result = await core.invoke<CreateInstanceResult>('create_instance', {
         payload: {
           name: cleanName,
           group: cleanGroup,
