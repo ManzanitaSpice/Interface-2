@@ -2,3 +2,45 @@
 @import './styles/layout.css';
 @import './styles/components.css';
 @import './styles/responsive.css';
+
+/* Tema unificado sin mezclas */
+.top-bar.principal,
+.top-bar.secondary,
+.instances-panel,
+.instance-card,
+.instance-right-panel,
+.floating-modal,
+.auth-login-card,
+.auth-browser-hint,
+.third-top-bar,
+.edit-top-bar,
+.fourth-top-bar,
+.creator-footer-actions,
+.execution-actions,
+.launcher-brand-logo-slot {
+  background: var(--panel-color) !important;
+  border-color: var(--border) !important;
+  box-shadow: none !important;
+  color: var(--text-color) !important;
+}
+
+.instance-card-icon,
+.instance-card-icon.hero {
+  background: var(--container-color) !important;
+  border-color: var(--border) !important;
+}
+
+.auth-feedback-status,
+.auth-feedback-error,
+.auth-feedback-warn {
+  color: var(--text-color) !important;
+  border-color: var(--border) !important;
+  background: var(--container-color) !important;
+}
+
+.log-level-info,
+.log-level-warn,
+.log-level-error,
+* {
+  color: var(--text-color);
+}

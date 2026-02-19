@@ -260,8 +260,30 @@ pub fn validate_and_prepare_launch(
         client_jar.display()
     ));
 
-    ensure_main_class_present_in_jar(&client_jar, "net.minecraft.client.main.Main")?;
-    logs.push("✔ clase principal net.minecraft.client.main.Main verificada en jar".to_string());
+    let resolved_main_class = version_json
+        .get("mainClass")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if resolved_main_class.is_empty() {
+        return Err("mainClass faltante en version.json efectivo.".to_string());
+    }
+
+    let executable_version_json = mc_root
+        .join("versions")
+        .join(&executable_version_id)
+        .join(format!("{executable_version_id}.json"));
+    logs.push(format!("MAIN CLASS: {resolved_main_class}"));
+    logs.push(format!(
+        "VERSION JSON USADO: {}",
+        executable_version_json.display()
+    ));
+
+    ensure_main_class_present_in_jar(&client_jar, &resolved_main_class)?;
+    logs.push(format!(
+        "✔ clase principal {resolved_main_class} verificada en jar"
+    ));
 
     let rule_context = RuleContext::current();
     let mut resolved_libraries = resolve_libraries(&mc_root, &version_json, &rule_context);
@@ -301,6 +323,15 @@ pub fn validate_and_prepare_launch(
         "✔ libraries evaluadas: {} (faltantes: 0)",
         resolved_libraries.classpath_entries.len()
     ));
+
+    let has_bootstrap = resolved_main_class
+        .to_ascii_lowercase()
+        .contains("bootstraplauncher")
+        || resolved_libraries
+            .classpath_entries
+            .iter()
+            .any(|entry| entry.to_ascii_lowercase().contains("bootstraplauncher"));
+    logs.push(format!("BOOTSTRAP EN CP: {has_bootstrap}"));
 
     let mut jars_to_validate = resolved_libraries
         .classpath_entries

@@ -20,6 +20,7 @@ use crate::{
     services::{
         instance_builder::{build_instance_structure, persist_instance_metadata},
         java_installer::ensure_embedded_java,
+        loader_installer::install_loader_if_needed,
     },
     shared::result::AppResult,
 };
@@ -439,6 +440,21 @@ fn create_instance_impl(
             },
         );
     }
+
+    push_creation_log(
+        &app,
+        &request_id,
+        &mut logs,
+        "Ejecutando instalación de loader (si aplica)...",
+    );
+    install_loader_if_needed(
+        &minecraft_root,
+        &payload.minecraft_version,
+        &payload.loader,
+        &payload.loader_version,
+        &java_exec,
+        &mut logs,
+    )?;
 
     let internal_uuid = uuid::Uuid::new_v4().to_string();
     let metadata = InstanceMetadata {
