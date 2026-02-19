@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{fs, path::PathBuf};
 use uuid::Uuid;
 
@@ -21,6 +22,14 @@ fn account_dir(account_id: &str) -> Result<PathBuf, String> {
     fs::create_dir_all(&dir).map_err(|err| format!("No se pudo crear carpeta de cuenta: {err}"))?;
     Ok(dir)
 }
+
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
 
 #[tauri::command]
 pub fn list_skins(account_id: String) -> Result<Vec<SkinSummary>, String> {
@@ -120,7 +129,12 @@ pub fn save_skin_binary(account_id: String, skin_id: String, bytes: Vec<u8>) -> 
         let path = entry.path();
         let Some(file_name) = path.file_name().and_then(|v| v.to_str()) else { continue; };
         if file_name.starts_with(&skin_id) && file_name.ends_with(".png") {
-            fs::write(&path, optimized).map_err(|err| format!("No se pudo guardar cambios: {err}"))?;
+            let current = fs::read(&path).map_err(|err| format!("No se pudo leer skin existente: {err}"))?;
+            let incoming_hash = sha256_hex(&optimized);
+            let current_hash = sha256_hex(&current);
+            if incoming_hash != current_hash {
+                fs::write(&path, optimized).map_err(|err| format!("No se pudo guardar cambios: {err}"))?;
+            }
             let stem = path.file_stem().and_then(|v| v.to_str()).unwrap_or("skin");
             let name = stem.splitn(2, "__").nth(1).unwrap_or("skin").replace('_', " ");
             return Ok(SkinSummary {

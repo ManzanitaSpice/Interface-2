@@ -1044,3 +1044,28 @@
   border-radius: 0.55rem;
   color: var(--text-muted);
 }
+
+.pro-studio .editor-right-sidebar input,
+.pro-studio .editor-right-sidebar select {
+  width: 100%;
+}
+
+.hsv-grid {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.hsv-grid label,
+.skin-tools-bar label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.skin-tools-bar select {
+  background: #182233;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  padding: 0.3rem;
+}
