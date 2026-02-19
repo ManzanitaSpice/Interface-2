@@ -37,7 +37,7 @@ use crate::{
         models::instance::{InstanceMetadata, LaunchAuthSession},
         models::java::JavaRuntime,
     },
-    services::java_installer::ensure_embedded_java,
+    services::{java_installer::ensure_embedded_java, loader_installer::install_loader_if_needed},
 };
 
 #[derive(Debug, Serialize)]
@@ -198,7 +198,7 @@ pub fn validate_and_prepare_launch(
 
     let mut logs = vec!["🔹 1. Validaciones iniciales".to_string()];
 
-    let metadata = get_instance_metadata(instance_root.clone())?;
+    let mut metadata = get_instance_metadata(instance_root.clone())?;
     logs.push("✔ .instance.json leído correctamente".to_string());
 
     let verified_auth = validate_official_minecraft_auth(&auth_session, &mut logs)?;
@@ -220,6 +220,14 @@ pub fn validate_and_prepare_launch(
     ));
 
     let mc_root = instance_path.join("minecraft");
+    ensure_loader_ready_for_launch(
+        instance_path,
+        &mc_root,
+        &mut metadata,
+        &java_path,
+        &mut logs,
+    )?;
+
     let selected_version_id = resolve_effective_version_id(&mc_root, &metadata)?;
     logs.push(format!("VERSION JSON efectivo: {selected_version_id}"));
     let version_json = load_merged_version_json(&mc_root, &selected_version_id)?;
@@ -1561,6 +1569,85 @@ fn extract_natives(native_jars: &[NativeJarEntry], natives_dir: &Path) -> Result
             })?;
         }
     }
+    Ok(())
+}
+
+fn ensure_loader_ready_for_launch(
+    instance_path: &Path,
+    mc_root: &Path,
+    metadata: &mut InstanceMetadata,
+    java_exec: &Path,
+    logs: &mut Vec<String>,
+) -> Result<(), String> {
+    let loader = metadata.loader.trim().to_ascii_lowercase();
+    if loader.is_empty() || loader == "vanilla" {
+        return Ok(());
+    }
+
+    let current_version_id = metadata.version_id.trim();
+    if !current_version_id.is_empty() {
+        let existing_version_json = mc_root
+            .join("versions")
+            .join(current_version_id)
+            .join(format!("{current_version_id}.json"));
+        if existing_version_json.exists() {
+            logs.push(format!(
+                "✔ Loader {} ya preparado para ejecutar: versionId={}",
+                metadata.loader, current_version_id
+            ));
+            return Ok(());
+        }
+    }
+
+    logs.push(format!(
+        "Preparando loader {} {} durante el inicio (instalación diferida).",
+        metadata.loader, metadata.loader_version
+    ));
+
+    let effective_version_id = install_loader_if_needed(
+        mc_root,
+        &metadata.minecraft_version,
+        &metadata.loader,
+        &metadata.loader_version,
+        java_exec,
+        logs,
+    )?;
+
+    if metadata.version_id != effective_version_id {
+        metadata.version_id = effective_version_id.clone();
+        persist_instance_version_id(instance_path, metadata, logs)?;
+        logs.push(format!(
+            "✔ versionId de loader persistido en metadata: {}",
+            effective_version_id
+        ));
+    }
+
+    Ok(())
+}
+
+fn persist_instance_version_id(
+    instance_path: &Path,
+    metadata: &InstanceMetadata,
+    logs: &mut Vec<String>,
+) -> Result<(), String> {
+    let metadata_path = instance_path.join(".instance.json");
+    fs::write(
+        &metadata_path,
+        serde_json::to_string_pretty(metadata)
+            .map_err(|err| format!("No se pudo serializar metadata actualizada: {err}"))?,
+    )
+    .map_err(|err| {
+        format!(
+            "No se pudo persistir metadata con versionId actualizado en {}: {err}",
+            metadata_path.display()
+        )
+    })?;
+
+    logs.push(format!(
+        "✔ .instance.json actualizado con versionId efectivo: {}",
+        metadata.version_id
+    ));
+
     Ok(())
 }
 
