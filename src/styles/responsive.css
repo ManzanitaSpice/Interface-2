@@ -101,3 +101,13 @@
     height: 46px;
   }
 }
+
+@media (max-width: 1100px) {
+  .global-settings-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .appearance-workspace {
+    grid-template-columns: 1fr;
+  }
+}

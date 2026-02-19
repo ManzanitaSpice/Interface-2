@@ -182,6 +182,7 @@ type LoaderVersionItem = {
 type LoaderChannelFilter = 'Todos' | 'Stable' | 'Latest' | 'Releases'
 
 type InstanceSettingsTab = 'General' | 'Java' | 'Ajustes' | 'Comandos Personalizados' | 'Variables de Entorno'
+type GlobalSettingsTab = 'General' | 'Idioma' | 'Apariencia' | 'Java' | 'Servicios' | 'Herramientas' | 'Network'
 
 type MicrosoftAuthStart = {
   authorizeUrl: string
@@ -233,10 +234,79 @@ type NewsItem = {
   summary: string
 }
 
+type AppearancePreset = {
+  id: string
+  name: string
+  description: string
+  vars: Record<string, string>
+}
+
 
 const creatorSections: CreatorSection[] = ['Personalizado', 'CurseForge', 'Modrinth', 'Futuro 1', 'Futuro 2', 'Futuro 3']
 
 const editSections: EditSection[] = ['Ejecución', 'Version', 'Mods', 'Resource Packs', 'Shader Packs', 'Notas', 'Mundos', 'Servidores', 'Capturas de Pantalla', 'Configuración', 'Otros registros']
+
+const globalSettingsTabs: GlobalSettingsTab[] = ['General', 'Idioma', 'Apariencia', 'Java', 'Servicios', 'Herramientas', 'Network']
+
+const languageCatalog = [
+  'Español (España)', 'Español (Latinoamérica)', 'English (US)', 'English (UK)', 'Português (Brasil)', 'Português (Portugal)',
+  'Français', 'Deutsch', 'Italiano', 'Nederlands', 'Dansk', 'Svenska', 'Norsk Bokmål', 'Suomi', 'Polski', 'Čeština',
+  'Slovenčina', 'Magyar', 'Română', 'Türkçe', 'Українська', 'Русский', 'العربية', 'עברית', 'हिन्दी', 'বাংলা',
+  '日本語', '한국어', '简体中文', '繁體中文', 'ไทย', 'Tiếng Việt', 'Bahasa Indonesia', 'Bahasa Melayu', 'Filipino', 'Ελληνικά',
+]
+
+const appearancePresets: AppearancePreset[] = [
+  {
+    id: 'interface-night',
+    name: 'Interface Night',
+    description: 'Tema oscuro base con acento azul tradicional.',
+    vars: {
+      '--bg-main': '#0b111a',
+      '--bg-surface': '#121a25',
+      '--bg-surface-muted': '#0f1622',
+      '--bg-hover': '#1a2433',
+      '--border': '#243143',
+      '--text-main': '#e8edf7',
+      '--text-muted': '#9caac0',
+      '--accent': '#5f95ff',
+      '--accent-hover': '#86afff',
+    },
+  },
+  {
+    id: 'emerald-console',
+    name: 'Emerald Console',
+    description: 'Contraste alto con acento verde para sesiones largas.',
+    vars: {
+      '--bg-main': '#08140f',
+      '--bg-surface': '#10221a',
+      '--bg-surface-muted': '#0b1a13',
+      '--bg-hover': '#143024',
+      '--border': '#245039',
+      '--text-main': '#e5fff0',
+      '--text-muted': '#96bba9',
+      '--accent': '#2dd480',
+      '--accent-hover': '#5df2a2',
+    },
+  },
+  {
+    id: 'obsidian-violet',
+    name: 'Obsidian Violet',
+    description: 'Paleta premium violeta para interfaz moderna.',
+    vars: {
+      '--bg-main': '#0f0d17',
+      '--bg-surface': '#1a1730',
+      '--bg-surface-muted': '#16122a',
+      '--bg-hover': '#261f45',
+      '--border': '#433a6d',
+      '--text-main': '#f1ecff',
+      '--text-muted': '#b8aed6',
+      '--accent': '#9f82ff',
+      '--accent-hover': '#baa4ff',
+    },
+  },
+]
+
+const launcherUpdatesUrl = 'https://www.minecraft.net/en-us/download'
 
 const instanceActions = ['Iniciar', 'Forzar Cierre', 'Editar', 'Cambiar Grupo', 'Carpeta', 'Exportar', 'Copiar', 'Crear atajo']
 const defaultGroup = 'Sin grupo'
@@ -381,6 +451,9 @@ function App() {
   const [instanceMetaByRoot, setInstanceMetaByRoot] = useState<Record<string, InstanceMetadataView>>({})
   const [instanceVisualMeta, setInstanceVisualMeta] = useState<Record<string, InstanceVisualMeta>>({})
   const [selectedSettingsTab, setSelectedSettingsTab] = useState<InstanceSettingsTab>('General')
+  const [selectedGlobalSettingsTab, setSelectedGlobalSettingsTab] = useState<GlobalSettingsTab>('General')
+  const [selectedLanguage, setSelectedLanguage] = useState(languageCatalog[0])
+  const [selectedAppearancePreset, setSelectedAppearancePreset] = useState(appearancePresets[0].id)
   const [isStartingInstance, setIsStartingInstance] = useState(false)
   const [isInstanceRunning, setIsInstanceRunning] = useState(false)
   const [lastRuntimeExitKey, setLastRuntimeExitKey] = useState('')
@@ -1552,6 +1625,13 @@ function App() {
     [managedAccounts],
   )
 
+  useEffect(() => {
+    const preset = appearancePresets.find((item) => item.id === selectedAppearancePreset) ?? appearancePresets[0]
+    Object.entries(preset.vars).forEach(([key, value]) => {
+      document.documentElement.style.setProperty(key, value)
+    })
+  }, [selectedAppearancePreset])
+
   return (
     <div className="app-shell">
       <PrincipalTopBar
@@ -1846,7 +1926,7 @@ function App() {
               <span className="summary-label">Instancias registradas</span>
               <strong>{cards.length}</strong>
             </div>
-            <button className="primary" onClick={() => navigateToPage('Novedades')}>Novedades</button>
+            <button className="primary" onClick={() => void invoke('open_url_in_browser', { url: launcherUpdatesUrl, browserId: 'default' })}>Updates</button>
           </section>
         </main>
       )}
@@ -1875,6 +1955,92 @@ function App() {
                 <p>El detalle de versiones publicadas permanece separado para evitar mezclar comunicación general con changelogs técnicos.</p>
               </div>
             </div>
+          </section>
+        </main>
+      )}
+
+      {authSession && activePage === 'Configuración Global' && (
+        <main className="content content-padded">
+          <section className="instances-panel global-settings-panel">
+            <header className="news-panel-header">
+              <div>
+                <h2>Configuración Global</h2>
+                <p>Panel central de ajustes del launcher por categorías.</p>
+              </div>
+            </header>
+
+            <div className="global-settings-tabs" role="tablist" aria-label="Pestañas de configuración global">
+              {globalSettingsTabs.map((tab) => (
+                <button
+                  key={tab}
+                  className={selectedGlobalSettingsTab === tab ? 'active' : ''}
+                  onClick={() => setSelectedGlobalSettingsTab(tab)}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+
+            {selectedGlobalSettingsTab === 'General' && (
+              <div className="global-settings-list">
+                {[
+                  { title: 'Interfaz de usuario', desc: 'Escala de UI, animaciones, layout principal y comportamiento visual.' },
+                  { title: 'Updates', desc: 'Canal de actualizaciones, comprobación automática y notas de versión.' },
+                  { title: 'Carpetas', desc: 'Rutas del launcher, instancias, caché, backups y directorios temporales.' },
+                  { title: 'Consola (de ejecución)', desc: 'Formato de logs, filtros por nivel y opciones de autoscroll.' },
+                ].map((item) => (
+                  <article key={item.title} className="global-setting-item">
+                    <h3>{item.title}</h3>
+                    <p>{item.desc}</p>
+                  </article>
+                ))}
+              </div>
+            )}
+
+            {selectedGlobalSettingsTab === 'Idioma' && (
+              <section className="global-settings-list language-list">
+                {languageCatalog.map((lang) => (
+                  <button key={lang} className={selectedLanguage === lang ? 'active' : ''} onClick={() => setSelectedLanguage(lang)}>
+                    {lang}
+                  </button>
+                ))}
+              </section>
+            )}
+
+            {selectedGlobalSettingsTab === 'Apariencia' && (
+              <section className="appearance-workspace">
+                <div className="appearance-presets">
+                  {appearancePresets.map((preset) => (
+                    <button
+                      key={preset.id}
+                      className={selectedAppearancePreset === preset.id ? 'active' : ''}
+                      onClick={() => setSelectedAppearancePreset(preset.id)}
+                    >
+                      <strong>{preset.name}</strong>
+                      <span>{preset.description}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="appearance-preview">
+                  <h3>Vista previa profesional</h3>
+                  <p>El esquema elegido se aplica en tiempo real a todo el launcher.</p>
+                  <div className="appearance-preview-strip">
+                    <span style={{ background: 'var(--bg-main)' }} />
+                    <span style={{ background: 'var(--bg-surface)' }} />
+                    <span style={{ background: 'var(--bg-hover)' }} />
+                    <span style={{ background: 'var(--accent)' }} />
+                    <span style={{ background: 'var(--border)' }} />
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {(['Java', 'Servicios', 'Herramientas', 'Network'] as GlobalSettingsTab[]).includes(selectedGlobalSettingsTab) && (
+              <section className="section-placeholder">
+                <h2>{selectedGlobalSettingsTab}</h2>
+                <p>Próximamente.</p>
+              </section>
+            )}
           </section>
         </main>
       )}
