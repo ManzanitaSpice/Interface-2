@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use super::rule_engine::{evaluate_rules, RuleContext, RuleFeatures};
+use super::rule_engine::{evaluate_rules, RuleContext};
 
 #[derive(Debug, Clone)]
 pub struct LaunchContext {

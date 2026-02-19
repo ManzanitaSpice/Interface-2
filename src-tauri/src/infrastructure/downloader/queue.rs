@@ -242,5 +242,6 @@ pub fn download_jobs_parallel(client: &Client, jobs: Vec<DownloadJob>) -> AppRes
         return Err(errors.join(" | "));
     }
 
-    Ok(results.lock().expect("results lock").clone())
+    let completed = results.lock().expect("results lock").clone();
+    Ok(completed)
 }
