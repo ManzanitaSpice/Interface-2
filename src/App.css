@@ -3,44 +3,81 @@
 @import './styles/components.css';
 @import './styles/responsive.css';
 
-/* Tema unificado sin mezclas */
-.top-bar.principal,
-.top-bar.secondary,
-.instances-panel,
-.instance-card,
-.instance-right-panel,
-.floating-modal,
-.auth-login-card,
-.auth-browser-hint,
-.third-top-bar,
-.edit-top-bar,
-.fourth-top-bar,
-.creator-footer-actions,
-.execution-actions,
-.launcher-brand-logo-slot {
+/* Tema unificado: sin colores locales forzados */
+:is(
+  .top-bar.principal,
+  .top-bar.secondary,
+  .instances-panel,
+  .instance-card,
+  .instance-right-panel,
+  .floating-modal,
+  .auth-login-card,
+  .auth-browser-hint,
+  .third-top-bar,
+  .edit-top-bar,
+  .fourth-top-bar,
+  .creator-footer-actions,
+  .execution-actions,
+  .launcher-brand-logo-slot,
+  .compact-sidebar,
+  .edit-left-sidebar,
+  .instance-console,
+  .instance-console-panel,
+  .settings-section,
+  .updates-workspace,
+  .appearance-preview,
+  .appearance-presets button,
+  .section-placeholder,
+  .floating-card,
+  .account-chip
+) {
   background: var(--panel-color) !important;
   border-color: var(--border) !important;
+  color: var(--text-color) !important;
   box-shadow: none !important;
+}
+
+:is(
+  .instance-card-icon,
+  .instance-card-icon.hero,
+  .auth-feedback-status,
+  .auth-feedback-error,
+  .auth-feedback-warn,
+  .skin-editor-canvas-wrap,
+  .instance-preview,
+  .log-output,
+  .runtime-console,
+  .swatches button
+) {
+  background: var(--container-color) !important;
+  border-color: var(--border) !important;
   color: var(--text-color) !important;
 }
 
-.instance-card-icon,
-.instance-card-icon.hero {
-  background: var(--container-color) !important;
-  border-color: var(--border) !important;
-}
-
-.auth-feedback-status,
-.auth-feedback-error,
-.auth-feedback-warn {
-  color: var(--text-color) !important;
-  border-color: var(--border) !important;
-  background: var(--container-color) !important;
+:is(
+  .top-bar.principal,
+  .top-bar.secondary,
+  .instance-card,
+  .instance-right-panel,
+  .floating-modal,
+  .auth-login-card,
+  .auth-browser-hint,
+  .compact-sidebar,
+  .edit-left-sidebar
+) {
+  background-image: none !important;
 }
 
 .log-level-info,
 .log-level-warn,
 .log-level-error,
+.log-level-fatal,
+.auth-feedback-status,
+.auth-feedback-error,
+.auth-feedback-warn {
+  color: var(--text-color) !important;
+}
+
 * {
   color: var(--text-color);
 }
