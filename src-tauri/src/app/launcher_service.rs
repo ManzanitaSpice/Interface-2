@@ -20,7 +20,6 @@ use crate::{
     services::{
         instance_builder::{build_instance_structure, persist_instance_metadata},
         java_installer::ensure_embedded_java,
-        loader_installer::install_loader_if_needed,
     },
     shared::result::AppResult,
 };
@@ -441,27 +440,32 @@ fn create_instance_impl(
         );
     }
 
-    push_creation_log(
-        &app,
-        &request_id,
-        &mut logs,
-        "Ejecutando instalación de loader (si aplica)...",
-    );
-    let effective_version_id = install_loader_if_needed(
-        &minecraft_root,
-        &payload.minecraft_version,
-        &payload.loader,
-        &payload.loader_version,
-        &java_exec,
-        &mut logs,
-    )?;
+    let normalized_loader = payload.loader.trim().to_ascii_lowercase();
+    if normalized_loader == "vanilla" || normalized_loader.is_empty() {
+        push_creation_log(
+            &app,
+            &request_id,
+            &mut logs,
+            "Instancia vanilla detectada: sin instalación de loader en creación.",
+        );
+    } else {
+        push_creation_log(
+            &app,
+            &request_id,
+            &mut logs,
+            format!(
+                "Instancia con loader {} detectada: se difiere instalación pesada al primer inicio.",
+                payload.loader
+            ),
+        );
+    }
 
     let internal_uuid = uuid::Uuid::new_v4().to_string();
     let metadata = InstanceMetadata {
         name: payload.name,
         group: payload.group,
         minecraft_version: payload.minecraft_version,
-        version_id: effective_version_id,
+        version_id: payload.minecraft_version.clone(),
         loader: payload.loader,
         loader_version: payload.loader_version,
         ram_mb: payload.ram_mb,
