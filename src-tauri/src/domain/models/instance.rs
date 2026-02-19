@@ -57,6 +57,8 @@ pub struct InstanceMetadata {
     pub name: String,
     pub group: String,
     pub minecraft_version: String,
+    #[serde(default)]
+    pub version_id: String,
     pub loader: String,
     pub loader_version: String,
     pub ram_mb: u32,
