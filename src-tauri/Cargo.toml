@@ -36,6 +36,7 @@ base64 = "0.22"
 serde_urlencoded = "0.7"
 urlencoding = "2.1"
 webbrowser = "1.0"
+rfd = "0.15"
 
 image = { version = "0.25", default-features = false, features = ["png"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }

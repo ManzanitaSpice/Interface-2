@@ -32,6 +32,7 @@ pub fn run() {
             app::instance_service::validate_and_prepare_launch,
             app::instance_service::start_instance,
             app::instance_service::get_runtime_status,
+            app::settings_service::pick_folder,
             commands::skin_processor::optimize_skin_png,
             commands::file_manager::list_skins,
             commands::file_manager::import_skin,

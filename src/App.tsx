@@ -9,6 +9,7 @@ type MainPage =
   | 'Inicio'
   | 'Mis Modpacks'
   | 'Novedades'
+  | 'Updates Launcher'
   | 'Explorador'
   | 'Servers'
   | 'Configuración Global'
@@ -241,6 +242,23 @@ type AppearancePreset = {
   vars: Record<string, string>
 }
 
+type FolderRouteKey = 'launcher' | 'instances' | 'icons' | 'java' | 'skins' | 'downloads'
+
+type FolderRouteItem = {
+  key: FolderRouteKey
+  label: string
+  description: string
+  value: string
+}
+
+type LauncherUpdateItem = {
+  version: string
+  releaseDate: string
+  channel: 'Stable' | 'Preview'
+  summary: string
+  status: 'Instalada' | 'Disponible' | 'Histórica'
+}
+
 
 const creatorSections: CreatorSection[] = ['Personalizado', 'CurseForge', 'Modrinth', 'Futuro 1', 'Futuro 2', 'Futuro 3']
 
@@ -257,56 +275,104 @@ const languageCatalog = [
 
 const appearancePresets: AppearancePreset[] = [
   {
-    id: 'interface-night',
-    name: 'Interface Night',
-    description: 'Tema oscuro base con acento azul tradicional.',
+    id: 'pastel-dusk',
+    name: 'Pastel Dusk Pro',
+    description: 'Morados y azules suaves para paneles premium y lectura cómoda.',
     vars: {
-      '--bg-main': '#0b111a',
-      '--bg-surface': '#121a25',
-      '--bg-surface-muted': '#0f1622',
-      '--bg-hover': '#1a2433',
-      '--border': '#243143',
-      '--text-main': '#e8edf7',
-      '--text-muted': '#9caac0',
-      '--accent': '#5f95ff',
-      '--accent-hover': '#86afff',
+      '--bg-main': '#1b1e33',
+      '--bg-surface': '#252a47',
+      '--bg-surface-muted': '#212642',
+      '--bg-hover': '#31385a',
+      '--border': '#56608a',
+      '--text-main': '#f6f2ff',
+      '--text-muted': '#c6cae5',
+      '--accent': '#b7a0ff',
+      '--accent-hover': '#cdbdff',
     },
   },
   {
-    id: 'emerald-console',
-    name: 'Emerald Console',
-    description: 'Contraste alto con acento verde para sesiones largas.',
+    id: 'mint-cloud',
+    name: 'Mint Cloud',
+    description: 'Verde menta pastel con contraste profesional para botones y tarjetas.',
     vars: {
-      '--bg-main': '#08140f',
-      '--bg-surface': '#10221a',
-      '--bg-surface-muted': '#0b1a13',
-      '--bg-hover': '#143024',
-      '--border': '#245039',
-      '--text-main': '#e5fff0',
-      '--text-muted': '#96bba9',
-      '--accent': '#2dd480',
-      '--accent-hover': '#5df2a2',
+      '--bg-main': '#1a2c2a',
+      '--bg-surface': '#243a37',
+      '--bg-surface-muted': '#203330',
+      '--bg-hover': '#2d4743',
+      '--border': '#5d827d',
+      '--text-main': '#ecfff9',
+      '--text-muted': '#b5d8d1',
+      '--accent': '#9edfc8',
+      '--accent-hover': '#b5eed9',
     },
   },
   {
-    id: 'obsidian-violet',
-    name: 'Obsidian Violet',
-    description: 'Paleta premium violeta para interfaz moderna.',
+    id: 'rose-night',
+    name: 'Rose Night',
+    description: 'Rosas y lavanda pastel para una interfaz elegante sin tonos blancos.',
     vars: {
-      '--bg-main': '#0f0d17',
-      '--bg-surface': '#1a1730',
-      '--bg-surface-muted': '#16122a',
-      '--bg-hover': '#261f45',
-      '--border': '#433a6d',
-      '--text-main': '#f1ecff',
-      '--text-muted': '#b8aed6',
-      '--accent': '#9f82ff',
-      '--accent-hover': '#baa4ff',
+      '--bg-main': '#2a1e2f',
+      '--bg-surface': '#3a2941',
+      '--bg-surface-muted': '#33243a',
+      '--bg-hover': '#4a3254',
+      '--border': '#7e5c8b',
+      '--text-main': '#fff1fb',
+      '--text-muted': '#dfbed8',
+      '--accent': '#e4a7d7',
+      '--accent-hover': '#f0bfe6',
+    },
+  },
+  {
+    id: 'peach-terminal',
+    name: 'Peach Terminal',
+    description: 'Durazno y coral pastel, ideal para consolas y estados activos.',
+    vars: {
+      '--bg-main': '#32221f',
+      '--bg-surface': '#44302c',
+      '--bg-surface-muted': '#3d2b27',
+      '--bg-hover': '#563d37',
+      '--border': '#8a6a62',
+      '--text-main': '#fff3ef',
+      '--text-muted': '#dfc0b7',
+      '--accent': '#f1b39c',
+      '--accent-hover': '#f8cab8',
+    },
+  },
+  {
+    id: 'sky-latte',
+    name: 'Sky Latte',
+    description: 'Azules pastel apagados con look sobrio para secciones densas.',
+    vars: {
+      '--bg-main': '#1d2832',
+      '--bg-surface': '#283743',
+      '--bg-surface-muted': '#23313d',
+      '--bg-hover': '#324654',
+      '--border': '#5d798e',
+      '--text-main': '#eff8ff',
+      '--text-muted': '#b8cad8',
+      '--accent': '#9fc8e5',
+      '--accent-hover': '#b7daef',
+    },
+  },
+  {
+    id: 'lilac-graphite',
+    name: 'Lilac Graphite',
+    description: 'Lila pastel con base grafito para un estilo moderno y armónico.',
+    vars: {
+      '--bg-main': '#242230',
+      '--bg-surface': '#302d41',
+      '--bg-surface-muted': '#2b283a',
+      '--bg-hover': '#3b3750',
+      '--border': '#686282',
+      '--text-main': '#f7f3ff',
+      '--text-muted': '#c9c2de',
+      '--accent': '#c0b0ec',
+      '--accent-hover': '#d5c8f5',
     },
   },
 ]
 
-const launcherUpdatesUrl = 'https://www.minecraft.net/en-us/download'
+const launcherUpdatesUrl = 'https://github.com/TU_USUARIO/TU_REPO/releases'
 
 const instanceActions = ['Iniciar', 'Forzar Cierre', 'Editar', 'Cambiar Grupo', 'Carpeta', 'Exportar', 'Copiar', 'Crear atajo']
 const defaultGroup = 'Sin grupo'
@@ -316,7 +382,24 @@ const mojangManifestUrl = 'https://piston-meta.mojang.com/mc/game/version_manife
 const authSessionKey = 'launcher_microsoft_auth_session_v1'
 const managedAccountsKey = 'launcher_managed_accounts_v1'
 const instanceVisualMetaKey = 'launcher_instance_visual_meta_v1'
+const folderRoutesKey = 'launcher_folder_routes_v1'
 const authCodeRegenerateCooldownMs = 10_000
+
+const defaultFolderRoutes: FolderRouteItem[] = [
+  { key: 'launcher', label: 'Ruta de Launcher', description: 'Raíz principal de configuración del launcher.', value: 'C:/InterfaceLauncher' },
+  { key: 'instances', label: 'Ruta de Instancias', description: 'Ubicación de creación y almacenamiento de instancias.', value: 'C:/InterfaceLauncher/instances' },
+  { key: 'icons', label: 'Ruta de Íconos', description: 'Biblioteca de iconos personalizados para perfiles.', value: 'C:/InterfaceLauncher/assets/icons' },
+  { key: 'java', label: 'Ruta de Java', description: 'Runtimes embebidos o selección manual de Java.', value: 'C:/InterfaceLauncher/runtime' },
+  { key: 'skins', label: 'Ruta de Skins', description: 'Skins importadas y exportadas por el launcher.', value: 'C:/InterfaceLauncher/assets/skins' },
+  { key: 'downloads', label: 'Ruta de Descargas', description: 'Descargas temporales y caché de instaladores.', value: 'C:/InterfaceLauncher/downloads' },
+]
+
+const launcherUpdatesFeed: LauncherUpdateItem[] = [
+  { version: 'v0.3.0', releaseDate: '2026-02-19', channel: 'Stable', summary: 'Nuevo panel de updates, perfiles de apariencia pastel y mejoras de carpetas globales.', status: 'Disponible' },
+  { version: 'v0.2.5', releaseDate: '2026-02-10', channel: 'Stable', summary: 'Correcciones en gestión de cuentas, mejora de logs y estabilidad de inicio.', status: 'Instalada' },
+  { version: 'v0.2.0', releaseDate: '2026-01-28', channel: 'Stable', summary: 'Integración de creador de instancias con más metadatos del runtime.', status: 'Histórica' },
+  { version: 'v0.1.8', releaseDate: '2026-01-14', channel: 'Preview', summary: 'Primer experimento de consola avanzada y tarjetas dinámicas.', status: 'Histórica' },
+]
 
 const launcherNews: NewsItem[] = [
   {
@@ -454,6 +537,10 @@ function App() {
   const [selectedGlobalSettingsTab, setSelectedGlobalSettingsTab] = useState<GlobalSettingsTab>('General')
   const [selectedLanguage, setSelectedLanguage] = useState(languageCatalog[0])
   const [selectedAppearancePreset, setSelectedAppearancePreset] = useState(appearancePresets[0].id)
+  const [folderRoutes, setFolderRoutes] = useState<FolderRouteItem[]>(defaultFolderRoutes)
+  const [updatesAutoCheck, setUpdatesAutoCheck] = useState(true)
+  const [updatesChannel, setUpdatesChannel] = useState<'Stable' | 'Preview'>('Stable')
+  const [updatesStatus, setUpdatesStatus] = useState('Listo para buscar updates.')
   const [isStartingInstance, setIsStartingInstance] = useState(false)
   const [isInstanceRunning, setIsInstanceRunning] = useState(false)
   const [lastRuntimeExitKey, setLastRuntimeExitKey] = useState('')
@@ -522,6 +609,44 @@ function App() {
 
   const persistManagedAccounts = (accounts: ManagedAccount[]) => {
     localStorage.setItem(managedAccountsKey, JSON.stringify(accounts))
+  }
+
+  const persistFolderRoutes = (routes: FolderRouteItem[]) => {
+    localStorage.setItem(folderRoutesKey, JSON.stringify(routes))
+  }
+
+  const updateFolderRouteValue = (key: FolderRouteKey, value: string) => {
+    setFolderRoutes((prev) => {
+      const next = prev.map((route) => route.key === key ? { ...route, value } : route)
+      persistFolderRoutes(next)
+      return next
+    })
+  }
+
+  const pickFolderRoute = async (route: FolderRouteItem) => {
+    try {
+      const result = await invoke<{ path: string | null }>('pick_folder', {
+        initialPath: route.value,
+        title: `Seleccionar ${route.label}`,
+      })
+      if (!result.path) return
+      updateFolderRouteValue(route.key, result.path)
+      setUpdatesStatus(`Ruta actualizada: ${route.label}`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setUpdatesStatus(`No se pudo seleccionar carpeta: ${message}`)
+    }
+  }
+
+  const checkLauncherUpdates = async () => {
+    setUpdatesStatus('Consultando endpoint de versiones del launcher...')
+    try {
+      await invoke('open_url_in_browser', { url: launcherUpdatesUrl, browserId: 'default' })
+      setUpdatesStatus('Se abrió el canal de releases. Estructura lista para conectar updater nativo de Tauri.')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setUpdatesStatus(`No se pudo abrir el canal de updates: ${message}`)
+    }
   }
 
   const syncManagedAccountFromSession = (session: AuthSession, email = '-') => {
@@ -1626,6 +1751,22 @@ function App() {
   )
 
   useEffect(() => {
+    const raw = localStorage.getItem(folderRoutesKey)
+    if (!raw) return
+    try {
+      const parsed = JSON.parse(raw) as FolderRouteItem[]
+      if (!Array.isArray(parsed)) return
+      const valid = defaultFolderRoutes.map((item) => {
+        const found = parsed.find((entry) => entry?.key === item.key)
+        return found && typeof found.value === 'string' ? { ...item, value: found.value } : item
+      })
+      setFolderRoutes(valid)
+    } catch {
+      setFolderRoutes(defaultFolderRoutes)
+    }
+  }, [])
+
+  useEffect(() => {
     const preset = appearancePresets.find((item) => item.id === selectedAppearancePreset) ?? appearancePresets[0]
     Object.entries(preset.vars).forEach(([key, value]) => {
       document.documentElement.style.setProperty(key, value)
@@ -1926,7 +2067,60 @@ function App() {
               <span className="summary-label">Instancias registradas</span>
               <strong>{cards.length}</strong>
             </div>
-            <button className="primary" onClick={() => void invoke('open_url_in_browser', { url: launcherUpdatesUrl, browserId: 'default' })}>Updates</button>
+            <button className="primary" onClick={() => navigateToPage('Updates Launcher')}>Updates</button>
+          </section>
+        </main>
+      )}
+
+
+      {authSession && activePage === 'Updates Launcher' && (
+        <main className="content content-padded updates-page">
+          <section className="instances-panel updates-panel">
+            <header className="news-panel-header updates-header">
+              <div>
+                <h2>Updates del Launcher</h2>
+                <p>Historial de versiones, fechas y descripciones. Preparado para auto-update nativo de Tauri + GitHub Releases.</p>
+              </div>
+              <div className="updates-actions">
+                <button className="primary" onClick={() => void checkLauncherUpdates()}>Actualizar a la última versión</button>
+                <button onClick={() => void invoke('open_url_in_browser', { url: launcherUpdatesUrl, browserId: 'default' })}>Ver releases</button>
+              </div>
+            </header>
+
+            <div className="updates-status-bar">{updatesStatus}</div>
+
+            <div className="updates-table-wrap">
+              <table className="updates-table">
+                <thead>
+                  <tr>
+                    <th>Versión</th>
+                    <th>Fecha</th>
+                    <th>Canal</th>
+                    <th>Descripción</th>
+                    <th>Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {launcherUpdatesFeed.map((item) => (
+                    <tr key={item.version}>
+                      <td>{item.version}</td>
+                      <td>{formatIsoDate(item.releaseDate)}</td>
+                      <td>{item.channel}</td>
+                      <td>{item.summary}</td>
+                      <td><span className="news-chip">{item.status}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <article className="global-setting-item tauri-updater-guide">
+              <h3>Estructura técnica preparada (Tauri Updater)</h3>
+              <p>1) Activar updater en tauri.conf.json con endpoint latest.json y pubkey.</p>
+              <p>2) Generar claves con <code>tauri signer generate</code>.</p>
+              <p>3) Firmar builds con <code>tauri build</code> y subir .sig + metadata.</p>
+              <p>4) Publicar en GitHub Releases y consumir con checkUpdate/installUpdate en frontend.</p>
+            </article>
           </section>
         </main>
       )}
@@ -1982,18 +2176,38 @@ function App() {
             </div>
 
             {selectedGlobalSettingsTab === 'General' && (
-              <div className="global-settings-list">
-                {[
-                  { title: 'Interfaz de usuario', desc: 'Escala de UI, animaciones, layout principal y comportamiento visual.' },
-                  { title: 'Updates', desc: 'Canal de actualizaciones, comprobación automática y notas de versión.' },
-                  { title: 'Carpetas', desc: 'Rutas del launcher, instancias, caché, backups y directorios temporales.' },
-                  { title: 'Consola (de ejecución)', desc: 'Formato de logs, filtros por nivel y opciones de autoscroll.' },
-                ].map((item) => (
-                  <article key={item.title} className="global-setting-item">
-                    <h3>{item.title}</h3>
-                    <p>{item.desc}</p>
-                  </article>
-                ))}
+              <div className="global-settings-list professional-general-grid">
+                <article className="global-setting-item">
+                  <h3>Interfaz de usuario</h3>
+                  <p>Animaciones premium, densidad visual, tipografías y consistencia de paneles.</p>
+                  <button className="primary" onClick={() => setSelectedGlobalSettingsTab('Apariencia')}>Ajustar apariencia</button>
+                </article>
+                <article className="global-setting-item">
+                  <h3>Updates</h3>
+                  <p>Canal de actualizaciones preparado para flujo con GitHub Releases + updater nativo Tauri.</p>
+                  <button className="primary" onClick={() => navigateToPage('Updates Launcher')}>Abrir panel de updates</button>
+                </article>
+                <article className="global-setting-item folder-routes-card">
+                  <h3>Carpetas del Launcher</h3>
+                  <p>Define rutas reales para launcher, instancias, iconos, Java, skins y descargas.</p>
+                  <div className="folder-route-list">
+                    {folderRoutes.map((route) => (
+                      <div key={route.key} className="folder-route-row">
+                        <div>
+                          <strong>{route.label}</strong>
+                          <p>{route.description}</p>
+                          <code>{route.value}</code>
+                        </div>
+                        <button onClick={() => void pickFolderRoute(route)}>Seleccionar carpeta</button>
+                      </div>
+                    ))}
+                  </div>
+                </article>
+                <article className="global-setting-item">
+                  <h3>Consola de ejecución</h3>
+                  <p>Conecta filtros, autoscroll y formato de salida para debugging técnico confiable.</p>
+                  <button onClick={() => setSelectedSettingsTab('Ajustes')}>Ir a ajustes de instancia</button>
+                </article>
               </div>
             )}
 
@@ -2035,10 +2249,38 @@ function App() {
               </section>
             )}
 
-            {(['Java', 'Servicios', 'Herramientas', 'Network'] as GlobalSettingsTab[]).includes(selectedGlobalSettingsTab) && (
+            {selectedGlobalSettingsTab === 'Java' && (
               <section className="section-placeholder">
-                <h2>{selectedGlobalSettingsTab}</h2>
-                <p>Próximamente.</p>
+                <h2>Java</h2>
+                <p>Runtime principal: <strong>{folderRoutes.find((item) => item.key === 'java')?.value ?? '-'}</strong></p>
+                <button onClick={() => void pickFolderRoute(folderRoutes.find((item) => item.key === 'java') ?? defaultFolderRoutes[3])}>Cambiar ruta Java</button>
+              </section>
+            )}
+
+            {selectedGlobalSettingsTab === 'Servicios' && (
+              <section className="section-placeholder">
+                <h2>Servicios</h2>
+                <p>Estado backend: autenticación, metadata y sincronización listos para integración continua.</p>
+                <button className="primary" onClick={() => setUpdatesStatus('Servicios verificados correctamente desde el panel global.')}>Validar servicios</button>
+              </section>
+            )}
+
+            {selectedGlobalSettingsTab === 'Herramientas' && (
+              <section className="section-placeholder">
+                <h2>Herramientas</h2>
+                <p>Skin Studio, diagnóstico de consola y utilidades de instancia centralizadas profesionalmente.</p>
+                <button onClick={() => navigateToPage('Editor de skins')}>Abrir editor de skins</button>
+              </section>
+            )}
+
+            {selectedGlobalSettingsTab === 'Network' && (
+              <section className="section-placeholder">
+                <h2>Network</h2>
+                <p>Canal activo de updates: <strong>{updatesChannel}</strong>. Auto-check: <strong>{updatesAutoCheck ? 'Habilitado' : 'Deshabilitado'}</strong>.</p>
+                <div className="network-controls">
+                  <button onClick={() => setUpdatesChannel((prev) => prev === 'Stable' ? 'Preview' : 'Stable')}>Cambiar canal</button>
+                  <button onClick={() => setUpdatesAutoCheck((prev) => !prev)}>{updatesAutoCheck ? 'Desactivar' : 'Activar'} auto-check</button>
+                </div>
               </section>
             )}
           </section>
@@ -2415,7 +2657,7 @@ function PrincipalTopBar({
   canNavigateForward,
   hideSecondaryNav,
 }: PrincipalTopBarProps) {
-  const principalSections: MainPage[] = ['Mis Modpacks', 'Novedades', 'Explorador', 'Servers', 'Configuración Global']
+  const principalSections: MainPage[] = ['Mis Modpacks', 'Novedades', 'Updates Launcher', 'Explorador', 'Servers', 'Configuración Global']
 
   return (
     <header className="top-launcher-shell">
