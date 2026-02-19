@@ -226,12 +226,11 @@ type ManagedAccount = {
   loggedAt: number
 }
 
-type LauncherUpdateItem = {
-  version: string
+type NewsItem = {
+  title: string
   date: string
-  channel: 'Stable' | 'Preview' | 'Hotfix'
-  status: 'Publicado' | 'En validación' | 'Programado'
-  description: string
+  category: 'Comunidad' | 'Desarrollo' | 'Rendimiento'
+  summary: string
 }
 
 
@@ -249,27 +248,24 @@ const managedAccountsKey = 'launcher_managed_accounts_v1'
 const instanceVisualMetaKey = 'launcher_instance_visual_meta_v1'
 const authCodeRegenerateCooldownMs = 10_000
 
-const launcherUpdates: LauncherUpdateItem[] = [
+const launcherNews: NewsItem[] = [
   {
-    version: 'v0.9.4',
-    date: '2026-02-15',
-    channel: 'Stable',
-    status: 'Publicado',
-    description: 'Mejoras en inicio de sesión, estabilidad de instancias y optimización del panel principal.',
-  },
-  {
-    version: 'v0.9.5-beta',
+    title: 'Nuevo pipeline de instalación de instancias',
     date: '2026-02-18',
-    channel: 'Preview',
-    status: 'En validación',
-    description: 'Integración inicial del flujo de actualización automática del launcher con soporte para rollback.',
+    category: 'Desarrollo',
+    summary: 'Se reforzó la creación guiada para reducir errores de configuración y mejorar la estabilidad al primer arranque.',
   },
   {
-    version: 'v0.9.5-hotfix.1',
-    date: '2026-02-20',
-    channel: 'Hotfix',
-    status: 'Programado',
-    description: 'Correcciones menores de interfaz y ajuste de componentes del editor de skins.',
+    title: 'Mejoras de rendimiento en panel principal',
+    date: '2026-02-16',
+    category: 'Rendimiento',
+    summary: 'La navegación entre secciones y tarjetas ahora responde de forma más fluida en bibliotecas grandes.',
+  },
+  {
+    title: 'Publicación de recursos oficiales de la comunidad',
+    date: '2026-02-14',
+    category: 'Comunidad',
+    summary: 'Se añadieron guías y recursos para compartir perfiles, configuraciones y buenas prácticas entre usuarios.',
   },
 ]
 
@@ -1570,7 +1566,7 @@ function App() {
         onNavigateForward={navigateForward}
         canNavigateBack={backHistory.length > 0}
         canNavigateForward={forwardHistory.length > 0}
-        hideSecondaryNav={activePage === 'Creador de Instancias'}
+        hideSecondaryNav={activePage === 'Creador de Instancias' || activePage === 'Editor de skins'}
       />
 
       <AnimatePresence mode="wait">
@@ -1850,39 +1846,33 @@ function App() {
               <span className="summary-label">Instancias registradas</span>
               <strong>{cards.length}</strong>
             </div>
-            <button className="primary" onClick={() => navigateToPage('Novedades')}>Updates</button>
+            <button className="primary" onClick={() => navigateToPage('Novedades')}>Novedades</button>
           </section>
         </main>
       )}
 
       {authSession && activePage === 'Novedades' && (
-        <main className="content content-padded updates-page">
-          <section className="instances-panel updates-panel">
-            <header className="updates-panel-header">
+        <main className="content content-padded news-page">
+          <section className="instances-panel news-panel">
+            <header className="news-panel-header">
               <div>
-                <h2>Updates del Launcher</h2>
-                <p>Vista estilo releases para futuras actualizaciones conectadas con GitHub.</p>
+                <h2>Novedades</h2>
+                <p>Comunicados y notas destacadas del launcher. Esta sección es independiente del historial de updates.</p>
               </div>
             </header>
 
-            <div className="updates-table">
-              <div className="updates-table-head">
-                <span>Versión</span>
-                <span>Fecha</span>
-                <span>Canal</span>
-                <span>Estado</span>
-                <span>Descripción</span>
-              </div>
-              <div className="updates-table-body">
-                {launcherUpdates.map((update) => (
-                  <article key={update.version} className="updates-row">
-                    <span>{update.version}</span>
-                    <span>{formatIsoDate(update.date)}</span>
-                    <span>{update.channel}</span>
-                    <span>{update.status}</span>
-                    <span>{update.description}</span>
-                  </article>
-                ))}
+            <div className="news-grid">
+              {launcherNews.map((news) => (
+                <article key={`${news.title}-${news.date}`} className="news-card">
+                  <span className="news-chip">{news.category}</span>
+                  <h3>{news.title}</h3>
+                  <small>{formatIsoDate(news.date)}</small>
+                  <p>{news.summary}</p>
+                </article>
+              ))}
+              <div className="news-side-note">
+                <h3>Canal de Updates</h3>
+                <p>El detalle de versiones publicadas permanece separado para evitar mezclar comunicación general con changelogs técnicos.</p>
               </div>
             </div>
           </section>

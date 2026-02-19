@@ -202,17 +202,23 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
     const onResize = () => {
       const c = threeRef.current
       if (!c) return
-      c.camera.aspect = c.mount.clientWidth / c.mount.clientHeight
+      const width = Math.max(1, c.mount.clientWidth)
+      const height = Math.max(1, c.mount.clientHeight)
+      c.camera.aspect = width / height
       c.camera.updateProjectionMatrix()
-      c.renderer.setSize(c.mount.clientWidth, c.mount.clientHeight)
+      c.renderer.setSize(width, height)
       scheduleRender()
     }
 
+    const resizeObserver = new ResizeObserver(() => onResize())
+    resizeObserver.observe(mount)
     window.addEventListener('resize', onResize)
+    setTimeout(onResize, 0)
     scheduleRender()
 
     return () => {
       window.removeEventListener('resize', onResize)
+      resizeObserver.disconnect()
       controls.dispose()
       renderer.dispose()
       if (renderRafRef.current) cancelAnimationFrame(renderRafRef.current)

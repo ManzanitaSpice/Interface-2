@@ -1,16 +1,16 @@
 :root {
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  color: #e6e3dc;
-  background-color: #0f0f0d;
-  --bg-main: #1a1a1a;
-  --bg-surface: #000000;
-  --bg-surface-muted: #040404;
-  --bg-hover: #0a0a0a;
-  --border: #000000;
-  --text-main: #e6e3dc;
-  --text-muted: #aaa59a;
-  --accent: #3f8cff;
-  --accent-hover: #66a7ff;
+  color: #e8edf7;
+  background-color: #090d14;
+  --bg-main: #0b111a;
+  --bg-surface: #121a25;
+  --bg-surface-muted: #0f1622;
+  --bg-hover: #1a2433;
+  --border: #243143;
+  --text-main: #e8edf7;
+  --text-muted: #9caac0;
+  --accent: #5f95ff;
+  --accent-hover: #86afff;
   --success: #22c55e;
   --danger: #ef4444;
   --warning: #f59e0b;
@@ -23,7 +23,10 @@
 
 body {
   margin: 0;
-  background: radial-gradient(circle at top right, rgba(130, 98, 58, 0.1) 0%, rgba(15, 15, 13, 1) 44%), var(--bg-main);
+  background:
+    radial-gradient(circle at top right, rgba(86, 132, 255, 0.2) 0%, rgba(9, 13, 20, 0) 40%),
+    radial-gradient(circle at 10% -10%, rgba(84, 176, 255, 0.14) 0%, rgba(9, 13, 20, 0) 42%),
+    linear-gradient(180deg, #0b111a 0%, #090d14 100%);
   height: 100vh;
   color: var(--text-main);
   overflow: hidden;
@@ -46,16 +49,17 @@ select {
 
 button {
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
-  background: linear-gradient(180deg, #2a2924 0%, #21201c 100%);
-  border-color: #424139;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: background 0.24s ease, border-color 0.24s ease, transform 0.2s ease, box-shadow 0.28s ease, opacity 0.2s ease;
+  background: linear-gradient(180deg, #1e2a3b 0%, #172130 100%);
+  border-color: #2c3d54;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 6px 14px rgba(2, 8, 18, 0.28);
 }
 
 button:hover {
-  background: linear-gradient(180deg, #34332d 0%, #272621 100%);
-  border-color: #59574d;
-  transform: translateY(-1px);
+  background: linear-gradient(180deg, #26364c 0%, #1b293d 100%);
+  border-color: #426086;
+  transform: translateY(-1px) scale(1.01);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 10px 20px rgba(4, 12, 26, 0.42);
 }
 
 button:focus-visible {
@@ -64,15 +68,19 @@ button:focus-visible {
 }
 
 button.primary {
-  background: linear-gradient(180deg, rgba(63, 140, 255, 0.23) 0%, rgba(63, 140, 255, 0.16) 100%);
+  background: linear-gradient(180deg, rgba(95, 149, 255, 0.34) 0%, rgba(95, 149, 255, 0.22) 100%);
   border-color: color-mix(in srgb, var(--accent) 72%, var(--border));
   color: #f2f6ff;
   font-weight: 600;
 }
 
 button.primary:hover {
-  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  background: linear-gradient(180deg, rgba(114, 162, 255, 0.44) 0%, rgba(95, 149, 255, 0.3) 100%);
   border-color: var(--accent-hover);
+}
+
+button:active {
+  transform: translateY(0) scale(0.99);
 }
 
 button.danger {
