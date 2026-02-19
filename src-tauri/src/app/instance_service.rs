@@ -1085,23 +1085,24 @@ fn validate_required_online_launch_flags(game_args: &[String]) -> Result<(), Str
         return Err("--accessToken vacío".to_string());
     }
 
-    if let Some(user_type) = user_type
-        && user_type != "msa"
-    {
-        return Err(format!(
-            "--userType debe ser msa para evitar Demo, recibido: {user_type}"
-        ));
+    if let Some(user_type) = user_type {
+        if user_type != "msa" {
+            return Err(format!(
+                "--userType debe ser msa para evitar Demo, recibido: {user_type}"
+            ));
+        }
     }
 
-    if let Some(version_type) = version_type
-        && version_type != "release"
-        && version_type != "old_alpha"
-        && version_type != "old_beta"
-        && version_type != "snapshot"
-    {
-        return Err(format!(
-            "--versionType inválido para lanzamiento oficial: {version_type}"
-        ));
+    if let Some(version_type) = version_type {
+        if version_type != "release"
+            && version_type != "old_alpha"
+            && version_type != "old_beta"
+            && version_type != "snapshot"
+        {
+            return Err(format!(
+                "--versionType inválido para lanzamiento oficial: {version_type}"
+            ));
+        }
     }
 
     Ok(())
