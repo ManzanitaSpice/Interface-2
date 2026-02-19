@@ -15,6 +15,10 @@
     "moduleDetection": "force",
     "noEmit": true,
     "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "framer-motion": ["src/shims/framer-motion.tsx"]
+    },
 
     /* Linting */
     "strict": true,
