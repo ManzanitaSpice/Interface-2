@@ -252,6 +252,19 @@ fn install_forge_like_modern(
 ) -> AppResult<()> {
     ensure_minecraft_layout(minecraft_root)?;
 
+    let versions_dir = minecraft_root.join("versions");
+    if let Some(existing_version_id) = find_existing_loader_version(
+        &versions_dir,
+        minecraft_version,
+        loader_version,
+        loader_name,
+    )? {
+        logs.push(format!(
+            "Loader {loader_name} ya disponible en versions como {existing_version_id}. Se omite reinstalación.",
+        ));
+        return Ok(());
+    }
+
     let installer_url = installer_url_template
         .replace("{minecraft_version}", minecraft_version)
         .replace("{loader_version}", loader_version);
@@ -267,21 +280,27 @@ fn install_forge_like_modern(
     let installer_jar =
         installers_dir.join(format!("{}-{}-installer.jar", loader_name, loader_version));
 
-    let bytes = client
-        .get(&installer_url)
-        .send()
-        .and_then(|response| response.error_for_status())
-        .map_err(|err| format!("No se pudo descargar installer de {loader_name}: {err}"))?
-        .bytes()
-        .map_err(|err| format!("No se pudieron leer bytes de installer: {err}"))?;
-    fs::write(&installer_jar, &bytes).map_err(|err| {
-        format!(
-            "No se pudo guardar installer {}: {err}",
+    if !installer_jar.exists() {
+        let bytes = client
+            .get(&installer_url)
+            .send()
+            .and_then(|response| response.error_for_status())
+            .map_err(|err| format!("No se pudo descargar installer de {loader_name}: {err}"))?
+            .bytes()
+            .map_err(|err| format!("No se pudieron leer bytes de installer: {err}"))?;
+        fs::write(&installer_jar, &bytes).map_err(|err| {
+            format!(
+                "No se pudo guardar installer {}: {err}",
+                installer_jar.display()
+            )
+        })?;
+    } else {
+        logs.push(format!(
+            "Reutilizando installer cacheado para {loader_name}: {}",
             installer_jar.display()
-        )
-    })?;
+        ));
+    }
 
-    let versions_dir = minecraft_root.join("versions");
     let existing_versions = collect_version_ids(&versions_dir)?;
 
     logs.push(format!(
@@ -419,7 +438,13 @@ fn detect_installed_loader_version(
         .into_iter()
         .filter(|id| !previous_set.contains(id))
         .filter(|id| {
-            is_loader_version_candidate(id, minecraft_version, loader_version, loader_name)
+            is_loader_version_candidate(
+                versions_dir,
+                id,
+                minecraft_version,
+                loader_version,
+                loader_name,
+            )
         })
         .collect::<Vec<_>>();
 
@@ -427,7 +452,13 @@ fn detect_installed_loader_version(
         candidates = collect_version_ids(versions_dir)?
             .into_iter()
             .filter(|id| {
-                is_loader_version_candidate(id, minecraft_version, loader_version, loader_name)
+                is_loader_version_candidate(
+                    versions_dir,
+                    id,
+                    minecraft_version,
+                    loader_version,
+                    loader_name,
+                )
             })
             .collect();
     }
@@ -441,7 +472,30 @@ fn detect_installed_loader_version(
     })
 }
 
+fn find_existing_loader_version(
+    versions_dir: &Path,
+    minecraft_version: &str,
+    loader_version: &str,
+    loader_name: &str,
+) -> AppResult<Option<String>> {
+    let mut candidates = collect_version_ids(versions_dir)?
+        .into_iter()
+        .filter(|id| {
+            is_loader_version_candidate(
+                versions_dir,
+                id,
+                minecraft_version,
+                loader_version,
+                loader_name,
+            )
+        })
+        .collect::<Vec<_>>();
+    candidates.sort();
+    Ok(candidates.pop())
+}
+
 fn is_loader_version_candidate(
+    versions_dir: &Path,
     version_id: &str,
     minecraft_version: &str,
     loader_version: &str,
@@ -449,9 +503,81 @@ fn is_loader_version_candidate(
 ) -> bool {
     let lower = version_id.to_ascii_lowercase();
     let loader = loader_name.to_ascii_lowercase();
-    lower.contains(&loader)
-        && (lower.contains(&minecraft_version.to_ascii_lowercase())
-            || lower.contains(&loader_version.to_ascii_lowercase()))
+    if !lower.contains(&loader) {
+        return version_json_looks_like_loader(
+            versions_dir,
+            version_id,
+            &loader,
+            minecraft_version,
+            loader_version,
+        );
+    }
+
+    if lower.contains(&minecraft_version.to_ascii_lowercase())
+        || lower.contains(&loader_version.to_ascii_lowercase())
+    {
+        return true;
+    }
+
+    version_json_looks_like_loader(
+        versions_dir,
+        version_id,
+        &loader,
+        minecraft_version,
+        loader_version,
+    )
+}
+
+fn version_json_looks_like_loader(
+    versions_dir: &Path,
+    version_id: &str,
+    loader_name: &str,
+    minecraft_version: &str,
+    loader_version: &str,
+) -> bool {
+    let version_json_path = versions_dir
+        .join(version_id)
+        .join(format!("{version_id}.json"));
+    let Ok(raw) = fs::read_to_string(&version_json_path) else {
+        return false;
+    };
+    let Ok(version_json) = serde_json::from_str::<Value>(&raw) else {
+        return false;
+    };
+
+    let inherits_from = version_json
+        .get("inheritsFrom")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let id = version_json
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let libraries_match = version_json
+        .get("libraries")
+        .and_then(Value::as_array)
+        .map(|libraries| {
+            libraries.iter().any(|library| {
+                let name = library
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_ascii_lowercase();
+                name.contains(loader_name)
+                    && (name.contains(&loader_version.to_ascii_lowercase())
+                        || name.contains(&minecraft_version.to_ascii_lowercase()))
+            })
+        })
+        .unwrap_or(false);
+
+    (id.contains(loader_name)
+        || libraries_match
+        || version_id.to_ascii_lowercase().contains(loader_name))
+        && (id.contains(&loader_version.to_ascii_lowercase())
+            || inherits_from.contains(&minecraft_version.to_ascii_lowercase())
+            || libraries_match)
 }
 
 fn is_legacy_forge(mc_version: &str) -> bool {
