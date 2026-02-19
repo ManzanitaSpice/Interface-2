@@ -398,7 +398,7 @@
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 0.55rem;
-  background: #020617;
+  background: color-mix(in srgb, var(--bg-main) 86%, #000000);
   padding: 0.4rem 0.52rem;
   font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.72rem;
@@ -406,7 +406,7 @@
 
 .creation-mini-console p {
   margin: 0 0 0.3rem;
-  color: #cbd5e1;
+  color: var(--text-main);
   overflow-wrap: anywhere;
   word-break: break-word;
   white-space: pre-wrap;
@@ -478,7 +478,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: color-mix(in srgb, #0f172a 82%, transparent);
+  background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
 }
 
 .table-head,
@@ -513,7 +513,7 @@
 }
 
 .table-head {
-  background: #2b2923;
+  background: color-mix(in srgb, var(--bg-surface-muted) 86%, var(--bg-main));
   font-weight: 600;
   font-size: 0.78rem;
   letter-spacing: 0.01em;
@@ -547,10 +547,10 @@
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  border: 1px solid #3c392f;
+  border: 1px solid var(--border);
   border-radius: 0.24rem;
   padding: 0.42rem;
-  background: color-mix(in srgb, #0f172a 84%, transparent);
+  background: color-mix(in srgb, var(--bg-surface) 90%, transparent);
 }
 
 .mini-right-sidebar p {
@@ -651,7 +651,7 @@
 }
 
 .execution-log-console {
-  background: #020617;
+  background: color-mix(in srgb, var(--bg-main) 86%, #000000);
   border-bottom: 1px solid var(--border);
   padding: 0.75rem;
   overflow: auto;
@@ -661,7 +661,7 @@
 
 .execution-log-console p {
   margin: 0 0 0.28rem;
-  color: #cbd5e1;
+  color: var(--text-main);
 }
 
 .execution-view input {
@@ -1199,9 +1199,9 @@
 
 .instances-summary-panel {
   margin-top: 0.7rem;
-  border: 1px solid #3a3f4e;
+  border: 1px solid var(--border);
   border-radius: 0.65rem;
-  background: linear-gradient(180deg, rgba(18, 27, 40, 0.95), rgba(12, 20, 32, 0.95));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 94%, var(--bg-main)), color-mix(in srgb, var(--bg-surface-muted) 96%, var(--bg-main)));
   padding: 0.55rem 0.7rem;
   display: flex;
   gap: 1rem;

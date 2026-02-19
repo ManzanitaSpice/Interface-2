@@ -271,197 +271,137 @@ fn install_forge_like_modern(
         )
     })?;
 
-    let mut zip = ZipArchive::new(std::io::Cursor::new(bytes.to_vec()))
-        .map_err(|err| format!("Installer {loader_name} inválido: {err}"))?;
-    let install_profile = read_json_from_archive(&mut zip, "install_profile.json")?;
-    let mut loader_version_json = read_json_from_archive(&mut zip, "version.json")?;
+    let versions_dir = minecraft_root.join("versions");
+    let existing_versions = collect_version_ids(&versions_dir)?;
 
-    if loader_version_json.get("inheritsFrom").is_none() {
-        loader_version_json["inheritsFrom"] = Value::String(minecraft_version.to_string());
+    let output = Command::new(java_exec)
+        .arg("-jar")
+        .arg(&installer_jar)
+        .arg("--installClient")
+        .current_dir(minecraft_root)
+        .output()
+        .map_err(|err| {
+            format!(
+                "No se pudo ejecutar installer {loader_name} con Java embebido {}: {err}",
+                java_exec.display()
+            )
+        })?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "Installer {loader_name} falló. stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout).trim(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
     }
 
-    let profile_libs = install_profile
-        .get("libraries")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let version_libs = loader_version_json
-        .get("libraries")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-
-    let downloaded_profile = download_libraries_list(client, minecraft_root, &profile_libs)?;
-    let downloaded_version = download_libraries_list(client, minecraft_root, &version_libs)?;
-
-    let version_id = loader_version_json
-        .get("id")
-        .and_then(Value::as_str)
-        .ok_or_else(|| format!("Installer de {loader_name} no contiene id en version.json"))?
-        .to_string();
-
-    let version_dir = minecraft_root.join("versions").join(&version_id);
-    fs::create_dir_all(&version_dir)
-        .map_err(|err| format!("No se pudo crear carpeta de versión {version_id}: {err}"))?;
-
-    fs::write(
-        version_dir.join(format!("{version_id}.json")),
-        serde_json::to_vec_pretty(&loader_version_json).map_err(|err| err.to_string())?,
-    )
-    .map_err(|err| format!("No se pudo guardar version.json de {loader_name}: {err}"))?;
-
-    if let Some(jar_bytes) = find_zip_entry_bytes(&mut zip, |name| {
-        name.starts_with("maven/") && name.ends_with(".jar") && name.contains("/versions/")
-    })? {
-        fs::write(version_dir.join(format!("{version_id}.jar")), jar_bytes)
-            .map_err(|err| format!("No se pudo escribir jar interno de {loader_name}: {err}"))?;
-    }
-
-    run_install_processors(
-        java_exec,
-        minecraft_root,
-        &installers_dir,
-        &installer_jar,
+    let installed_version_id = detect_installed_loader_version(
+        &versions_dir,
+        &existing_versions,
         minecraft_version,
-        &install_profile,
+        loader_version,
         loader_name,
-        logs,
     )?;
 
+    let installed_version_json = versions_dir
+        .join(&installed_version_id)
+        .join(format!("{installed_version_id}.json"));
+    let installed_version_jar = versions_dir
+        .join(&installed_version_id)
+        .join(format!("{installed_version_id}.jar"));
+
+    if !installed_version_json.exists() {
+        return Err(format!(
+            "Installer {loader_name} no generó version.json esperado en {}.",
+            installed_version_json.display()
+        ));
+    }
+
+    if !installed_version_jar.exists() {
+        logs.push(format!(
+            "Aviso {loader_name}: no se encontró jar de versión en {} (algunos installers modernos usan only-metadata).",
+            installed_version_jar.display()
+        ));
+    }
+
     logs.push(format!(
-        "Loader {loader_name} moderno instalado: versionId={version_id}, libs profile nuevas={downloaded_profile}, libs version nuevas={downloaded_version}."
+        "Loader {loader_name} moderno instalado con installer oficial (--installClient): versionId={installed_version_id}."
     ));
     Ok(())
 }
 
-fn run_install_processors(
-    java_exec: &Path,
-    minecraft_root: &Path,
-    installers_dir: &Path,
-    installer_jar: &Path,
-    minecraft_version: &str,
-    profile: &Value,
-    loader_name: &str,
-    logs: &mut Vec<String>,
-) -> AppResult<()> {
-    let processors = profile
-        .get("processors")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-
-    if processors.is_empty() {
-        logs.push(format!(
-            "{loader_name}: install_profile sin processors, se omite ejecución."
-        ));
-        return Ok(());
+fn collect_version_ids(versions_dir: &Path) -> AppResult<Vec<String>> {
+    if !versions_dir.exists() {
+        return Ok(Vec::new());
     }
 
-    for processor in processors {
-        let sides = processor
-            .get("sides")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|v| v.as_str().map(ToString::to_string))
-            .collect::<Vec<_>>();
-
-        if !sides.is_empty() && !sides.iter().any(|side| side == "client") {
+    let mut ids = Vec::new();
+    for entry in fs::read_dir(versions_dir).map_err(|err| {
+        format!(
+            "No se pudo leer directorio versions {}: {err}",
+            versions_dir.display()
+        )
+    })? {
+        let entry = entry.map_err(|err| format!("No se pudo iterar versions: {err}"))?;
+        let path = entry.path();
+        if !path.is_dir() {
             continue;
         }
-
-        let jar_name = processor
-            .get("jar")
-            .and_then(Value::as_str)
-            .ok_or_else(|| "Processor sin campo jar".to_string())?;
-
-        let processor_jar = maven_name_to_path(minecraft_root, jar_name)
-            .ok_or_else(|| format!("Nombre de jar inválido en processor: {jar_name}"))?;
-
-        let classpath_entries = processor
-            .get("classpath")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|v| v.as_str().map(ToString::to_string))
-            .filter_map(|name| maven_name_to_path(minecraft_root, &name))
-            .collect::<Vec<_>>();
-
-        let cp_sep = if cfg!(target_os = "windows") {
-            ";"
-        } else {
-            ":"
-        };
-        let mut cp = classpath_entries
-            .iter()
-            .map(|path| path.display().to_string())
-            .collect::<Vec<_>>();
-        cp.push(processor_jar.display().to_string());
-
-        let args = processor
-            .get("args")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|v| v.as_str().map(ToString::to_string))
-            .map(|arg| {
-                arg.replace(
-                    "{MINECRAFT_JAR}",
-                    &minecraft_root
-                        .join("versions")
-                        .join(minecraft_version)
-                        .join(format!("{minecraft_version}.jar"))
-                        .display()
-                        .to_string(),
-                )
-                .replace("{MINECRAFT_VERSION}", minecraft_version)
-                .replace("{ROOT}", &minecraft_root.display().to_string())
-                .replace("{INSTALLER}", &installer_jar.display().to_string())
-                .replace(
-                    "{LIBRARY_DIR}",
-                    &minecraft_root.join("libraries").display().to_string(),
-                )
-                .replace("{SIDE}", "client")
-            })
-            .collect::<Vec<_>>();
-
-        let main_class = jar_name
-            .split(':')
-            .nth(1)
-            .map(|artifact| {
-                if artifact.contains("bootstrap") {
-                    "cpw.mods.bootstraplauncher.BootstrapLauncher".to_string()
-                } else {
-                    "net.minecraftforge.installertools.ConsoleTool".to_string()
-                }
-            })
-            .unwrap_or_else(|| "net.minecraftforge.installertools.ConsoleTool".to_string());
-
-        let output = Command::new(java_exec)
-            .arg("-cp")
-            .arg(cp.join(cp_sep))
-            .arg(main_class)
-            .args(&args)
-            .current_dir(installers_dir)
-            .output()
-            .map_err(|err| format!("No se pudo ejecutar processor {jar_name}: {err}"))?;
-
-        if !output.status.success() {
-            return Err(format!(
-                "Processor {jar_name} falló. stdout={} stderr={}",
-                String::from_utf8_lossy(&output.stdout).trim(),
-                String::from_utf8_lossy(&output.stderr).trim()
-            ));
+        if let Some(name) = path.file_name().and_then(|value| value.to_str()) {
+            ids.push(name.to_string());
         }
     }
+    Ok(ids)
+}
 
-    logs.push(format!(
-        "{loader_name}: processors client ejecutados de forma programática con Java embebido."
-    ));
-    Ok(())
+fn detect_installed_loader_version(
+    versions_dir: &Path,
+    previous_ids: &[String],
+    minecraft_version: &str,
+    loader_version: &str,
+    loader_name: &str,
+) -> AppResult<String> {
+    let previous_set = previous_ids
+        .iter()
+        .cloned()
+        .collect::<std::collections::HashSet<_>>();
+    let mut candidates = collect_version_ids(versions_dir)?
+        .into_iter()
+        .filter(|id| !previous_set.contains(id))
+        .filter(|id| {
+            is_loader_version_candidate(id, minecraft_version, loader_version, loader_name)
+        })
+        .collect::<Vec<_>>();
+
+    if candidates.is_empty() {
+        candidates = collect_version_ids(versions_dir)?
+            .into_iter()
+            .filter(|id| {
+                is_loader_version_candidate(id, minecraft_version, loader_version, loader_name)
+            })
+            .collect();
+    }
+
+    candidates.sort();
+    candidates.pop().ok_or_else(|| {
+        format!(
+            "No se pudo detectar versión instalada para loader={loader_name}, mc={minecraft_version}, loaderVersion={loader_version} en {}",
+            versions_dir.display()
+        )
+    })
+}
+
+fn is_loader_version_candidate(
+    version_id: &str,
+    minecraft_version: &str,
+    loader_version: &str,
+    loader_name: &str,
+) -> bool {
+    let lower = version_id.to_ascii_lowercase();
+    let loader = loader_name.to_ascii_lowercase();
+    lower.contains(&loader)
+        && (lower.contains(&minecraft_version.to_ascii_lowercase())
+            || lower.contains(&loader_version.to_ascii_lowercase()))
 }
 
 fn is_legacy_forge(mc_version: &str) -> bool {

@@ -223,12 +223,13 @@ pub fn validate_and_prepare_launch(
     ));
 
     let mc_root = instance_path.join("minecraft");
-    let version_json = load_merged_version_json(&mc_root, &metadata.minecraft_version)?;
+    let selected_version_id = resolve_effective_version_id(&mc_root, &metadata)?;
+    let version_json = load_merged_version_json(&mc_root, &selected_version_id)?;
 
     let executable_version_id = version_json
         .get("id")
         .and_then(Value::as_str)
-        .unwrap_or(&metadata.minecraft_version)
+        .unwrap_or(&selected_version_id)
         .to_string();
     let executable_jar = mc_root
         .join("versions")
@@ -1212,6 +1213,86 @@ struct ResolvedLibraries {
     missing_classpath_entries: Vec<MissingLibraryEntry>,
     native_jars: Vec<NativeJarEntry>,
     missing_native_entries: Vec<String>,
+}
+
+fn resolve_effective_version_id(
+    mc_root: &Path,
+    metadata: &InstanceMetadata,
+) -> Result<String, String> {
+    let base = metadata.minecraft_version.trim();
+    let loader = metadata.loader.trim().to_ascii_lowercase();
+    let loader_version = metadata.loader_version.trim().to_ascii_lowercase();
+
+    if loader == "vanilla" || loader.is_empty() {
+        return Ok(base.to_string());
+    }
+
+    let versions_dir = mc_root.join("versions");
+    let mut candidates = Vec::new();
+    if versions_dir.exists() {
+        for entry in fs::read_dir(&versions_dir)
+            .map_err(|err| format!("No se pudo leer versions {}: {err}", versions_dir.display()))?
+        {
+            let entry = entry.map_err(|err| format!("No se pudo iterar versions: {err}"))?;
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let Some(id) = path
+                .file_name()
+                .and_then(|v| v.to_str())
+                .map(ToString::to_string)
+            else {
+                continue;
+            };
+            let id_lower = id.to_ascii_lowercase();
+            if !id_lower.contains(&loader) {
+                continue;
+            }
+            if !loader_version.is_empty() && !id_lower.contains(&loader_version) {
+                continue;
+            }
+            let version_json_path = versions_dir.join(&id).join(format!("{id}.json"));
+            if !version_json_path.exists() {
+                continue;
+            }
+            let raw = fs::read_to_string(&version_json_path).map_err(|err| {
+                format!(
+                    "No se pudo leer version.json candidato {}: {err}",
+                    version_json_path.display()
+                )
+            })?;
+            let parsed: Value = serde_json::from_str(&raw).map_err(|err| {
+                format!(
+                    "No se pudo parsear version.json candidato {}: {err}",
+                    version_json_path.display()
+                )
+            })?;
+            let inherits = parsed
+                .get("inheritsFrom")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            let score = if inherits == base.to_ascii_lowercase() {
+                3
+            } else if inherits.contains(&base.to_ascii_lowercase()) {
+                2
+            } else {
+                1
+            };
+            candidates.push((score, id));
+        }
+    }
+
+    if candidates.is_empty() {
+        return Ok(base.to_string());
+    }
+
+    candidates.sort_by(|a, b| a.cmp(b));
+    Ok(candidates
+        .pop()
+        .map(|(_, id)| id)
+        .unwrap_or_else(|| base.to_string()))
 }
 
 fn load_merged_version_json(mc_root: &Path, version_id: &str) -> Result<Value, String> {
