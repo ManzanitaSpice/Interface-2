@@ -19,6 +19,11 @@
   --sidebar-width: 168px;
   --font-ui: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --ui-scale: 1;
+  --panel-color: #121a25;
+  --button-color: #1a2433;
+  --button-hover-color: #223146;
+  --container-color: #0f1622;
+  --text-color: #e8edf7;
 }
 
 * {
@@ -27,12 +32,9 @@
 
 body {
   margin: 0;
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 28%, transparent) 0%, rgba(9, 13, 20, 0) 44%),
-    radial-gradient(circle at 12% -8%, color-mix(in srgb, var(--accent-hover) 18%, transparent) 0%, rgba(9, 13, 20, 0) 43%),
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-main) 92%, #0a0f17) 0%, #090d14 100%);
+  background: var(--bg-main);
   height: 100vh;
-  color: var(--text-main);
+  color: var(--text-color);
   overflow: hidden;
 }
 
@@ -55,16 +57,16 @@ textarea {
 button {
   cursor: pointer;
   transition: background 0.24s ease, border-color 0.24s ease, transform 0.2s ease, box-shadow 0.28s ease, opacity 0.2s ease;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 90%, #151a24) 0%, color-mix(in srgb, var(--bg-surface-muted) 94%, #121823) 100%);
-  border-color: color-mix(in srgb, var(--border) 88%, #2b3449);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 5px 12px rgba(2, 8, 18, 0.22);
+  background: var(--button-color);
+  border-color: var(--border);
+  box-shadow: none;
 }
 
 button:hover {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-hover) 94%, #222b3f) 0%, color-mix(in srgb, var(--bg-surface) 86%, #192235) 100%);
-  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: var(--button-hover-color);
+  border-color: var(--accent);
   transform: translateY(-1px);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 9px 18px rgba(4, 12, 26, 0.32);
+  box-shadow: none;
 }
 
 button:focus-visible {
@@ -73,14 +75,14 @@ button:focus-visible {
 }
 
 button.primary {
-  background: linear-gradient(180deg, rgba(95, 149, 255, 0.34) 0%, rgba(95, 149, 255, 0.22) 100%);
-  border-color: color-mix(in srgb, var(--accent) 72%, var(--border));
-  color: #f2f6ff;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-color);
   font-weight: 600;
 }
 
 button.primary:hover {
-  background: linear-gradient(180deg, rgba(114, 162, 255, 0.44) 0%, rgba(95, 149, 255, 0.3) 100%);
+  background: var(--accent-hover);
   border-color: var(--accent-hover);
 }
 
@@ -89,21 +91,21 @@ button:active {
 }
 
 button.danger {
-  border-color: color-mix(in srgb, var(--danger) 70%, var(--border));
-  color: #fecaca;
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-color: var(--danger);
+  color: var(--text-color);
+  background: var(--danger);
 }
 
 button.warning {
-  border-color: color-mix(in srgb, var(--warning) 70%, var(--border));
-  color: #fde68a;
-  background: color-mix(in srgb, var(--warning) 11%, transparent);
+  border-color: var(--warning);
+  color: var(--text-color);
+  background: var(--warning);
 }
 
 button.success {
-  border-color: color-mix(in srgb, var(--success) 70%, var(--border));
-  color: #bbf7d0;
-  background: color-mix(in srgb, var(--success) 10%, transparent);
+  border-color: var(--success);
+  color: var(--text-color);
+  background: var(--success);
 }
 
 html,
