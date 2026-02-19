@@ -293,8 +293,7 @@ pub fn validate_and_prepare_launch(
     ));
 
     let rule_context = RuleContext::current();
-    let mut resolved_libraries = resolve_libraries(&mc_root, &version_json, &rule_context);
-    resolved_libraries = resolve_libraries(&mc_root, &version_json, &rule_context);
+    let resolved_libraries = resolve_libraries(&mc_root, &version_json, &rule_context);
 
     if !resolved_libraries.missing_classpath_entries.is_empty() {
         return Err(format!(

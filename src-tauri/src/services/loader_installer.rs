@@ -123,14 +123,15 @@ fn ensure_loader_main_class(version_json: &mut Value, loader_name: &str) -> Opti
     let current = version_json
         .get("mainClass")
         .and_then(Value::as_str)
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .to_string();
 
     if current == expected {
         return None;
     }
 
     version_json["mainClass"] = Value::String(expected.to_string());
-    Some(current.to_string())
+    Some(current)
 }
 
 fn install_fabric_like(
@@ -142,7 +143,7 @@ fn install_fabric_like(
     loader_name: &str,
     logs: &mut Vec<String>,
 ) -> AppResult<String> {
-    let profile = client
+    let mut profile = client
         .get(profile_url)
         .send()
         .and_then(|response| response.error_for_status())

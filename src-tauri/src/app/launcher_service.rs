@@ -455,7 +455,7 @@ fn create_instance_impl(
         java_path: java_exec.display().to_string(),
         java_runtime: runtime_name(required_java).to_string(),
         java_version: format!("{}.0.x", required_java.major()),
-        required_java_major: required_java.major(),
+        required_java_major: u32::from(required_java.major()),
         created_at: current_timestamp_iso8601(),
         state: "READY".to_string(),
         last_used: None,
