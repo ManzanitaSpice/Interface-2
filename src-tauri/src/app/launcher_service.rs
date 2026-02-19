@@ -464,8 +464,8 @@ fn create_instance_impl(
     let metadata = InstanceMetadata {
         name: payload.name,
         group: payload.group,
-        minecraft_version: payload.minecraft_version,
-        version_id: payload.minecraft_version.clone(),
+        minecraft_version: payload.minecraft_version.clone(),
+        version_id: payload.minecraft_version,
         loader: payload.loader,
         loader_version: payload.loader_version,
         ram_mb: payload.ram_mb,
