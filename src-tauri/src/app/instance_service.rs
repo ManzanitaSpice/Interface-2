@@ -764,7 +764,7 @@ pub async fn start_instance(
                         },
                     );
                     if let Ok(mut tail) = tail_for_stdout.lock() {
-                        tail.push(format!("[stdout] {line}"));
+                        tail.push_back(format!("[stdout] {line}"));
                         if tail.len() > 200 {
                             tail.pop_front();
                         }
@@ -793,7 +793,7 @@ pub async fn start_instance(
                         },
                     );
                     if let Ok(mut tail) = tail_for_stderr.lock() {
-                        tail.push(format!("[stderr] {line}"));
+                        tail.push_back(format!("[stderr] {line}"));
                         if tail.len() > 200 {
                             tail.pop_front();
                         }

@@ -76,9 +76,9 @@ pub fn build_download_client() -> Result<Arc<Client>, DownloadError> {
     );
 
     Client::builder()
-        .gzip(false)
-        .brotli(false)
-        .deflate(false)
+        .no_gzip()
+        .no_brotli()
+        .no_deflate()
         .connect_timeout(Duration::from_secs(30))
         .timeout(Duration::from_secs(120))
         .default_headers(headers)

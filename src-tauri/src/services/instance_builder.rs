@@ -1,13 +1,11 @@
 use std::{
     collections::VecDeque,
     fs,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{Arc, Mutex},
     thread,
     time::{Duration, SystemTime},
 };
-
-use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

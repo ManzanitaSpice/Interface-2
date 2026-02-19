@@ -387,9 +387,9 @@ fn download_neoforge_installer(
         .timeout(std::time::Duration::from_secs(300))
         .connect_timeout(std::time::Duration::from_secs(60))
         .user_agent("InterfaceLauncher/0.2")
-        .gzip(false)
-        .brotli(false)
-        .deflate(false)
+        .no_gzip()
+        .no_brotli()
+        .no_deflate()
         .build()
         .map_err(|err| format!("No se pudo crear cliente HTTP NeoForge: {err}"))?;
 

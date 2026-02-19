@@ -11,7 +11,7 @@ use crate::{
             microsoft::refresh_microsoft_access_token,
             xbox::{
                 authenticate_with_xbox_live, authorize_xsts, has_minecraft_license,
-                login_minecraft_with_xbox, read_minecraft_profile,
+                login_minecraft_with_xbox,
             },
         },
         java::{java_detector::find_compatible_java, java_requirement::determine_required_java},
