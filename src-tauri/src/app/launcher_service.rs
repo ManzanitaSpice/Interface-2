@@ -1,4 +1,7 @@
-use std::fs;
+use std::{
+    fs,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use tauri::{AppHandle, Emitter};
 
@@ -549,7 +552,23 @@ fn validate_official_minecraft_auth(
         );
     }
 
-    let client = reqwest::blocking::Client::new();
+    if let Some(expires_at) = auth_session.minecraft_access_token_expires_at {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|err| format!("No se pudo leer reloj del sistema: {err}"))?
+            .as_millis() as u64;
+        if expires_at <= now {
+            return Err(
+                "El access token de Minecraft está expirado; inicia sesión oficial nuevamente."
+                    .to_string(),
+            );
+        }
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|err| format!("No se pudo crear cliente HTTP para auth oficial: {err}"))?;
 
     let entitlements_response = client
         .get("https://api.minecraftservices.com/entitlements/mcstore")
