@@ -406,7 +406,7 @@ fn create_instance_impl(
         &instance_root,
         &minecraft_root,
         &payload.minecraft_version,
-        false,
+        true,
         &mut build_logs,
         &mut |completed, total, message| {
             let percentage = if total > 0 {
