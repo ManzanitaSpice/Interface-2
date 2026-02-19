@@ -226,6 +226,14 @@ type ManagedAccount = {
   loggedAt: number
 }
 
+type LauncherUpdateItem = {
+  version: string
+  date: string
+  channel: 'Stable' | 'Preview' | 'Hotfix'
+  status: 'Publicado' | 'En validación' | 'Programado'
+  description: string
+}
+
 
 const creatorSections: CreatorSection[] = ['Personalizado', 'CurseForge', 'Modrinth', 'Futuro 1', 'Futuro 2', 'Futuro 3']
 
@@ -240,6 +248,30 @@ const authSessionKey = 'launcher_microsoft_auth_session_v1'
 const managedAccountsKey = 'launcher_managed_accounts_v1'
 const instanceVisualMetaKey = 'launcher_instance_visual_meta_v1'
 const authCodeRegenerateCooldownMs = 10_000
+
+const launcherUpdates: LauncherUpdateItem[] = [
+  {
+    version: 'v0.9.4',
+    date: '2026-02-15',
+    channel: 'Stable',
+    status: 'Publicado',
+    description: 'Mejoras en inicio de sesión, estabilidad de instancias y optimización del panel principal.',
+  },
+  {
+    version: 'v0.9.5-beta',
+    date: '2026-02-18',
+    channel: 'Preview',
+    status: 'En validación',
+    description: 'Integración inicial del flujo de actualización automática del launcher con soporte para rollback.',
+  },
+  {
+    version: 'v0.9.5-hotfix.1',
+    date: '2026-02-20',
+    channel: 'Hotfix',
+    status: 'Programado',
+    description: 'Correcciones menores de interfaz y ajuste de componentes del editor de skins.',
+  },
+]
 
 function nowTimestamp() {
   return new Date().toLocaleTimeString('es-ES', { hour12: false })
@@ -1519,6 +1551,10 @@ function App() {
     typeLabel: account.type,
     stateLabel: account.status,
   }))
+  const totalPlaytimeAllInstances = useMemo(
+    () => managedAccounts.reduce((total, account) => total + account.totalPlaytimeMs, 0),
+    [managedAccounts],
+  )
 
   return (
     <div className="app-shell">
@@ -1699,7 +1735,6 @@ function App() {
 
       {authSession && activePage === 'Mis Modpacks' && (
         <main className="content content-padded">
-          <h1 className="page-title">Mis Modpacks</h1>
           <section className="instances-panel huge-panel">
             <header className="panel-actions">
               <button className="primary" onClick={() => navigateToPage('Creador de Instancias')}>
@@ -1804,6 +1839,51 @@ function App() {
                   </div>
                 </aside>
               )}
+            </div>
+          </section>
+          <section className="instances-summary-panel">
+            <div className="instances-summary-item">
+              <span className="summary-label">Tiempo total jugado</span>
+              <strong>{formatPlaytime(totalPlaytimeAllInstances)}</strong>
+            </div>
+            <div className="instances-summary-item">
+              <span className="summary-label">Instancias registradas</span>
+              <strong>{cards.length}</strong>
+            </div>
+            <button className="primary" onClick={() => navigateToPage('Novedades')}>Updates</button>
+          </section>
+        </main>
+      )}
+
+      {authSession && activePage === 'Novedades' && (
+        <main className="content content-padded updates-page">
+          <section className="instances-panel updates-panel">
+            <header className="updates-panel-header">
+              <div>
+                <h2>Updates del Launcher</h2>
+                <p>Vista estilo releases para futuras actualizaciones conectadas con GitHub.</p>
+              </div>
+            </header>
+
+            <div className="updates-table">
+              <div className="updates-table-head">
+                <span>Versión</span>
+                <span>Fecha</span>
+                <span>Canal</span>
+                <span>Estado</span>
+                <span>Descripción</span>
+              </div>
+              <div className="updates-table-body">
+                {launcherUpdates.map((update) => (
+                  <article key={update.version} className="updates-row">
+                    <span>{update.version}</span>
+                    <span>{formatIsoDate(update.date)}</span>
+                    <span>{update.channel}</span>
+                    <span>{update.status}</span>
+                    <span>{update.description}</span>
+                  </article>
+                ))}
+              </div>
             </div>
           </section>
         </main>

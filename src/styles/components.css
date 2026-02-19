@@ -1186,3 +1186,114 @@
   border-radius: 0.45rem;
   padding: 0.3rem;
 }
+
+
+.instances-summary-panel {
+  margin-top: 0.7rem;
+  border: 1px solid #3a3f4e;
+  border-radius: 0.65rem;
+  background: linear-gradient(180deg, rgba(18, 27, 40, 0.95), rgba(12, 20, 32, 0.95));
+  padding: 0.55rem 0.7rem;
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.instances-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.summary-label {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.updates-page .updates-panel {
+  min-height: calc(100vh - 160px);
+  max-height: calc(100vh - 130px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.updates-panel-header h2,
+.updates-panel-header p {
+  margin: 0;
+}
+
+.updates-table {
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bg-surface) 92%, black 8%);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.updates-table-head,
+.updates-row {
+  display: grid;
+  grid-template-columns: 0.9fr 0.8fr 0.6fr 0.8fr 2fr;
+  gap: 0.65rem;
+  padding: 0.65rem 0.7rem;
+  align-items: start;
+}
+
+.updates-table-head {
+  font-weight: 600;
+  background: #151d2b;
+  border-bottom: 1px solid var(--border);
+}
+
+.updates-table-body {
+  overflow: auto;
+}
+
+.updates-row {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  font-size: 0.9rem;
+}
+
+.updates-row:last-child {
+  border-bottom: none;
+}
+
+.skin-card {
+  min-height: 210px;
+  gap: 0.4rem;
+}
+
+.skin-card-preview {
+  border: 1px solid #3b465b;
+  border-radius: 0.45rem;
+  min-height: 88px;
+  display: grid;
+  place-items: center;
+  background: repeating-conic-gradient(#0f1724 0% 25%, #1f2a3d 0% 50%) 50% / 16px 16px;
+}
+
+.skin-card-preview-face {
+  font-size: 2rem;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.45));
+}
+
+.skin-card strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-section-header {
+  grid-column: 1 / -1;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: -0.2rem;
+}
