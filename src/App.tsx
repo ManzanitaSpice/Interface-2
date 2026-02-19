@@ -1428,7 +1428,15 @@ function App() {
 
   return (
     <div className="app-shell">
-      <PrincipalTopBar authSession={authSession} onLogout={logout} onOpenAccountManager={openAccountManager} accountMenuOpen={accountMenuOpen} onToggleMenu={() => setAccountMenuOpen((prev) => !prev)} />
+      <PrincipalTopBar
+        authSession={authSession}
+        activePage={activePage}
+        onNavigate={setActivePage}
+        onLogout={logout}
+        onOpenAccountManager={openAccountManager}
+        accountMenuOpen={accountMenuOpen}
+        onToggleMenu={() => setAccountMenuOpen((prev) => !prev)}
+      />
 
       {!isAuthReady && (
         <main className="content content-padded">
@@ -2009,30 +2017,55 @@ function App() {
 
 type PrincipalTopBarProps = {
   authSession: AuthSession | null
+  activePage: MainPage
+  onNavigate: (page: MainPage) => void
   onLogout: () => void
   onOpenAccountManager: () => void
   accountMenuOpen: boolean
   onToggleMenu: () => void
 }
 
-function PrincipalTopBar({ authSession, onLogout, onOpenAccountManager, accountMenuOpen, onToggleMenu }: PrincipalTopBarProps) {
+function PrincipalTopBar({ authSession, activePage, onNavigate, onLogout, onOpenAccountManager, accountMenuOpen, onToggleMenu }: PrincipalTopBarProps) {
+  const principalSections: MainPage[] = ['Mis Modpacks', 'Novedades', 'Explorador', 'Servers', 'Configuración Global']
+
   return (
-    <header className="top-bar principal">
-      <strong>Launcher Control Center</strong>
-      {authSession ? (
-        <div className="account-menu">
-          <button className="account-menu-trigger" onClick={onToggleMenu}>
-            {authSession.profileName}
-          </button>
-          {accountMenuOpen && (
-            <div className="account-menu-dropdown">
-              <button onClick={onOpenAccountManager}>Administrar cuentas</button>
-              <button onClick={onLogout}>Cerrar sesión</button>
-            </div>
-          )}
+    <header className="top-launcher-shell">
+      <div className="top-bar principal">
+        <div className="launcher-brand-block">
+          <span className="launcher-brand-logo" aria-hidden="true" />
+          <strong>FrutiLauncher</strong>
+          <button type="button" className="window-chip" aria-label="Minimizar">−</button>
+          <button type="button" className="window-chip" aria-label="Cerrar">−</button>
         </div>
-      ) : (
-        <span>Sin sesión iniciada</span>
+        {authSession ? (
+          <div className="account-menu">
+            <button className="account-menu-trigger" onClick={onToggleMenu}>
+              {authSession.profileName}
+            </button>
+            {accountMenuOpen && (
+              <div className="account-menu-dropdown">
+                <button onClick={onOpenAccountManager}>Administrar cuentas</button>
+                <button onClick={onLogout}>Cerrar sesión</button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <span>Sin sesión iniciada</span>
+        )}
+      </div>
+      {authSession && (
+        <nav className="top-bar secondary launcher-main-nav" aria-label="Navegación principal">
+          {principalSections.map((section) => (
+            <button
+              type="button"
+              key={section}
+              className={activePage === section ? 'active' : ''}
+              onClick={() => onNavigate(section)}
+            >
+              {section === 'Configuración Global' ? 'Configuración' : section}
+            </button>
+          ))}
+        </nav>
       )}
     </header>
   )
