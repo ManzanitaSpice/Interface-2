@@ -37,7 +37,7 @@ use crate::{
         models::instance::{InstanceMetadata, LaunchAuthSession},
         models::java::JavaRuntime,
     },
-    services::{java_installer::ensure_embedded_java, loader_installer::install_loader_if_needed},
+    services::java_installer::ensure_embedded_java,
 };
 
 #[derive(Debug, Serialize)]
@@ -1573,10 +1573,10 @@ fn extract_natives(native_jars: &[NativeJarEntry], natives_dir: &Path) -> Result
 }
 
 fn ensure_loader_ready_for_launch(
-    instance_path: &Path,
+    _instance_path: &Path,
     mc_root: &Path,
     metadata: &mut InstanceMetadata,
-    java_exec: &Path,
+    _java_exec: &Path,
     logs: &mut Vec<String>,
 ) -> Result<(), String> {
     let loader = metadata.loader.trim().to_ascii_lowercase();
@@ -1585,67 +1585,28 @@ fn ensure_loader_ready_for_launch(
     }
 
     let current_version_id = metadata.version_id.trim();
-    if !current_version_id.is_empty() {
-        let existing_version_json = mc_root
-            .join("versions")
-            .join(current_version_id)
-            .join(format!("{current_version_id}.json"));
-        if existing_version_json.exists() {
-            logs.push(format!(
-                "✔ Loader {} ya preparado para ejecutar: versionId={}",
-                metadata.loader, current_version_id
-            ));
-            return Ok(());
-        }
-    }
-
-    logs.push(format!(
-        "Preparando loader {} {} durante el inicio (instalación diferida).",
-        metadata.loader, metadata.loader_version
-    ));
-
-    let effective_version_id = install_loader_if_needed(
-        mc_root,
-        &metadata.minecraft_version,
-        &metadata.loader,
-        &metadata.loader_version,
-        java_exec,
-        logs,
-    )?;
-
-    if metadata.version_id != effective_version_id {
-        metadata.version_id = effective_version_id.clone();
-        persist_instance_version_id(instance_path, metadata, logs)?;
-        logs.push(format!(
-            "✔ versionId de loader persistido en metadata: {}",
-            effective_version_id
+    if current_version_id.is_empty() {
+        return Err(format!(
+            "La instancia usa loader {} pero no tiene versionId efectivo en metadata.",
+            metadata.loader
         ));
     }
 
-    Ok(())
-}
-
-fn persist_instance_version_id(
-    instance_path: &Path,
-    metadata: &InstanceMetadata,
-    logs: &mut Vec<String>,
-) -> Result<(), String> {
-    let metadata_path = instance_path.join(".instance.json");
-    fs::write(
-        &metadata_path,
-        serde_json::to_string_pretty(metadata)
-            .map_err(|err| format!("No se pudo serializar metadata actualizada: {err}"))?,
-    )
-    .map_err(|err| {
-        format!(
-            "No se pudo persistir metadata con versionId actualizado en {}: {err}",
-            metadata_path.display()
-        )
-    })?;
+    let existing_version_json = mc_root
+        .join("versions")
+        .join(current_version_id)
+        .join(format!("{current_version_id}.json"));
+    if !existing_version_json.exists() {
+        return Err(format!(
+            "Loader {} no preparado: falta {}. La instalación debe ocurrir en creación, no en launch.",
+            metadata.loader,
+            existing_version_json.display()
+        ));
+    }
 
     logs.push(format!(
-        "✔ .instance.json actualizado con versionId efectivo: {}",
-        metadata.version_id
+        "✔ Loader {} verificado para launch (sin instalación diferida): versionId={}",
+        metadata.loader, current_version_id
     ));
 
     Ok(())

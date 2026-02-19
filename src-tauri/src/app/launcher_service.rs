@@ -401,11 +401,13 @@ fn create_instance_impl(
     );
     let mut build_logs = Vec::new();
     let mut progress_logs = Vec::new();
-    build_instance_structure(
+    let effective_version_id = build_instance_structure(
         &instance_root,
         &minecraft_root,
         &payload.minecraft_version,
-        true,
+        &payload.loader,
+        &payload.loader_version,
+        &java_exec,
         &mut build_logs,
         &mut |completed, total, message| {
             let percentage = if total > 0 {
@@ -440,32 +442,12 @@ fn create_instance_impl(
         );
     }
 
-    let normalized_loader = payload.loader.trim().to_ascii_lowercase();
-    if normalized_loader == "vanilla" || normalized_loader.is_empty() {
-        push_creation_log(
-            &app,
-            &request_id,
-            &mut logs,
-            "Instancia vanilla detectada: sin instalación de loader en creación.",
-        );
-    } else {
-        push_creation_log(
-            &app,
-            &request_id,
-            &mut logs,
-            format!(
-                "Instancia con loader {} detectada: se difiere instalación pesada al primer inicio.",
-                payload.loader
-            ),
-        );
-    }
-
     let internal_uuid = uuid::Uuid::new_v4().to_string();
     let metadata = InstanceMetadata {
         name: payload.name,
         group: payload.group,
         minecraft_version: payload.minecraft_version.clone(),
-        version_id: payload.minecraft_version,
+        version_id: effective_version_id,
         loader: payload.loader,
         loader_version: payload.loader_version,
         ram_mb: payload.ram_mb,
@@ -473,6 +455,9 @@ fn create_instance_impl(
         java_path: java_exec.display().to_string(),
         java_runtime: runtime_name(required_java).to_string(),
         java_version: format!("{}.0.x", required_java.major()),
+        required_java_major: required_java.major(),
+        created_at: current_timestamp_iso8601(),
+        state: "READY".to_string(),
         last_used: None,
         internal_uuid: internal_uuid.clone(),
     };
@@ -501,6 +486,10 @@ fn create_instance_impl(
         minecraft_path: minecraft_root.display().to_string(),
         logs,
     })
+}
+
+fn current_timestamp_iso8601() -> String {
+    chrono::Utc::now().to_rfc3339()
 }
 
 fn validate_instance_constraints(
