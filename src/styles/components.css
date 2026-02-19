@@ -1401,3 +1401,106 @@
   border-radius: 0.45rem;
   min-height: 56px;
 }
+
+.professional-general-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.folder-routes-card {
+  grid-column: 1 / -1;
+}
+
+.folder-route-list {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+
+.folder-route-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.65rem;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, #32445f);
+  border-radius: 0.6rem;
+  background: color-mix(in srgb, var(--bg-surface-muted) 88%, #101c2e);
+  padding: 0.65rem;
+}
+
+.folder-route-row p,
+.folder-route-row strong,
+.folder-route-row code {
+  margin: 0;
+}
+
+.folder-route-row code {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.network-controls {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.updates-page .updates-panel {
+  min-height: calc(100vh - 170px);
+  max-height: calc(100vh - 130px);
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  gap: 0.7rem;
+}
+
+.updates-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+}
+
+.updates-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.updates-status-bar {
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-surface));
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.55rem;
+  color: var(--text-main);
+}
+
+.updates-table-wrap {
+  border: 1px solid #314761;
+  border-radius: 0.75rem;
+  background: linear-gradient(170deg, #1a2940, #131f32);
+  overflow: auto;
+}
+
+.updates-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 760px;
+}
+
+.updates-table th,
+.updates-table td {
+  text-align: left;
+  padding: 0.7rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, #1f3046);
+  color: var(--text-main);
+  vertical-align: top;
+}
+
+.updates-table th {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tauri-updater-guide code {
+  color: color-mix(in srgb, var(--accent-hover) 86%, white);
+}
