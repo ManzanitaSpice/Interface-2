@@ -333,6 +333,48 @@ pub fn validate_and_prepare_launch(
             .any(|entry| entry.to_ascii_lowercase().contains("bootstraplauncher"));
     logs.push(format!("BOOTSTRAP EN CP: {has_bootstrap}"));
 
+    let loader_lower = metadata.loader.trim().to_ascii_lowercase();
+    if loader_lower != "vanilla" && resolved_main_class == "net.minecraft.client.main.Main" {
+        return Err(format!(
+            "Regla de validación incumplida: loader={} pero mainClass quedó en vanilla ({resolved_main_class}).",
+            metadata.loader
+        ));
+    }
+    if (loader_lower == "forge" || loader_lower == "neoforge") && !has_bootstrap {
+        return Err(format!(
+            "Regla de validación incumplida: loader={} requiere bootstraplauncher en classpath.",
+            metadata.loader
+        ));
+    }
+    if loader_lower != "vanilla" {
+        let effective_version_json = mc_root
+            .join("versions")
+            .join(&executable_version_id)
+            .join(format!("{executable_version_id}.json"));
+        let effective_raw = fs::read_to_string(&effective_version_json).map_err(|err| {
+            format!(
+                "No se pudo leer version.json efectivo para validar inheritsFrom {}: {err}",
+                effective_version_json.display()
+            )
+        })?;
+        let effective_json: Value = serde_json::from_str(&effective_raw).map_err(|err| {
+            format!(
+                "No se pudo parsear version.json efectivo para validar inheritsFrom {}: {err}",
+                effective_version_json.display()
+            )
+        })?;
+        if effective_json
+            .get("inheritsFrom")
+            .and_then(Value::as_str)
+            .is_none()
+        {
+            return Err(format!(
+                "Regla de validación incumplida: loader={} requiere inheritsFrom en version.json efectivo.",
+                metadata.loader
+            ));
+        }
+    }
+
     let mut jars_to_validate = resolved_libraries
         .classpath_entries
         .iter()
