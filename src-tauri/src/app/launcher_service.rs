@@ -25,7 +25,9 @@ use crate::{
     },
     infrastructure::filesystem::paths::resolve_launcher_root,
     services::{
-        instance_builder::{build_instance_structure, persist_instance_metadata},
+        instance_builder::{
+            build_instance_structure, persist_instance_metadata, InstanceBuildProgress,
+        },
         java_installer::ensure_embedded_java,
     },
     shared::result::AppResult,
@@ -35,6 +37,9 @@ use crate::{
 #[serde(rename_all = "camelCase")]
 struct InstanceCreationProgressEvent {
     request_id: Option<String>,
+    step: Option<String>,
+    step_index: Option<u64>,
+    total_steps: Option<u64>,
     message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     completed: Option<u64>,
@@ -54,6 +59,9 @@ fn push_creation_log(
         "instance_creation_progress",
         InstanceCreationProgressEvent {
             request_id: request_id.clone(),
+            step: None,
+            step_index: None,
+            total_steps: None,
             message,
             completed: None,
             total: None,
@@ -72,6 +80,9 @@ fn emit_creation_progress(
         "instance_creation_progress",
         InstanceCreationProgressEvent {
             request_id: request_id.clone(),
+            step: None,
+            step_index: None,
+            total_steps: None,
             message: message.into(),
             completed: Some(completed),
             total: Some(total),
@@ -272,6 +283,9 @@ fn create_instance_impl(
             "instance_creation_progress",
             InstanceCreationProgressEvent {
                 request_id: request_id.clone(),
+                step: None,
+                step_index: None,
+                total_steps: None,
                 message: last,
                 completed: None,
                 total: None,
@@ -328,6 +342,9 @@ fn create_instance_impl(
             "instance_creation_progress",
             InstanceCreationProgressEvent {
                 request_id: request_id.clone(),
+                step: None,
+                step_index: None,
+                total_steps: None,
                 message: last,
                 completed: None,
                 total: None,
@@ -349,6 +366,9 @@ fn create_instance_impl(
             "instance_creation_progress",
             InstanceCreationProgressEvent {
                 request_id: request_id.clone(),
+                step: None,
+                step_index: None,
+                total_steps: None,
                 message: line,
                 completed: None,
                 total: None,
@@ -416,20 +436,27 @@ fn create_instance_impl(
         &payload.loader_version,
         &java_exec,
         &mut build_logs,
-        &mut |completed, total, message| {
-            let percentage = if total > 0 {
-                ((completed as f64 / total as f64) * 100.0).round() as u64
-            } else {
-                0
-            };
-            let line = format!("{message} [{percentage}% | {completed}/{total}]");
-            progress_logs.push(line.clone());
-            emit_creation_progress(
-                &app,
-                &request_id,
-                completed,
-                total,
-                format!("Progreso de descarga: {percentage}%"),
+        &mut |progress: InstanceBuildProgress| {
+            let line = format!(
+                "{} (paso {}/{}) [{} / {}]",
+                progress.message,
+                progress.step_index,
+                progress.total_steps,
+                progress.completed,
+                progress.total
+            );
+            progress_logs.push(line);
+            let _ = app.emit(
+                "instance_creation_progress",
+                InstanceCreationProgressEvent {
+                    request_id: request_id.clone(),
+                    step: Some(progress.step),
+                    step_index: Some(progress.step_index),
+                    total_steps: Some(progress.total_steps),
+                    message: progress.message,
+                    completed: Some(progress.completed),
+                    total: Some(progress.total),
+                },
             );
         },
     )?;
@@ -448,6 +475,9 @@ fn create_instance_impl(
             "instance_creation_progress",
             InstanceCreationProgressEvent {
                 request_id: request_id.clone(),
+                step: None,
+                step_index: None,
+                total_steps: None,
                 message: last,
                 completed: None,
                 total: None,
