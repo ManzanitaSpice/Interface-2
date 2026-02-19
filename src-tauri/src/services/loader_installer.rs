@@ -100,7 +100,7 @@ pub fn install_loader_if_needed(
             loader_version,
             java_exec,
             "https://maven.neoforged.net/releases/net/neoforged/neoforge/{loader_version}/neoforge-{loader_version}-installer.jar",
-            &neoforge_installer_args(minecraft_version),
+            &neoforge_installer_args(),
             ensure_neoforge_java(java_exec)?,
             "neoforge",
             logs,
