@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import './App.css'
 import { SkinStudio } from './skin/SkinStudio'
@@ -28,6 +29,14 @@ type InstanceVisualMeta = {
   icon?: string
   minecraftVersion?: string
   loader?: string
+}
+
+type InstanceHoverInfo = {
+  size: string
+  createdAt: string
+  lastUsedAt: string
+  author: string
+  modsCount: string
 }
 
 type CreatorSection =
@@ -84,6 +93,7 @@ type InstanceMetadataView = {
   javaPath: string
   javaRuntime: string
   javaVersion: string
+  lastUsed?: string
 }
 
 type LaunchValidationResult = {
@@ -273,6 +283,8 @@ function inferNeoForgeFamily(mcVersion: string): string | null {
 
 function App() {
   const [activePage, setActivePage] = useState<MainPage>('Mis Modpacks')
+  const [backHistory, setBackHistory] = useState<MainPage[]>([])
+  const [forwardHistory, setForwardHistory] = useState<MainPage[]>([])
   const [cards, setCards] = useState<InstanceCard[]>([])
   const [selectedCreatorSection, setSelectedCreatorSection] = useState<CreatorSection>('Personalizado')
   const [instanceName, setInstanceName] = useState('')
@@ -715,13 +727,13 @@ function App() {
           return
         }
         setCreationProgress((prev) => prev ? { completed: prev.total, total: prev.total } : prev)
-      setActivePage('Mis Modpacks')
+      navigateToPage('Mis Modpacks')
         return
       }
 
       if (activePage === 'Creador de Instancias') {
         setCreationProgress((prev) => prev ? { completed: prev.total, total: prev.total } : prev)
-      setActivePage('Mis Modpacks')
+      navigateToPage('Mis Modpacks')
         return
       }
 
@@ -732,7 +744,7 @@ function App() {
 
       if (activePage !== 'Mis Modpacks') {
         setCreationProgress((prev) => prev ? { completed: prev.total, total: prev.total } : prev)
-      setActivePage('Mis Modpacks')
+      navigateToPage('Mis Modpacks')
       }
     }
 
@@ -1174,7 +1186,7 @@ function App() {
       setInstanceName('')
       setGroupName(defaultGroup)
       setCreationProgress((prev) => prev ? { completed: prev.total, total: prev.total } : prev)
-      setActivePage('Mis Modpacks')
+      navigateToPage('Mis Modpacks')
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setCreationConsoleLogs((prev) => [...prev, `Error: ${message}`])
@@ -1303,7 +1315,7 @@ function App() {
 
     setSelectedEditSection('Ejecución')
     setSelectedSettingsTab('General')
-    setActivePage('Editar Instancia')
+    navigateToPage('Editar Instancia')
   }
 
   const handleInstanceAction = async (action: string) => {
@@ -1409,7 +1421,35 @@ function App() {
 
   const openAccountManager = () => {
     setAccountMenuOpen(false)
-    setActivePage('Administradora de cuentas')
+    navigateToPage('Administradora de cuentas')
+  }
+
+  const navigateToPage = (page: MainPage) => {
+    if (page === activePage) return
+    setBackHistory((prev) => [...prev, activePage])
+    setForwardHistory([])
+    setActivePage(page)
+  }
+
+  const navigateBack = () => {
+    setBackHistory((prev) => {
+      if (prev.length === 0) return prev
+      const next = [...prev]
+      const previousPage = next.pop() as MainPage
+      setForwardHistory((forwardPrev) => [activePage, ...forwardPrev])
+      setActivePage(previousPage)
+      return next
+    })
+  }
+
+  const navigateForward = () => {
+    setForwardHistory((prev) => {
+      if (prev.length === 0) return prev
+      const [nextPage, ...rest] = prev
+      setBackHistory((backPrev) => [...backPrev, activePage])
+      setActivePage(nextPage)
+      return rest
+    })
   }
 
   useEffect(() => {
@@ -1431,12 +1471,27 @@ function App() {
       <PrincipalTopBar
         authSession={authSession}
         activePage={activePage}
-        onNavigate={setActivePage}
+        onNavigate={navigateToPage}
         onLogout={logout}
         onOpenAccountManager={openAccountManager}
         accountMenuOpen={accountMenuOpen}
         onToggleMenu={() => setAccountMenuOpen((prev) => !prev)}
+        onNavigateBack={navigateBack}
+        onNavigateForward={navigateForward}
+        canNavigateBack={backHistory.length > 0}
+        canNavigateForward={forwardHistory.length > 0}
+        hideSecondaryNav={activePage === 'Creador de Instancias'}
       />
+
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={`${authSession ? 'auth' : 'guest'}-${activePage}`}
+          className="page-transition-wrapper"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={{ duration: 0.22, ease: 'easeOut' }}
+        >
 
       {!isAuthReady && (
         <main className="content content-padded">
@@ -1573,7 +1628,7 @@ function App() {
               >
                 Establecer por Defecto
               </button>
-              <button disabled={!selectedAccountId} onClick={() => setActivePage('Administradora de skins')}>Administrar Skins</button>
+              <button disabled={!selectedAccountId} onClick={() => navigateToPage('Administradora de skins')}>Administrar Skins</button>
             </aside>
           </section>
         </main>
@@ -1582,7 +1637,7 @@ function App() {
         <SkinStudio
           activePage={activePage}
           selectedAccountId={selectedAccountId}
-          onNavigateEditor={() => setActivePage('Editor de skins')}
+          onNavigateEditor={() => navigateToPage('Editor de skins')}
         />
       )}
 
@@ -1593,7 +1648,7 @@ function App() {
           <h1 className="page-title">Mis Modpacks</h1>
           <section className="instances-panel huge-panel">
             <header className="panel-actions">
-              <button className="primary" onClick={() => setActivePage('Creador de Instancias')}>
+              <button className="primary" onClick={() => navigateToPage('Creador de Instancias')}>
                 Crear instancia
               </button>
               <input
@@ -1619,23 +1674,46 @@ function App() {
                   const icon = visual?.icon
 
                   return (
-                    <article
+                    <motion.article
                       key={card.id}
                       className={`instance-card clickable ${selectedCard?.id === card.id ? 'active' : ''}`}
                       onClick={() => setSelectedCard(card)}
+                      whileHover={{ y: -2, scale: 1.01 }}
+                      transition={{ duration: 0.14 }}
                     >
+                      <div className="instance-card-icon hero" style={icon ? { backgroundImage: `url(${icon})` } : undefined} aria-hidden="true">
+                        {!icon ? '🧱' : ''}
+                      </div>
                       <div className="instance-card-header-row">
-                        <div className="instance-card-icon" style={icon ? { backgroundImage: `url(${icon})` } : undefined} aria-hidden="true">
-                          {!icon ? '🧱' : ''}
-                        </div>
                         <div>
                           <strong>{card.name}</strong>
-                          <span className="instance-group-chip">Grupo: {card.group}</span>
+                          <span className="instance-group-chip">By INTERFACE</span>
                         </div>
                       </div>
                       <div className="instance-card-meta">
-                        <small>MC: {cardVersion}</small>
+                        <small>Version: {cardVersion}</small>
                         <small>Loader: {cardLoader}</small>
+                      </div>
+                      <div className="instance-card-hover-info">
+                        {(() => {
+                          const hoverInfo: InstanceHoverInfo = {
+                            size: '-',
+                            createdAt: '-',
+                            lastUsedAt: metadata?.lastUsed ? formatIsoDate(metadata.lastUsed) : '-',
+                            author: 'INTERFACE',
+                            modsCount: '-',
+                          }
+
+                          return (
+                            <>
+                              <p>Peso: {hoverInfo.size}</p>
+                              <p>Creada: {hoverInfo.createdAt}</p>
+                              <p>Último uso: {hoverInfo.lastUsedAt}</p>
+                              <p>Autor: {hoverInfo.author}</p>
+                              <p>Mods: {hoverInfo.modsCount}</p>
+                            </>
+                          )
+                        })()}
                       </div>
                       {(selectedCard?.id === card.id && (isStartingInstance || isInstanceRunning)) && (
                         <>
@@ -1645,7 +1723,7 @@ function App() {
                           </div>
                         </>
                       )}
-                    </article>
+                    </motion.article>
                   )
                 })}
               </div>
@@ -1838,7 +1916,7 @@ function App() {
               <button className="primary" onClick={createInstance} disabled={isCreating || !selectedMinecraftVersion}>
                 {isCreating ? 'Creando...' : 'Ok'}
               </button>
-              <button onClick={() => setActivePage('Mis Modpacks')}>Cancelar</button>
+              <button onClick={() => navigateToPage('Mis Modpacks')}>Cancelar</button>
             </footer>
           </section>
         </main>
@@ -2011,6 +2089,9 @@ function App() {
           </section>
         </main>
       )}
+
+        </motion.div>
+      </AnimatePresence>
     </div>
   )
 }
@@ -2023,9 +2104,27 @@ type PrincipalTopBarProps = {
   onOpenAccountManager: () => void
   accountMenuOpen: boolean
   onToggleMenu: () => void
+  onNavigateBack: () => void
+  onNavigateForward: () => void
+  canNavigateBack: boolean
+  canNavigateForward: boolean
+  hideSecondaryNav?: boolean
 }
 
-function PrincipalTopBar({ authSession, activePage, onNavigate, onLogout, onOpenAccountManager, accountMenuOpen, onToggleMenu }: PrincipalTopBarProps) {
+function PrincipalTopBar({
+  authSession,
+  activePage,
+  onNavigate,
+  onLogout,
+  onOpenAccountManager,
+  accountMenuOpen,
+  onToggleMenu,
+  onNavigateBack,
+  onNavigateForward,
+  canNavigateBack,
+  canNavigateForward,
+  hideSecondaryNav,
+}: PrincipalTopBarProps) {
   const principalSections: MainPage[] = ['Mis Modpacks', 'Novedades', 'Explorador', 'Servers', 'Configuración Global']
 
   return (
@@ -2033,9 +2132,9 @@ function PrincipalTopBar({ authSession, activePage, onNavigate, onLogout, onOpen
       <div className="top-bar principal">
         <div className="launcher-brand-block">
           <span className="launcher-brand-logo" aria-hidden="true" />
-          <strong>FrutiLauncher</strong>
-          <button type="button" className="window-chip" aria-label="Minimizar">−</button>
-          <button type="button" className="window-chip" aria-label="Cerrar">−</button>
+          <strong>INTERFACE</strong>
+          <button type="button" className="window-chip" aria-label="Ir hacia atrás" onClick={onNavigateBack} disabled={!canNavigateBack}>←</button>
+          <button type="button" className="window-chip" aria-label="Ir hacia adelante" onClick={onNavigateForward} disabled={!canNavigateForward}>→</button>
         </div>
         {authSession ? (
           <div className="account-menu">
@@ -2053,7 +2152,7 @@ function PrincipalTopBar({ authSession, activePage, onNavigate, onLogout, onOpen
           <span>Sin sesión iniciada</span>
         )}
       </div>
-      {authSession && (
+      {authSession && !hideSecondaryNav && (
         <nav className="top-bar secondary launcher-main-nav" aria-label="Navegación principal">
           {principalSections.map((section) => (
             <button
