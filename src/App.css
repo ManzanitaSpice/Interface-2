@@ -82,6 +82,29 @@
   color: var(--text-color);
 }
 
+:is(
+  .list-interface,
+  .table-like,
+  .table-head,
+  .table-row,
+  .mini-right-sidebar,
+  .instances-summary-panel
+) {
+  border-color: var(--border) !important;
+  color: var(--text-color) !important;
+}
+
+.table-like,
+.mini-right-sidebar,
+.instances-summary-panel {
+  background: color-mix(in srgb, var(--container-color) 92%, transparent) !important;
+}
+
+.table-head {
+  background: color-mix(in srgb, var(--bg-surface-muted) 90%, var(--bg-main)) !important;
+}
+
+
 /* Mejoras visuales globales de tema/listas/consola */
 ul,
 ol,
