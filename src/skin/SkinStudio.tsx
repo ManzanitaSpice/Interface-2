@@ -123,7 +123,8 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
     setSelectedSkinId((prev) => prev || data[0]?.id || '')
   }, [selectedAccountId])
 
-  useEffect(() => { void loadSkins().catch((err) => setError(String(err))) }, [loadSkins])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void loadSkins() }, [loadSkins])
 
   useEffect(() => {
     const canvas = document.createElement('canvas')
@@ -293,6 +294,27 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
     await loadSkins()
   }
 
+
+  const openSkinEditor = async (skin: SkinSummary) => {
+    setTabs((prev) => prev.some((tab) => tab.id === skin.id) ? prev : [...prev, skin])
+    setActiveTab(skin.id)
+    await loadSkinToEditor(skin.id)
+    onNavigateEditor()
+  }
+
+  const importSkinFile = async (file: File) => {
+    if (!selectedAccountId) return
+    try {
+      setError('')
+      const bytes = Array.from(new Uint8Array(await file.arrayBuffer()))
+      await invoke('import_skin', { accountId: selectedAccountId, name: file.name.replace('.png', ''), bytes })
+      await loadSkins()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setError(`No se pudo importar la skin: ${message}`)
+    }
+  }
+
   const paintFromTextureEvent = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect()
     const x = Math.floor(((event.clientX - rect.left) / rect.width) * 64)
@@ -332,8 +354,11 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
             <div className="skins-grid">
               {skins.length === 0 && <article className="instance-card placeholder">Sin skins guardadas para esta cuenta.</article>}
               {skins.map((skin) => (
-                <article key={skin.id} className={`instance-card clickable ${selectedSkinId === skin.id ? 'active' : ''}`} onClick={() => setSelectedSkinId(skin.id)}>
-                  <strong>{skin.name}</strong>
+                <article key={skin.id} className={`instance-card skin-card clickable ${selectedSkinId === skin.id ? 'active' : ''}`} onClick={() => setSelectedSkinId(skin.id)}>
+                  <div className="skin-card-preview" aria-hidden="true">
+                    <div className="skin-card-preview-face">🙂</div>
+                  </div>
+                  <strong title={skin.name}>{skin.name}</strong>
                   <small>Actualizada: {skin.updated_at}</small>
                 </article>
               ))}
@@ -345,21 +370,17 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
                 type="file"
                 accept="image/png"
                 hidden
-                onChange={async (e) => {
+                onChange={(e) => {
                   const file = e.target.files?.[0]
-                  if (!file || !selectedAccountId) return
-                  const bytes = Array.from(new Uint8Array(await file.arrayBuffer()))
-                  await invoke('import_skin', { accountId: selectedAccountId, name: file.name.replace('.png', ''), bytes })
-                  await loadSkins()
+                  if (!file) return
+                  void importSkinFile(file)
+                  e.currentTarget.value = ''
                 }}
               />
             </label>
-            <button disabled={!selectedSkin} onClick={async () => {
+            <button disabled={!selectedSkin} onClick={() => {
               if (!selectedSkin) return
-              setTabs((prev) => prev.some((tab) => tab.id === selectedSkin.id) ? prev : [...prev, selectedSkin])
-              setActiveTab(selectedSkin.id)
-              await loadSkinToEditor(selectedSkin.id)
-              onNavigateEditor()
+              void openSkinEditor(selectedSkin)
             }}>Editar</button>
             <button disabled={!selectedSkin} onClick={async () => {
               if (!selectedSkin || !selectedAccountId) return
@@ -399,6 +420,7 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
       </header>
 
       <section className="skin-editor-workspace pro compact">
+        <div className="editor-section-header">Editor profesional de skins</div>
         <aside className="editor-left-sidebar">
           <h3>Textura</h3>
           <canvas ref={previewCanvasRef} className="texture-preview" />

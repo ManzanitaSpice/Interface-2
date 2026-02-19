@@ -65,6 +65,20 @@
   .account-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .instances-summary-panel {
+    flex-wrap: wrap;
+  }
+
+  .updates-table-head,
+  .updates-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .skin-editor-workspace.pro.compact {
+    grid-template-columns: 1fr;
+  }
+
 }
 
 @media (max-width: 720px) {
