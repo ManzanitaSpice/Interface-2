@@ -1,20 +1,35 @@
+@media (max-width: 1180px) {
+  .cards-grid {
+    grid-template-columns: repeat(auto-fill, minmax(186px, 1fr));
+  }
+
+  .instances-grid-area {
+    max-height: calc(100vh - 295px);
+  }
+}
+
 @media (max-width: 980px) {
   .app-shell {
-    padding: 0.45rem;
-    gap: 0.45rem;
+    padding: 0.4rem;
+    gap: 0.4rem;
+  }
+
+  .top-bar {
+    padding: 0.48rem 0.58rem;
   }
 
   .launcher-main-nav {
-    gap: 0.35rem;
+    gap: 0.3rem;
   }
 
   .launcher-main-nav button {
-    padding-inline: 0.9rem;
+    padding-inline: 0.76rem;
+    min-height: 32px;
   }
 
   .creator-layout,
   .edit-instance-layout {
-    --sidebar-width: 144px;
+    --sidebar-width: 132px;
   }
 
   .instances-workspace.with-right-panel {
@@ -39,7 +54,7 @@
   }
 
   .mini-right-sidebar button {
-    flex: 1 1 110px;
+    flex: 1 1 130px;
   }
 
   .account-manager-layout {
@@ -50,5 +65,29 @@
   .account-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
 
+@media (max-width: 720px) {
+  .cards-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-actions {
+    justify-content: stretch;
+  }
+
+  .panel-actions input,
+  .panel-actions button {
+    width: 100%;
+  }
+
+  .third-top-bar {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .icon-button {
+    width: 46px;
+    height: 46px;
+  }
 }
