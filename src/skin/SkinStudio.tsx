@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { buildMinecraftModel, type ModelVariant } from './editor/minecraftModel'
+import { buildMinecraftModel, defaultLayerVisibility, type ModelLayersVisibility, type ModelVariant, type SkinPartKey } from './editor/minecraftModel'
 import { hexToRgba, hsvToRgb, rgbToHsv } from './editor/color'
 import type { PaintContext, SelectionRect, ToolActionResult, ToolId } from './editor/types'
 import { applyBrush } from './editor/tools/brushTool'
@@ -26,8 +26,14 @@ type ThreeCtx = {
 }
 
 const TOOL_LABELS: Record<ToolId, string> = { brush: 'Pincel', eraser: 'Borrador', eyedropper: 'Cuentagotas', fill: 'Relleno', rect: 'Selector' }
-
-const layerItems = ['Cabeza', 'Torso', 'Brazo Izq', 'Brazo Der', 'Pierna Izq', 'Pierna Der']
+const PARTS: Array<{ key: SkinPartKey; label: string }> = [
+  { key: 'head', label: 'Cabeza' },
+  { key: 'body', label: 'Torso' },
+  { key: 'leftArm', label: 'Brazo Izq' },
+  { key: 'rightArm', label: 'Brazo Der' },
+  { key: 'leftLeg', label: 'Pierna Izq' },
+  { key: 'rightLeg', label: 'Pierna Der' },
+]
 
 export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: { activePage: 'Administradora de skins' | 'Editor de skins'; selectedAccountId: string; onNavigateEditor: () => void }) {
   const [skins, setSkins] = useState<SkinSummary[]>([])
@@ -48,6 +54,7 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
   const [customColors, setCustomColors] = useState<string[]>([])
   const [selection, setSelection] = useState<SelectionRect>(null)
   const [texHeight, setTexHeight] = useState<64 | 128>(64)
+  const [layerVisibility, setLayerVisibility] = useState<ModelLayersVisibility>(() => defaultLayerVisibility())
 
   const threeRef = useRef<ThreeCtx | null>(null)
   const renderRafRef = useRef<number | null>(null)
@@ -97,8 +104,8 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
         ctx.strokeRect((selection.x / 64) * size, (selection.y / texHeight) * Math.round((size * texHeight) / 64), (selection.width / 64) * size, (selection.height / texHeight) * Math.round((size * texHeight) / 64))
       }
     }
-    draw(previewCanvasRef.current, 256)
-    draw(editorCanvasRef.current, 512)
+    draw(previewCanvasRef.current, 180)
+    draw(editorCanvasRef.current, 360)
   }, [selection, texHeight])
 
   const syncTexture = useCallback(() => {
@@ -116,7 +123,6 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
     setSelectedSkinId((prev) => prev || data[0]?.id || '')
   }, [selectedAccountId])
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void loadSkins().catch((err) => setError(String(err))) }, [loadSkins])
 
   useEffect(() => {
@@ -135,12 +141,12 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
     const ctx = threeRef.current
     if (!ctx) return
     ctx.scene.remove(ctx.model)
-    const model = buildMinecraftModel(ctx.texture, variant, textureHeight)
+    const model = buildMinecraftModel(ctx.texture, variant, textureHeight, layerVisibility)
     setTexHeight(textureHeight)
     ctx.scene.add(model)
     ctx.model = model
     scheduleRender()
-  }, [scheduleRender, variant])
+  }, [scheduleRender, variant, layerVisibility])
 
   useEffect(() => {
     if (activePage !== 'Editor de skins') return
@@ -149,32 +155,39 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
     if (!mount || !texCanvas) return
 
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color('#2b2b2b')
-    const camera = new THREE.PerspectiveCamera(45, mount.clientWidth / mount.clientHeight, 0.1, 200)
-    camera.position.set(18, 15, 20)
-    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    scene.background = new THREE.Color('#0c111b')
+    const camera = new THREE.PerspectiveCamera(45, mount.clientWidth / mount.clientHeight, 0.1, 260)
+    camera.position.set(26, 20, 26)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
     renderer.setSize(mount.clientWidth, mount.clientHeight)
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     mount.innerHTML = ''
     mount.appendChild(renderer.domElement)
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x303030, 0.95))
-    const key = new THREE.DirectionalLight(0xffffff, 0.45)
-    key.position.set(15, 24, 10)
+    scene.add(new THREE.AmbientLight(0xffffff, 0.7))
+    const key = new THREE.DirectionalLight(0xffffff, 0.65)
+    key.position.set(20, 28, 18)
     scene.add(key)
+    const rim = new THREE.DirectionalLight(0x9db8ff, 0.35)
+    rim.position.set(-16, 14, -20)
+    scene.add(rim)
 
     const texture = new THREE.CanvasTexture(texCanvas)
     texture.magFilter = THREE.NearestFilter
     texture.minFilter = THREE.NearestFilter
+    texture.generateMipmaps = false
+    texture.colorSpace = THREE.SRGBColorSpace
 
-    const model = buildMinecraftModel(texture, variant, 64)
+    const model = buildMinecraftModel(texture, variant, texHeight, layerVisibility)
     scene.add(model)
 
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableDamping = true
-    controls.autoRotate = false
-    controls.minDistance = 10
-    controls.maxDistance = 45
+    controls.enablePan = true
+    controls.minDistance = 7
+    controls.maxDistance = 90
+    controls.target.set(0, 10, 0)
     controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE
     controls.mouseButtons.RIGHT = THREE.MOUSE.PAN
     controls.mouseButtons.MIDDLE = THREE.MOUSE.DOLLY
@@ -193,6 +206,7 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
       c.renderer.setSize(c.mount.clientWidth, c.mount.clientHeight)
       scheduleRender()
     }
+
     window.addEventListener('resize', onResize)
     scheduleRender()
 
@@ -203,7 +217,7 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
       if (renderRafRef.current) cancelAnimationFrame(renderRafRef.current)
       threeRef.current = null
     }
-  }, [activePage, scheduleRender, variant])
+  }, [activePage, scheduleRender, texHeight, variant, layerVisibility])
 
   const paintContext = useCallback((): PaintContext | null => {
     const buffer = pixelBufferRef.current
@@ -263,9 +277,10 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
     ctx.clearRect(0, 0, 64, h)
     ctx.drawImage(bitmap, 0, 0, 64, h)
     pixelBufferRef.current = ctx.getImageData(0, 0, 64, h)
+    setSelection(null)
+    setLayerVisibility(defaultLayerVisibility())
     replaceModel(h)
     setHasPendingChanges(false)
-    setSelection(null)
     syncTexture()
   }
 
@@ -274,48 +289,171 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
     const blob = await new Promise<Blob>((resolve, reject) => texCanvasRef.current?.toBlob((value) => value ? resolve(value) : reject(new Error('No se pudo exportar PNG')), 'image/png'))
     const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()))
     await invoke('save_skin_binary', { accountId: selectedAccountId, skinId: activeSkin.id, bytes })
-    await loadSkins()
     setHasPendingChanges(false)
+    await loadSkins()
   }
 
   const paintFromTextureEvent = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect()
     const x = Math.floor(((event.clientX - rect.left) / rect.width) * 64)
     const y = Math.floor(((event.clientY - rect.top) / rect.height) * texHeight)
+    if (x < 0 || y < 0 || x >= 64 || y >= texHeight) return
+
     if (tool === 'rect') {
       if (!rectStartRef.current) rectStartRef.current = { x, y }
       return
     }
+
     executeTool(x, y)
   }
 
   const paintFromModelEvent = (event: React.PointerEvent<HTMLDivElement>) => {
     const three = threeRef.current
     if (!three) return
-    const bounds = event.currentTarget.getBoundingClientRect()
-    three.pointer.x = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
-    three.pointer.y = -((event.clientY - bounds.top) / bounds.height) * 2 + 1
+    const rect = event.currentTarget.getBoundingClientRect()
+    three.pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1)
     three.raycaster.setFromCamera(three.pointer, three.camera)
-    const hit = three.raycaster.intersectObjects(three.model.children, false)[0]
-    if (!hit || !hit.uv) return
-    const x = Math.floor(hit.uv.x * 64)
-    const y = Math.floor((1 - hit.uv.y) * texHeight)
-    executeTool(Math.max(0, Math.min(63, x)), Math.max(0, Math.min(texHeight - 1, y)))
+    const intersects = three.raycaster.intersectObjects(three.model.children, true)
+    const uv = intersects[0]?.uv
+    if (!uv) return
+    const x = Math.min(63, Math.max(0, Math.floor(uv.x * 64)))
+    const y = Math.min(texHeight - 1, Math.max(0, Math.floor((1 - uv.y) * texHeight)))
+    executeTool(x, y)
   }
 
   if (activePage === 'Administradora de skins') {
-    return <main className="content content-padded"><h1 className="page-title">Administradora de skins</h1><section className="skins-manager-layout"><section className="skins-catalog-panel"><header className="panel-header"><h2>Catálogo real</h2></header>{error && <p className="status-text error">{error}</p>}<div className="skins-grid">{skins.length === 0 && <article className="instance-card placeholder">Sin skins guardadas para esta cuenta.</article>}{skins.map((skin) => (<article key={skin.id} className={`instance-card clickable ${selectedSkinId === skin.id ? 'active' : ''}`} onClick={() => setSelectedSkinId(skin.id)}><strong>{skin.name}</strong><small>Actualizada: {skin.updated_at}</small></article>))}</div></section><aside className="account-manager-panel compact"><label className="button-like">Importar PNG<input type="file" accept="image/png" hidden onChange={async (e) => { const file = e.target.files?.[0]; if (!file || !selectedAccountId) return; const bytes = Array.from(new Uint8Array(await file.arrayBuffer())); await invoke('import_skin', { accountId: selectedAccountId, name: file.name.replace('.png', ''), bytes }); await loadSkins() }} /></label><button disabled={!selectedSkin} onClick={async () => { if (!selectedSkin) return; setTabs((prev) => prev.some((tab) => tab.id === selectedSkin.id) ? prev : [...prev, selectedSkin]); setActiveTab(selectedSkin.id); await loadSkinToEditor(selectedSkin.id); onNavigateEditor() }}>Editar</button><button disabled={!selectedSkin} onClick={async () => { if (!selectedSkin || !selectedAccountId) return; await invoke('delete_skin', { accountId: selectedAccountId, skinId: selectedSkin.id }); await loadSkins() }}>Eliminar</button></aside></section></main>
+    return (
+      <main className="content content-padded">
+        <h1 className="page-title">Administradora de skins</h1>
+        <section className="skins-manager-layout">
+          <section className="skins-catalog-panel">
+            <header className="panel-header"><h2>Catálogo real</h2></header>
+            {error && <p className="status-text error">{error}</p>}
+            <div className="skins-grid">
+              {skins.length === 0 && <article className="instance-card placeholder">Sin skins guardadas para esta cuenta.</article>}
+              {skins.map((skin) => (
+                <article key={skin.id} className={`instance-card clickable ${selectedSkinId === skin.id ? 'active' : ''}`} onClick={() => setSelectedSkinId(skin.id)}>
+                  <strong>{skin.name}</strong>
+                  <small>Actualizada: {skin.updated_at}</small>
+                </article>
+              ))}
+            </div>
+          </section>
+          <aside className="account-manager-panel compact">
+            <label className="button-like">Importar PNG
+              <input
+                type="file"
+                accept="image/png"
+                hidden
+                onChange={async (e) => {
+                  const file = e.target.files?.[0]
+                  if (!file || !selectedAccountId) return
+                  const bytes = Array.from(new Uint8Array(await file.arrayBuffer()))
+                  await invoke('import_skin', { accountId: selectedAccountId, name: file.name.replace('.png', ''), bytes })
+                  await loadSkins()
+                }}
+              />
+            </label>
+            <button disabled={!selectedSkin} onClick={async () => {
+              if (!selectedSkin) return
+              setTabs((prev) => prev.some((tab) => tab.id === selectedSkin.id) ? prev : [...prev, selectedSkin])
+              setActiveTab(selectedSkin.id)
+              await loadSkinToEditor(selectedSkin.id)
+              onNavigateEditor()
+            }}>Editar</button>
+            <button disabled={!selectedSkin} onClick={async () => {
+              if (!selectedSkin || !selectedAccountId) return
+              await invoke('delete_skin', { accountId: selectedAccountId, skinId: selectedSkin.id })
+              await loadSkins()
+            }}>Eliminar</button>
+          </aside>
+        </section>
+      </main>
+    )
   }
 
   return (
     <main className="skin-editor-page pro-studio">
-      <header className="skin-tabs-bar browser-tabs">{tabs.length === 0 && <span className="tab-empty">No hay skins abiertas.</span>}{tabs.map((tab) => <button key={tab.id} className={activeTab === tab.id ? 'active' : ''} onClick={() => { setActiveTab(tab.id); void loadSkinToEditor(tab.id) }}>{tab.name}</button>)}</header>
-      <header className="skin-tools-bar">{(Object.keys(TOOL_LABELS) as ToolId[]).map((id) => <button key={id} className={tool === id ? 'active' : ''} onClick={() => setTool(id)}>{TOOL_LABELS[id]}</button>)}<label>Tamaño <input type="range" min={1} max={20} value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} /></label><label>Dureza <input type="range" min={0.1} max={1} step={0.1} value={hardness} onChange={(e) => setHardness(Number(e.target.value))} /></label><label>Opacidad <input type="range" min={0.1} max={1} step={0.05} value={opacity} onChange={(e) => setOpacity(Number(e.target.value))} /></label><label><input type="checkbox" checked={symmetry} onChange={(e) => setSymmetry(e.target.checked)} /> Simetría</label><select value={variant} onChange={(e) => setVariant(e.target.value as ModelVariant)}><option value="classic">Classic</option><option value="slim">Slim</option></select><button className="primary" disabled={!activeSkin || !hasPendingChanges} onClick={() => void saveSkin()}>Guardar</button></header>
+      <header className="skin-tabs-bar browser-tabs">
+        {tabs.length === 0 && <span className="tab-empty">No hay skins abiertas.</span>}
+        {tabs.map((tab) => (
+          <button key={tab.id} className={activeTab === tab.id ? 'active' : ''} onClick={() => { setActiveTab(tab.id); void loadSkinToEditor(tab.id) }}>
+            {tab.name}
+          </button>
+        ))}
+      </header>
 
-      <section className="skin-editor-workspace pro">
-        <aside className="editor-left-sidebar"><h3>Textura</h3><canvas ref={previewCanvasRef} className="texture-preview" /><h3>Canvas pixel</h3><canvas ref={editorCanvasRef} width={64} height={texHeight} className="paint-canvas" onPointerDown={paintFromTextureEvent} onPointerMove={(e) => e.buttons === 1 && paintFromTextureEvent(e)} onPointerUp={(e) => { if (tool !== 'rect' || !rectStartRef.current) return; const rect = e.currentTarget.getBoundingClientRect(); const x = Math.floor(((e.clientX - rect.left) / rect.width) * 64); const y = Math.floor(((e.clientY - rect.top) / rect.height) * texHeight); setSelection(buildSelection(rectStartRef.current, { x, y })); rectStartRef.current = null; updatePreview() }} /></aside>
-        <section className="skin-editor-canvas"><div id="skin-three-root" className="three-preview" onPointerDown={paintFromModelEvent} onPointerMove={(e) => e.buttons === 1 && paintFromModelEvent(e)} /></section>
-        <aside className="editor-right-sidebar"><div className="right-panel-content"><h3>Paleta profesional</h3><label>HEX <input value={color} onChange={(e) => setActiveColor(e.target.value)} /></label><div className="hsv-grid"><label>H <input type="range" min={0} max={360} value={hsv.h} onChange={(e) => { const next = { ...hsv, h: Number(e.target.value) }; setHsv(next); const rgb = hsvToRgb(next.h, next.s, next.v); setActiveColor(`#${[rgb.r, rgb.g, rgb.b].map((n) => n.toString(16).padStart(2, '0')).join('')}`) }} /></label><label>S <input type="range" min={0} max={1} step={0.01} value={hsv.s} onChange={(e) => { const next = { ...hsv, s: Number(e.target.value) }; setHsv(next); const rgb = hsvToRgb(next.h, next.s, next.v); setActiveColor(`#${[rgb.r, rgb.g, rgb.b].map((n) => n.toString(16).padStart(2, '0')).join('')}`) }} /></label><label>V <input type="range" min={0} max={1} step={0.01} value={hsv.v} onChange={(e) => { const next = { ...hsv, v: Number(e.target.value) }; setHsv(next); const rgb = hsvToRgb(next.h, next.s, next.v); setActiveColor(`#${[rgb.r, rgb.g, rgb.b].map((n) => n.toString(16).padStart(2, '0')).join('')}`) }} /></label></div><label>RGB <input value={(() => { const v = hexToRgba(color); return `${v.r}, ${v.g}, ${v.b}` })()} readOnly /></label><h4>Historial</h4><div className="swatches">{colorHistory.map((v) => <button key={v} style={{ background: v }} onClick={() => setActiveColor(v)} />)}</div><h4>Personalizados</h4><div className="swatches">{customColors.map((v) => <button key={v} style={{ background: v }} onClick={() => setActiveColor(v)} />)}<button onClick={() => setCustomColors((prev) => [color, ...prev.filter((v) => v !== color)].slice(0, 10))}>+</button></div><h3>Capas</h3><ul className="layer-list">{layerItems.map((layer) => <li key={layer}>{layer}</li>)}</ul></div></aside>
+      <header className="skin-tools-bar">
+        {(Object.keys(TOOL_LABELS) as ToolId[]).map((id) => (
+          <button key={id} className={tool === id ? 'active' : ''} onClick={() => setTool(id)}>{TOOL_LABELS[id]}</button>
+        ))}
+        <label>Tamaño <input type="range" min={1} max={16} value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} /></label>
+        <label>Dureza <input type="range" min={0.1} max={1} step={0.1} value={hardness} onChange={(e) => setHardness(Number(e.target.value))} /></label>
+        <label>Opacidad <input type="range" min={0.1} max={1} step={0.05} value={opacity} onChange={(e) => setOpacity(Number(e.target.value))} /></label>
+        <label><input type="checkbox" checked={symmetry} onChange={(e) => setSymmetry(e.target.checked)} /> Simetría</label>
+        <select value={variant} onChange={(e) => setVariant(e.target.value as ModelVariant)}>
+          <option value="classic">Classic</option>
+          <option value="slim">Slim</option>
+        </select>
+        <button className="primary" disabled={!activeSkin || !hasPendingChanges} onClick={() => void saveSkin()}>Guardar</button>
+      </header>
+
+      <section className="skin-editor-workspace pro compact">
+        <aside className="editor-left-sidebar">
+          <h3>Textura</h3>
+          <canvas ref={previewCanvasRef} className="texture-preview" />
+          <h3>Canvas pixel</h3>
+          <canvas
+            ref={editorCanvasRef}
+            width={64}
+            height={texHeight}
+            className="paint-canvas"
+            onPointerDown={paintFromTextureEvent}
+            onPointerMove={(e) => e.buttons === 1 && paintFromTextureEvent(e)}
+            onPointerUp={(e) => {
+              if (tool !== 'rect' || !rectStartRef.current) return
+              const rect = e.currentTarget.getBoundingClientRect()
+              const x = Math.floor(((e.clientX - rect.left) / rect.width) * 64)
+              const y = Math.floor(((e.clientY - rect.top) / rect.height) * texHeight)
+              setSelection(buildSelection(rectStartRef.current, { x, y }))
+              rectStartRef.current = null
+              updatePreview()
+            }}
+          />
+        </aside>
+
+        <section className="skin-editor-canvas">
+          <div id="skin-three-root" className="three-preview" onPointerDown={paintFromModelEvent} onPointerMove={(e) => e.buttons === 1 && paintFromModelEvent(e)} />
+        </section>
+
+        <aside className="editor-right-sidebar">
+          <div className="right-panel-content">
+            <h3>Paleta</h3>
+            <label>HEX <input value={color} onChange={(e) => setActiveColor(e.target.value)} /></label>
+            <div className="hsv-grid">
+              <label>H <input type="range" min={0} max={360} value={hsv.h} onChange={(e) => { const next = { ...hsv, h: Number(e.target.value) }; setHsv(next); const rgb = hsvToRgb(next.h, next.s, next.v); setActiveColor(`#${[rgb.r, rgb.g, rgb.b].map((n) => n.toString(16).padStart(2, '0')).join('')}`) }} /></label>
+              <label>S <input type="range" min={0} max={1} step={0.01} value={hsv.s} onChange={(e) => { const next = { ...hsv, s: Number(e.target.value) }; setHsv(next); const rgb = hsvToRgb(next.h, next.s, next.v); setActiveColor(`#${[rgb.r, rgb.g, rgb.b].map((n) => n.toString(16).padStart(2, '0')).join('')}`) }} /></label>
+              <label>V <input type="range" min={0} max={1} step={0.01} value={hsv.v} onChange={(e) => { const next = { ...hsv, v: Number(e.target.value) }; setHsv(next); const rgb = hsvToRgb(next.h, next.s, next.v); setActiveColor(`#${[rgb.r, rgb.g, rgb.b].map((n) => n.toString(16).padStart(2, '0')).join('')}`) }} /></label>
+            </div>
+            <h4>Historial</h4>
+            <div className="swatches">{colorHistory.map((v) => <button key={v} style={{ background: v }} onClick={() => setActiveColor(v)} />)}</div>
+            <h4>Personalizados</h4>
+            <div className="swatches">{customColors.map((v) => <button key={v} style={{ background: v }} onClick={() => setActiveColor(v)} />)}<button onClick={() => setCustomColors((prev) => [color, ...prev.filter((v) => v !== color)].slice(0, 10))}>+</button></div>
+
+            <h3>Capas</h3>
+            <ul className="layer-list layer-grid">
+              {PARTS.map((part) => (
+                <li key={part.key}>
+                  <strong>{part.label}</strong>
+                  <div className="layer-row-actions">
+                    <button className={layerVisibility[part.key].base ? 'active' : ''} onClick={() => setLayerVisibility((prev) => ({ ...prev, [part.key]: { ...prev[part.key], base: !prev[part.key].base } }))}>Base</button>
+                    <button className={layerVisibility[part.key].overlay ? 'active' : ''} onClick={() => setLayerVisibility((prev) => ({ ...prev, [part.key]: { ...prev[part.key], overlay: !prev[part.key].overlay } }))}>Overlay</button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </aside>
       </section>
     </main>
   )

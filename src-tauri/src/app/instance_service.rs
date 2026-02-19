@@ -1064,10 +1064,8 @@ fn validate_required_online_launch_flags(game_args: &[String]) -> Result<(), Str
     let uuid = find_arg_value(game_args, "--uuid").ok_or_else(|| "Falta --uuid".to_string())?;
     let token = find_arg_value(game_args, "--accessToken")
         .ok_or_else(|| "Falta --accessToken".to_string())?;
-    let user_type =
-        find_arg_value(game_args, "--userType").ok_or_else(|| "Falta --userType".to_string())?;
-    let version_type = find_arg_value(game_args, "--versionType")
-        .ok_or_else(|| "Falta --versionType".to_string())?;
+    let user_type = find_arg_value(game_args, "--userType");
+    let version_type = find_arg_value(game_args, "--versionType");
 
     if username.trim().is_empty() {
         return Err("--username vacío".to_string());
@@ -1087,15 +1085,22 @@ fn validate_required_online_launch_flags(game_args: &[String]) -> Result<(), Str
         return Err("--accessToken vacío".to_string());
     }
 
-    if user_type != "msa" {
+    if let Some(user_type) = user_type
+        && user_type != "msa"
+    {
         return Err(format!(
             "--userType debe ser msa para evitar Demo, recibido: {user_type}"
         ));
     }
 
-    if version_type != "release" {
+    if let Some(version_type) = version_type
+        && version_type != "release"
+        && version_type != "old_alpha"
+        && version_type != "old_beta"
+        && version_type != "snapshot"
+    {
         return Err(format!(
-            "--versionType debe ser release para lanzamiento oficial, recibido: {version_type}"
+            "--versionType inválido para lanzamiento oficial: {version_type}"
         ));
     }
 
