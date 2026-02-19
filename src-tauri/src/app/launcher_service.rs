@@ -7,6 +7,13 @@ use tauri::{AppHandle, Emitter};
 
 use crate::{
     domain::{
+        auth::{
+            microsoft::refresh_microsoft_access_token,
+            xbox::{
+                authenticate_with_xbox_live, authorize_xsts, has_minecraft_license,
+                login_minecraft_with_xbox, read_minecraft_profile,
+            },
+        },
         java::{java_detector::find_compatible_java, java_requirement::determine_required_java},
         models::{
             instance::{
@@ -568,17 +575,43 @@ fn validate_official_minecraft_auth(
         );
     }
 
-    if let Some(expires_at) = auth_session.minecraft_access_token_expires_at {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|err| format!("No se pudo leer reloj del sistema: {err}"))?
-            .as_millis() as u64;
-        if expires_at <= now {
-            return Err(
-                "El access token de Minecraft está expirado; inicia sesión oficial nuevamente."
-                    .to_string(),
+    let mut active_minecraft_token = auth_session.minecraft_access_token.clone();
+    let mut active_minecraft_expires_at = auth_session.minecraft_access_token_expires_at;
+
+    let mut needs_refresh = false;
+    if let (Some(expires_at), Some(now)) = (active_minecraft_expires_at, now_unix_millis()) {
+        if expires_at <= now.saturating_add(60_000) {
+            logs.push(
+                "⚠ access_token próximo a expirar; refrescando de forma preventiva (MSA→XBL→XSTS→Minecraft).".to_string(),
             );
+            needs_refresh = true;
         }
+    }
+
+    if needs_refresh {
+        let refresh_token = auth_session.microsoft_refresh_token.clone().ok_or_else(|| {
+            "El access token está vencido o por vencer y no hay refresh token de Microsoft; inicia sesión nuevamente."
+                .to_string()
+        })?;
+
+        let runtime = tokio::runtime::Runtime::new()
+            .map_err(|err| format!("No se pudo crear runtime para refresh de token: {err}"))?;
+
+        let refreshed = runtime.block_on(async {
+            let client = reqwest::Client::new();
+            let ms = refresh_microsoft_access_token(&client, &refresh_token).await?;
+            let xbox = authenticate_with_xbox_live(&client, &ms.access_token).await?;
+            let xsts = authorize_xsts(&client, &xbox.token).await?;
+            let mc = login_minecraft_with_xbox(&client, &xsts.uhs, &xsts.token).await?;
+            let expires_at = mc.expires_in.and_then(|expires_in| {
+                now_unix_millis().map(|now| now.saturating_add(expires_in.saturating_mul(1000)))
+            });
+            Ok::<(String, Option<u64>), String>((mc.access_token, expires_at))
+        })?;
+
+        active_minecraft_token = refreshed.0;
+        active_minecraft_expires_at = refreshed.1;
+        logs.push("✔ access_token de Minecraft renovado correctamente.".to_string());
     }
 
     let client = reqwest::blocking::Client::builder()
@@ -586,15 +619,51 @@ fn validate_official_minecraft_auth(
         .build()
         .map_err(|err| format!("No se pudo crear cliente HTTP para auth oficial: {err}"))?;
 
-    let entitlements_response = client
+    let mut entitlements_response = client
         .get("https://api.minecraftservices.com/entitlements/mcstore")
-        .header(
-            "Authorization",
-            format!("Bearer {}", auth_session.minecraft_access_token),
-        )
+        .header("Authorization", format!("Bearer {active_minecraft_token}"))
         .header("Accept", "application/json")
         .send()
         .map_err(|err| format!("No se pudo consultar entitlements de Minecraft: {err}"))?;
+
+    if entitlements_response.status().as_u16() == 401 {
+        logs.push("⚠ /entitlements devolvió 401; reintentando con refresh oficial...".to_string());
+        let refresh_token = auth_session
+            .microsoft_refresh_token
+            .clone()
+            .ok_or_else(|| {
+                "La API devolvió 401 y no hay refresh token de Microsoft para renovar credenciales."
+                    .to_string()
+            })?;
+
+        let runtime = tokio::runtime::Runtime::new()
+            .map_err(|err| format!("No se pudo crear runtime para refresh de token: {err}"))?;
+
+        let refreshed = runtime.block_on(async {
+            let client = reqwest::Client::new();
+            let ms = refresh_microsoft_access_token(&client, &refresh_token).await?;
+            let xbox = authenticate_with_xbox_live(&client, &ms.access_token).await?;
+            let xsts = authorize_xsts(&client, &xbox.token).await?;
+            let mc = login_minecraft_with_xbox(&client, &xsts.uhs, &xsts.token).await?;
+            let expires_at = mc.expires_in.and_then(|expires_in| {
+                now_unix_millis().map(|now| now.saturating_add(expires_in.saturating_mul(1000)))
+            });
+            Ok::<(String, Option<u64>), String>((mc.access_token, expires_at))
+        })?;
+
+        active_minecraft_token = refreshed.0;
+        active_minecraft_expires_at = refreshed.1;
+        logs.push("✔ refresh completado; reintentando validación de licencia.".to_string());
+
+        entitlements_response = client
+            .get("https://api.minecraftservices.com/entitlements/mcstore")
+            .header("Authorization", format!("Bearer {active_minecraft_token}"))
+            .header("Accept", "application/json")
+            .send()
+            .map_err(|err| {
+                format!("No se pudo consultar entitlements de Minecraft tras refresh: {err}")
+            })?;
+    }
 
     let entitlements_status = entitlements_response.status();
     if !entitlements_status.is_success() {
@@ -620,10 +689,7 @@ fn validate_official_minecraft_auth(
 
     let profile_response = client
         .get("https://api.minecraftservices.com/minecraft/profile")
-        .header(
-            "Authorization",
-            format!("Bearer {}", auth_session.minecraft_access_token),
-        )
+        .header("Authorization", format!("Bearer {active_minecraft_token}"))
         .header("Accept", "application/json")
         .send()
         .map_err(|err| format!("No se pudo consultar perfil de Minecraft: {err}"))?;
@@ -656,13 +722,35 @@ fn validate_official_minecraft_auth(
         );
     }
 
+    let runtime = tokio::runtime::Runtime::new()
+        .map_err(|err| format!("No se pudo crear runtime para validar entitlements: {err}"))?;
+    let has_license = runtime.block_on(async {
+        has_minecraft_license(&reqwest::Client::new(), &active_minecraft_token).await
+    })?;
+
+    if !has_license {
+        return Err("La cuenta no posee licencia oficial de Minecraft.".to_string());
+    }
+
     logs.push("Licencia oficial de Minecraft verificada (entitlements/mcstore).".to_string());
     logs.push(format!(
         "Perfil oficial verificado: {} ({})",
         profile_name, profile_id
     ));
+    if let Some(expires_at) = active_minecraft_expires_at {
+        logs.push(format!(
+            "Token de Minecraft válido hasta epoch_ms={expires_at}."
+        ));
+    }
 
     Ok(())
+}
+
+fn now_unix_millis() -> Option<u64> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|value| value.as_millis() as u64)
 }
 
 fn runtime_name(runtime: JavaRuntime) -> &'static str {
