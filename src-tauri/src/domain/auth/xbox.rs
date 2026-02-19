@@ -47,12 +47,16 @@ fn build_minecraft_identity_token(uhs: &str, xsts_token: &str) -> String {
 }
 
 fn build_entitlements_unauthorized_hint(minecraft_access_token: &str) -> String {
+    let token_prefix: String = minecraft_access_token.chars().take(20).collect();
+
     format!(
-        "La API de entitlements rechazó el token de Minecraft (HTTP 401). \
-Posibles causas: token expirado, token inválido o flujo incompleto Microsoft→Xbox→XSTS→Minecraft. \
-Verifica que se use el access token de login_with_xbox y no un token de Microsoft/Xbox. \
-Longitud del token recibido: {} caracteres.",
-        minecraft_access_token.len()
+        "La API devolvió HTTP 401 en /entitlements/mcstore. \
+Esto suele indicar que el Bearer token es inválido o no es de Minecraft Services. \
+Para este endpoint SOLO sirve el minecraft_access_token emitido por /authentication/login_with_xbox. \
+No funcionan tokens de Microsoft OAuth/Graph, Xbox Live, XSTS, id_token ni refresh_token. \
+Flujo obligatorio: Microsoft OAuth -> Xbox Live -> XSTS -> Minecraft login_with_xbox -> entitlements. \
+Debug rápido: prefijo del token usado (20 chars): '{token_prefix}', longitud: {} caracteres.",
+        minecraft_access_token.len(),
     )
 }
 
@@ -295,7 +299,9 @@ mod tests {
         let message = build_entitlements_unauthorized_hint("abc123");
 
         assert!(message.contains("HTTP 401"));
+        assert!(message.contains("/entitlements/mcstore"));
         assert!(message.contains("login_with_xbox"));
         assert!(message.contains("6 caracteres"));
+        assert!(message.contains("abc123"));
     }
 }
