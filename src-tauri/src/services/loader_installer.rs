@@ -1,11 +1,14 @@
 use std::{
     fs,
-    io::Read,
+    io::{Read, Write},
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
+    time::SystemTime,
 };
 
+use fs2::available_space;
 use reqwest::blocking::Client;
+use reqwest::header::ACCEPT_ENCODING;
 use serde_json::Value;
 use zip::ZipArchive;
 
@@ -93,16 +96,20 @@ pub fn install_loader_if_needed(
                 )
             }
         }
-        "neoforge" => install_forge_like_modern(
-            &client,
+        "neoforge" => install_neoforge(
             minecraft_root,
             minecraft_version,
             loader_version,
             java_exec,
-            "https://maven.neoforged.net/releases/net/neoforged/neoforge/{loader_version}/neoforge-{loader_version}-installer.jar",
-            &neoforge_installer_args(),
-            ensure_neoforge_java(java_exec)?,
-            "neoforge",
+            minecraft_root
+                .parent()
+                .and_then(Path::parent)
+                .ok_or_else(|| {
+                    format!(
+                        "No se pudo resolver launcher root desde minecraft_root {}",
+                        minecraft_root.display()
+                    )
+                })?,
             logs,
         ),
         _ => Err(format!("Loader no soportado todavía: {loader}")),
@@ -282,6 +289,540 @@ fn install_forge_legacy(
     logs.push(format!(
         "Forge legacy instalado: versionId={version_id}, librerías nuevas={downloaded}."
     ));
+    Ok(version_id)
+}
+
+fn build_neoforge_installer_url(neoforge_version: &str) -> String {
+    format!(
+        "https://maven.neoforged.net/releases/net/neoforged/neoforge/{neoforge_version}/neoforge-{neoforge_version}-installer.jar"
+    )
+}
+
+fn verify_neoforge_preconditions(mc_root: &Path, mc_version: &str) -> AppResult<()> {
+    let version_dir = mc_root.join("versions").join(mc_version);
+    let vanilla_json = version_dir.join(format!("{mc_version}.json"));
+    let vanilla_jar = version_dir.join(format!("{mc_version}.jar"));
+
+    if !vanilla_json.exists() {
+        return Err(format!(
+            "client.jar de vanilla {mc_version} debe descargarse primero. No existe {}",
+            vanilla_json.display()
+        ));
+    }
+    if !vanilla_jar.exists() {
+        return Err(format!(
+            "version.json de vanilla {mc_version} debe descargarse primero. No existe {}",
+            vanilla_jar.display()
+        ));
+    }
+
+    let file = fs::File::open(&vanilla_jar).map_err(|err| {
+        format!(
+            "No se pudo abrir client.jar vanilla {}: {err}",
+            vanilla_jar.display()
+        )
+    })?;
+    ZipArchive::new(file).map_err(|err| {
+        format!(
+            "client.jar corrupto, re-descarga vanilla. Archivo {} inválido: {err}",
+            vanilla_jar.display()
+        )
+    })?;
+
+    let free = available_space(mc_root).map_err(|err| {
+        format!(
+            "No se pudo consultar espacio libre en {}: {err}",
+            mc_root.display()
+        )
+    })?;
+    let min = 500_u64 * 1024 * 1024;
+    if free < min {
+        return Err(format!(
+            "Espacio insuficiente en {}. Disponible={} bytes, requerido={} bytes",
+            mc_root.display(),
+            free,
+            min
+        ));
+    }
+
+    Ok(())
+}
+
+fn download_neoforge_installer(
+    url: &str,
+    launcher_root: &Path,
+    logs: &mut Vec<String>,
+) -> AppResult<PathBuf> {
+    let installers_dir = launcher_root.join("cache").join("installers");
+    fs::create_dir_all(&installers_dir).map_err(|err| {
+        format!(
+            "No se pudo crear directorio cache de installers {}: {err}",
+            installers_dir.display()
+        )
+    })?;
+
+    let file_name = url
+        .rsplit('/')
+        .next()
+        .ok_or_else(|| format!("URL installer inválida: {url}"))?;
+    let target = installers_dir.join(file_name);
+
+    if target.exists() {
+        let file = fs::File::open(&target).map_err(|err| {
+            format!(
+                "No se pudo abrir installer cacheado {}: {err}",
+                target.display()
+            )
+        })?;
+        ZipArchive::new(file)
+            .map_err(|err| format!("Installer cacheado inválido {}: {err}", target.display()))?;
+        logs.push(format!(
+            "Reutilizando installer cacheado válido: {}",
+            target.display()
+        ));
+        return Ok(target);
+    }
+
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .connect_timeout(std::time::Duration::from_secs(60))
+        .user_agent("InterfaceLauncher/0.2")
+        .gzip(false)
+        .brotli(false)
+        .deflate(false)
+        .build()
+        .map_err(|err| format!("No se pudo crear cliente HTTP NeoForge: {err}"))?;
+
+    let mut response = client
+        .get(url)
+        .header(ACCEPT_ENCODING, "identity")
+        .send()
+        .and_then(|res| res.error_for_status())
+        .map_err(|err| format!("No se pudo descargar installer NeoForge {url}: {err}"))?;
+
+    let mut file = fs::File::create(&target)
+        .map_err(|err| format!("No se pudo crear installer {}: {err}", target.display()))?;
+    let mut total = 0_u64;
+    let mut buffer = [0_u8; 16 * 1024];
+    loop {
+        let read = response
+            .read(&mut buffer)
+            .map_err(|err| format!("Error leyendo stream de installer NeoForge {url}: {err}"))?;
+        if read == 0 {
+            break;
+        }
+        file.write_all(&buffer[..read])
+            .map_err(|err| format!("No se pudo escribir chunk en {}: {err}", target.display()))?;
+        total += read as u64;
+    }
+
+    drop(file);
+    let zip_file = fs::File::open(&target).map_err(|err| {
+        format!(
+            "No se pudo abrir installer descargado {}: {err}",
+            target.display()
+        )
+    })?;
+    ZipArchive::new(zip_file).map_err(|err| {
+        format!(
+            "Installer NeoForge descargado no es ZIP válido en {} ({} bytes): {err}",
+            target.display(),
+            total
+        )
+    })?;
+
+    Ok(target)
+}
+
+fn run_neoforge_installer(
+    java_path: &Path,
+    installer_jar: &Path,
+    mc_root: &Path,
+    logs: &mut Vec<String>,
+) -> AppResult<()> {
+    let mut cmd = Command::new(java_path);
+    cmd.arg("-jar")
+        .arg(installer_jar)
+        .arg("--installClient")
+        .arg(mc_root)
+        .current_dir(mc_root)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let output = cmd.output().map_err(|err| {
+        format!(
+            "No se pudo ejecutar NeoForge installer {} con java {}: {err}",
+            installer_jar.display(),
+            java_path.display()
+        )
+    })?;
+
+    let stdout_str = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr_str = String::from_utf8_lossy(&output.stderr).to_string();
+
+    for line in stdout_str
+        .lines()
+        .rev()
+        .take(20)
+        .collect::<Vec<_>>()
+        .iter()
+        .rev()
+    {
+        logs.push(format!("[neoforge-installer] {line}"));
+    }
+    for line in stderr_str
+        .lines()
+        .rev()
+        .take(20)
+        .collect::<Vec<_>>()
+        .iter()
+        .rev()
+    {
+        logs.push(format!("[neoforge-installer][stderr] {line}"));
+    }
+
+    if !output.status.success() {
+        if stderr_str.to_ascii_lowercase().contains("access is denied")
+            || stderr_str.to_ascii_lowercase().contains("acceso denegado")
+        {
+            logs.push(
+                "Posible bloqueo de antivirus. Agrega la carpeta del launcher a las exclusiones."
+                    .to_string(),
+            );
+        }
+        return Err(format!(
+            "NeoForge installer falló con código {:?}.
+STDOUT:
+{}
+STDERR:
+{}",
+            output.status.code(),
+            stdout_str,
+            stderr_str
+        ));
+    }
+
+    Ok(())
+}
+
+fn parse_neoforge_candidate_json(
+    versions_dir: &Path,
+    version_id: &str,
+    mc_version: &str,
+) -> Option<(String, SystemTime)> {
+    let json_path = versions_dir
+        .join(version_id)
+        .join(format!("{version_id}.json"));
+    let raw = fs::read_to_string(&json_path).ok()?;
+    let json = serde_json::from_str::<Value>(&raw).ok()?;
+    let inherits = json.get("inheritsFrom").and_then(Value::as_str)?;
+    let id = json.get("id").and_then(Value::as_str).unwrap_or(version_id);
+    if inherits != mc_version || !id.to_ascii_lowercase().contains("neoforge") {
+        return None;
+    }
+    let modified = fs::metadata(&json_path).and_then(|m| m.modified()).ok()?;
+    Some((id.to_string(), modified))
+}
+
+fn detect_installed_neoforge_version(
+    mc_root: &Path,
+    mc_version: &str,
+    neoforge_version: &str,
+    installer_jar: Option<&Path>,
+) -> AppResult<String> {
+    let versions_dir = mc_root.join("versions");
+
+    let exact_modern = format!("neoforge-{neoforge_version}");
+    let modern_json = versions_dir
+        .join(&exact_modern)
+        .join(format!("{exact_modern}.json"));
+    if modern_json.exists() {
+        return Ok(exact_modern);
+    }
+
+    let legacy = format!("{mc_version}-neoforge-{neoforge_version}");
+    let legacy_json = versions_dir.join(&legacy).join(format!("{legacy}.json"));
+    if legacy_json.exists() {
+        return Ok(legacy);
+    }
+
+    let mut candidates: Vec<(String, SystemTime)> = Vec::new();
+    for entry in fs::read_dir(&versions_dir).map_err(|err| {
+        format!(
+            "No se pudo leer versions dir {} para detectar NeoForge: {err}",
+            versions_dir.display()
+        )
+    })? {
+        let entry = entry.map_err(|err| format!("No se pudo iterar versions dir: {err}"))?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        if let Some(id) = path.file_name().and_then(|n| n.to_str()) {
+            if let Some(candidate) = parse_neoforge_candidate_json(&versions_dir, id, mc_version) {
+                candidates.push(candidate);
+            }
+        }
+    }
+    candidates.sort_by_key(|(_, modified)| *modified);
+    if let Some((version_id, _)) = candidates.pop() {
+        return Ok(version_id);
+    }
+
+    if let Some(installer_jar) = installer_jar {
+        let file = fs::File::open(installer_jar).map_err(|err| {
+            format!(
+                "No se pudo abrir installer jar {} para fallback install_profile.json: {err}",
+                installer_jar.display()
+            )
+        })?;
+        let mut zip = ZipArchive::new(file).map_err(|err| {
+            format!(
+                "Installer NeoForge ZIP inválido {}: {err}",
+                installer_jar.display()
+            )
+        })?;
+        let mut install_profile = zip.by_name("install_profile.json").map_err(|err| {
+            format!(
+                "No se encontró install_profile.json en installer {}: {err}",
+                installer_jar.display()
+            )
+        })?;
+        let mut raw = String::new();
+        install_profile.read_to_string(&mut raw).map_err(|err| {
+            format!(
+                "No se pudo leer install_profile.json de {}: {err}",
+                installer_jar.display()
+            )
+        })?;
+        let profile = serde_json::from_str::<Value>(&raw).map_err(|err| {
+            format!(
+                "install_profile.json inválido en {}: {err}",
+                installer_jar.display()
+            )
+        })?;
+        if let Some(version_id) = profile.get("version").and_then(Value::as_str) {
+            return Ok(version_id.to_string());
+        }
+        if let Some(version_id) = profile.get("profile").and_then(Value::as_str) {
+            return Ok(version_id.to_string());
+        }
+    }
+
+    Err(format!(
+        "No se detectó NeoForge instalado después del installer.
+
+Buscado en: {}
+
+Contenido del directorio:
+{}",
+        versions_dir.display(),
+        list_versions_dir_contents(mc_root)
+    ))
+}
+
+fn list_versions_dir_contents(mc_root: &Path) -> String {
+    let versions_dir = mc_root.join("versions");
+    let mut lines = Vec::new();
+    let Ok(entries) = fs::read_dir(&versions_dir) else {
+        return format!("No se pudo leer {}", versions_dir.display());
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Some(id) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        let json_path = path.join(format!("{id}.json"));
+        lines.push(format!(
+            "- {id} (json: {})",
+            if json_path.exists() { "sí" } else { "no" }
+        ));
+    }
+
+    if lines.is_empty() {
+        "(versions vacío)".to_string()
+    } else {
+        lines.sort();
+        lines.join(
+            "
+",
+        )
+    }
+}
+
+fn validate_neoforge_version_json(
+    mc_root: &Path,
+    version_id: &str,
+    expected_mc_version: &str,
+) -> AppResult<()> {
+    let version_json_path = mc_root
+        .join("versions")
+        .join(version_id)
+        .join(format!("{version_id}.json"));
+    if !version_json_path.exists() {
+        return Err(format!(
+            "No existe version.json de NeoForge en {}",
+            version_json_path.display()
+        ));
+    }
+
+    let raw = fs::read_to_string(&version_json_path).map_err(|err| {
+        format!(
+            "No se pudo leer version.json NeoForge {}: {err}",
+            version_json_path.display()
+        )
+    })?;
+    let json = serde_json::from_str::<Value>(&raw).map_err(|err| {
+        format!(
+            "version.json NeoForge inválido en {}: {err}",
+            version_json_path.display()
+        )
+    })?;
+
+    let inherits = json
+        .get("inheritsFrom")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("Falta inheritsFrom en {}", version_json_path.display()))?;
+    if inherits != expected_mc_version {
+        return Err(format!(
+            "inheritsFrom inválido en {}. esperado={}, encontrado={}",
+            version_json_path.display(),
+            expected_mc_version,
+            inherits
+        ));
+    }
+
+    let main_class = json
+        .get("mainClass")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("Falta mainClass en {}", version_json_path.display()))?;
+    let main_class_lower = main_class.to_ascii_lowercase();
+    if !main_class_lower.contains("bootstraplauncher") && !main_class_lower.contains("cpw.mods") {
+        return Err(format!(
+            "mainClass inválida en {}. valor={}",
+            version_json_path.display(),
+            main_class
+        ));
+    }
+
+    let libraries = json
+        .get("libraries")
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("Falta array libraries en {}", version_json_path.display()))?;
+    if libraries.is_empty() {
+        return Err(format!(
+            "libraries vacío en {} para version_id={}",
+            version_json_path.display(),
+            version_id
+        ));
+    }
+
+    Ok(())
+}
+
+fn install_neoforge(
+    mc_root: &Path,
+    mc_version: &str,
+    neoforge_version: &str,
+    java_path: &Path,
+    launcher_root: &Path,
+    logs: &mut Vec<String>,
+) -> AppResult<String> {
+    let java_major = ensure_neoforge_java(java_path)?;
+    ensure_minecraft_layout(mc_root)?;
+
+    logs.push("=== NEOFORGE INSTALL DEBUG ===".to_string());
+    logs.push(format!("mc_root: {}", mc_root.display()));
+    logs.push(format!("mc_version: {mc_version}"));
+    logs.push(format!("neoforge_version: {neoforge_version}"));
+    logs.push(format!("java_path: {}", java_path.display()));
+    logs.push(format!("java_path exists: {}", java_path.exists()));
+    logs.push(format!("mc_root exists: {}", mc_root.exists()));
+    logs.push(format!(
+        "vanilla jar exists: {}",
+        mc_root
+            .join("versions")
+            .join(mc_version)
+            .join(format!("{mc_version}.jar"))
+            .exists()
+    ));
+    logs.push(format!(
+        "vanilla json exists: {}",
+        mc_root
+            .join("versions")
+            .join(mc_version)
+            .join(format!("{mc_version}.json"))
+            .exists()
+    ));
+
+    if cfg!(target_os = "windows") {
+        let mc_root_len = mc_root.display().to_string().len();
+        if mc_root_len > 200 {
+            logs.push(format!(
+                "[warning] Ruta mc_root larga en Windows ({mc_root_len} chars): {}",
+                mc_root.display()
+            ));
+        }
+    }
+
+    logs.push("Verificando precondiciones para NeoForge...".to_string());
+    verify_neoforge_preconditions(mc_root, mc_version)?;
+
+    logs.push("Construyendo URL del installer de NeoForge...".to_string());
+    let url = build_neoforge_installer_url(neoforge_version);
+    logs.push(format!("URL installer: {url}"));
+
+    if let Ok(version_id) =
+        detect_installed_neoforge_version(mc_root, mc_version, neoforge_version, None)
+    {
+        logs.push(format!("NeoForge ya instalado: {version_id}"));
+        return Ok(version_id);
+    }
+
+    logs.push("Descargando installer de NeoForge...".to_string());
+    let installer_path = download_neoforge_installer(&url, launcher_root, logs)?;
+    logs.push(format!(
+        "Installer descargado: {}",
+        installer_path.display()
+    ));
+
+    logs.push("Ejecutando NeoForge installer...".to_string());
+    logs.push(format!(
+        "Comando: {} -jar {} --installClient {} (Java detectado: {java_major})",
+        java_path.display(),
+        installer_path.display(),
+        mc_root.display()
+    ));
+    let _args = neoforge_installer_args();
+    run_neoforge_installer(java_path, &installer_path, mc_root, logs)?;
+    logs.push("Installer ejecutado sin errores reportados.".to_string());
+
+    logs.push("Detectando version.json instalado por NeoForge...".to_string());
+    let version_id = detect_installed_neoforge_version(
+        mc_root,
+        mc_version,
+        neoforge_version,
+        Some(&installer_path),
+    )
+    .map_err(|err| {
+        format!(
+            "Installer terminó exitosamente pero no se encontró el version.json.
+
+Esto indica un bug en el installer o permisos insuficientes.
+
+Detalle: {err}"
+        )
+    })?;
+    logs.push(format!("NeoForge instalado con version_id: {version_id}"));
+
+    validate_neoforge_version_json(mc_root, &version_id, mc_version)?;
+    logs.push("version.json de NeoForge validado correctamente.".to_string());
+
     Ok(version_id)
 }
 
