@@ -1,4 +1,17 @@
 @media (max-width: 980px) {
+  .app-shell {
+    padding: 0.45rem;
+    gap: 0.45rem;
+  }
+
+  .launcher-main-nav {
+    gap: 0.35rem;
+  }
+
+  .launcher-main-nav button {
+    padding-inline: 0.9rem;
+  }
+
   .creator-layout,
   .edit-instance-layout {
     --sidebar-width: 144px;
