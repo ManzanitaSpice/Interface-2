@@ -526,22 +526,28 @@ fn download_libraries_list(
             .and_then(|v| v.get("artifact"))
             .cloned();
 
-        let (url, path) = if let Some(artifact) = artifact {
-            (
-                artifact
-                    .get("url")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
-                artifact
-                    .get("path")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
-            )
+        let (path, candidate_urls) = if let Some(artifact) = artifact {
+            let path = artifact
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let artifact_url = artifact
+                .get("url")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+
+            if artifact_url.is_empty() {
+                let urls = candidate_maven_urls(library, &path);
+                (path, urls)
+            } else {
+                (path, vec![artifact_url])
+            }
         } else if let Some(name) = library.get("name").and_then(Value::as_str) {
             if let Some(path) = maven_name_to_relative_path(name) {
-                (format!("https://libraries.minecraft.net/{path}"), path)
+                let urls = candidate_maven_urls(library, &path);
+                (path, urls)
             } else {
                 continue;
             }
@@ -549,11 +555,11 @@ fn download_libraries_list(
             continue;
         };
 
-        if url.is_empty() || path.is_empty() {
+        if path.is_empty() || candidate_urls.is_empty() {
             continue;
         }
 
-        let target = minecraft_root.join("libraries").join(path);
+        let target = minecraft_root.join("libraries").join(&path);
         if target.exists() {
             continue;
         }
@@ -566,13 +572,35 @@ fn download_libraries_list(
             })?;
         }
 
-        let bytes = client
-            .get(&url)
-            .send()
-            .and_then(|response| response.error_for_status())
-            .map_err(|err| format!("No se pudo descargar librería {url}: {err}"))?
-            .bytes()
-            .map_err(|err| format!("No se pudo leer bytes de {url}: {err}"))?;
+        let mut last_error = String::new();
+        let mut downloaded_bytes = None;
+        for url in &candidate_urls {
+            match client
+                .get(url)
+                .send()
+                .and_then(|response| response.error_for_status())
+            {
+                Ok(response) => match response.bytes() {
+                    Ok(bytes) => {
+                        downloaded_bytes = Some(bytes);
+                        break;
+                    }
+                    Err(err) => {
+                        last_error = format!("No se pudo leer bytes de {url}: {err}");
+                    }
+                },
+                Err(err) => {
+                    last_error = format!("No se pudo descargar librería {url}: {err}");
+                }
+            }
+        }
+
+        let bytes = downloaded_bytes.ok_or_else(|| {
+            format!(
+                "No se pudo descargar librería {} desde ninguno de los repos candidatos. Último error: {}",
+                path, last_error
+            )
+        })?;
 
         fs::write(&target, bytes)
             .map_err(|err| format!("No se pudo guardar librería {}: {err}", target.display()))?;
@@ -580,6 +608,43 @@ fn download_libraries_list(
     }
 
     Ok(downloaded)
+}
+
+fn candidate_maven_urls(library: &Value, path: &str) -> Vec<String> {
+    if path.is_empty() {
+        return Vec::new();
+    }
+
+    let mut repos = Vec::new();
+    if let Some(repo) = library.get("url").and_then(Value::as_str) {
+        repos.push(repo.to_string());
+    }
+    repos.extend([
+        "https://libraries.minecraft.net/".to_string(),
+        "https://maven.minecraftforge.net/".to_string(),
+        "https://maven.neoforged.net/releases/".to_string(),
+        "https://repo1.maven.org/maven2/".to_string(),
+    ]);
+
+    let mut urls = Vec::new();
+    for repo in repos {
+        let repo = repo.trim();
+        if repo.is_empty() {
+            continue;
+        }
+
+        let base = if repo.ends_with('/') {
+            repo.to_string()
+        } else {
+            format!("{repo}/")
+        };
+        let candidate = format!("{base}{path}");
+        if !urls.contains(&candidate) {
+            urls.push(candidate);
+        }
+    }
+
+    urls
 }
 
 fn maven_name_to_relative_path(name: &str) -> Option<String> {
