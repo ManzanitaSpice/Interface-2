@@ -11,8 +11,9 @@ use reqwest::blocking::Client;
 
 use crate::{infrastructure::checksum::sha1::compute_file_sha1, shared::result::AppResult};
 
-const OFFICIAL_BINARY_HOSTS: [&str; 2] = [
+const OFFICIAL_BINARY_HOSTS: [&str; 3] = [
     "libraries.minecraft.net",
+    "piston-data.mojang.com",
     "resources.download.minecraft.net",
 ];
 
