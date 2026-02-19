@@ -1,29 +1,29 @@
 :root {
   font-family: var(--font-ui, Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
-  color: #e8edf7;
-  background-color: #090d14;
-  --bg-main: #0b111a;
-  --bg-surface: #121a25;
-  --bg-surface-muted: #0f1622;
-  --bg-soft: #0f1622;
-  --bg-hover: #1a2433;
-  --border: #243143;
-  --text-main: #e8edf7;
-  --text: #e8edf7;
-  --text-muted: #9caac0;
-  --accent: #5f95ff;
-  --accent-hover: #86afff;
+  color: #d8d8d8;
+  background-color: #121212;
+  --bg-main: #121212;
+  --bg-surface: #1d1d1d;
+  --bg-surface-muted: #252525;
+  --bg-soft: #1d1d1d;
+  --bg-hover: #303030;
+  --border: #3f3f3f;
+  --text-main: #d8d8d8;
+  --text: #d8d8d8;
+  --text-muted: #a4a4a4;
+  --accent: #8f8f8f;
+  --accent-hover: #a4a4a4;
   --success: #22c55e;
   --danger: #ef4444;
   --warning: #f59e0b;
   --sidebar-width: 168px;
   --font-ui: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --ui-scale: 1;
-  --panel-color: #121a25;
-  --button-color: #1a2433;
-  --button-hover-color: #223146;
-  --container-color: #0f1622;
-  --text-color: #e8edf7;
+  --panel-color: #1d1d1d;
+  --button-color: #2a2a2a;
+  --button-hover-color: #363636;
+  --container-color: #252525;
+  --text-color: #d8d8d8;
 }
 
 * {
@@ -90,22 +90,19 @@ button:active {
   transform: translateY(0) scale(0.99);
 }
 
-button.danger {
-  border-color: var(--danger);
-  color: var(--text-color);
-  background: var(--danger);
-}
-
-button.warning {
-  border-color: var(--warning);
-  color: var(--text-color);
-  background: var(--warning);
-}
-
+button.danger,
+button.warning,
 button.success {
-  border-color: var(--success);
+  border-color: var(--border);
   color: var(--text-color);
-  background: var(--success);
+  background: var(--button-color);
+}
+
+button.danger:hover,
+button.warning:hover,
+button.success:hover {
+  border-color: var(--accent);
+  background: var(--button-hover-color);
 }
 
 html,
