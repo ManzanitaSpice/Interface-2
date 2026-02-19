@@ -242,7 +242,16 @@ type AppearancePreset = {
   vars: Record<string, string>
 }
 
-type AppearanceColorKey = '--bg-main' | '--bg-surface' | '--border' | '--text-main' | '--accent'
+type AppearanceColorKey =
+  | '--bg-main'
+  | '--bg-surface'
+  | '--bg-surface-muted'
+  | '--bg-hover'
+  | '--border'
+  | '--text-main'
+  | '--text-muted'
+  | '--accent'
+  | '--accent-hover'
 
 type FontOption = {
   id: string
@@ -560,10 +569,15 @@ function App() {
   const [customAppearanceVars, setCustomAppearanceVars] = useState<Record<AppearanceColorKey, string>>({
     '--bg-main': appearancePresets[0].vars['--bg-main'],
     '--bg-surface': appearancePresets[0].vars['--bg-surface'],
+    '--bg-surface-muted': appearancePresets[0].vars['--bg-surface-muted'],
+    '--bg-hover': appearancePresets[0].vars['--bg-hover'],
     '--border': appearancePresets[0].vars['--border'],
     '--text-main': appearancePresets[0].vars['--text-main'],
+    '--text-muted': appearancePresets[0].vars['--text-muted'],
     '--accent': appearancePresets[0].vars['--accent'],
+    '--accent-hover': appearancePresets[0].vars['--accent-hover'],
   })
+  const [launchProgressPercent, setLaunchProgressPercent] = useState(0)
   const [folderRoutes, setFolderRoutes] = useState<FolderRouteItem[]>(defaultFolderRoutes)
   const [updatesAutoCheck, setUpdatesAutoCheck] = useState(true)
   const [updatesChannel, setUpdatesChannel] = useState<'Stable' | 'Preview'>('Stable')
@@ -979,6 +993,9 @@ function App() {
         const source = event.payload.stream === 'system' ? 'launcher' : 'game'
         const prefix = event.payload.stream === 'system' ? '' : `[${event.payload.stream.toUpperCase()}] `
         appendRuntimeForRoot(event.payload.instanceRoot, makeConsoleEntry(level, source, `${prefix}${event.payload.line}`))
+        if (isStartingInstance && !isInstanceRunning) {
+          setLaunchProgressPercent((prev) => Math.min(92, Math.max(prev + 4, 16)))
+        }
       })
     }
 
@@ -1538,6 +1555,7 @@ function App() {
     }
 
     setIsStartingInstance(true)
+    setLaunchProgressPercent(8)
     setRuntimeConsoleByInstance((prev) => ({ ...prev, [selectedCard.instanceRoot ?? '']: [] }))
     appendRuntimeForRoot(selectedCard.instanceRoot, makeConsoleEntry('INFO', 'launcher', 'Iniciando validación final y arranque en vivo de Minecraft...'))
 
@@ -1570,12 +1588,14 @@ function App() {
 
       appendRuntimeForRoot(selectedCard.instanceRoot, makeConsoleEntry('INFO', 'launcher', `Proceso de Minecraft iniciado (PID ${result.pid}) con Java ${result.javaPath}`))
       result.logs.forEach((line) => appendRuntimeForRoot(selectedCard.instanceRoot, makeConsoleEntry('INFO', 'launcher', line)))
+      setLaunchProgressPercent(100)
       setIsInstanceRunning(true)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       appendRuntimeForRoot(selectedCard.instanceRoot, makeConsoleEntry('ERROR', 'launcher', `No se pudo iniciar el proceso de la instancia: ${message}`))
     } finally {
       setIsStartingInstance(false)
+      window.setTimeout(() => setLaunchProgressPercent(0), 320)
     }
   }
 
@@ -1826,15 +1846,24 @@ function App() {
       ...preset.vars,
       '--bg-main': customAppearanceVars['--bg-main'] ?? preset.vars['--bg-main'],
       '--bg-surface': customAppearanceVars['--bg-surface'] ?? preset.vars['--bg-surface'],
+      '--bg-surface-muted': customAppearanceVars['--bg-surface-muted'] ?? preset.vars['--bg-surface-muted'],
+      '--bg-hover': customAppearanceVars['--bg-hover'] ?? preset.vars['--bg-hover'],
       '--border': customAppearanceVars['--border'] ?? preset.vars['--border'],
       '--text-main': customAppearanceVars['--text-main'] ?? preset.vars['--text-main'],
+      '--text-muted': customAppearanceVars['--text-muted'] ?? preset.vars['--text-muted'],
       '--accent': customAppearanceVars['--accent'] ?? preset.vars['--accent'],
+      '--accent-hover': customAppearanceVars['--accent-hover'] ?? preset.vars['--accent-hover'],
     }
     Object.entries(vars).forEach(([key, value]) => {
       document.documentElement.style.setProperty(key, value)
     })
     document.documentElement.style.setProperty('--bg-soft', vars['--bg-surface'])
     document.documentElement.style.setProperty('--text', vars['--text-main'])
+    document.documentElement.style.setProperty('--panel-color', vars['--bg-surface'])
+    document.documentElement.style.setProperty('--container-color', vars['--bg-surface-muted'])
+    document.documentElement.style.setProperty('--button-color', vars['--bg-surface-muted'])
+    document.documentElement.style.setProperty('--button-hover-color', vars['--bg-hover'])
+    document.documentElement.style.setProperty('--text-color', vars['--text-main'])
     document.documentElement.style.setProperty('--font-ui', selectedFontFamily)
     document.documentElement.style.setProperty('--ui-scale', `${uiScalePercent / 100}`)
 
@@ -2349,9 +2378,13 @@ function App() {
                     {([
                       ['Fondo', '--bg-main'],
                       ['Superficie', '--bg-surface'],
+                      ['Superficie secundaria', '--bg-surface-muted'],
+                      ['Hover', '--bg-hover'],
                       ['Borde', '--border'],
                       ['Texto', '--text-main'],
+                      ['Texto secundario', '--text-muted'],
                       ['Acento', '--accent'],
+                      ['Acento hover', '--accent-hover'],
                     ] as [string, AppearanceColorKey][]).map(([label, key]) => (
                       <label key={key} className="appearance-color-row">
                         <span>{label}</span>
@@ -2629,6 +2662,11 @@ function App() {
                 </div>
 
                 <div className="execution-log-console" role="log" aria-label="Consola de logs" ref={runtimeConsoleRef}>
+                  {isStartingInstance && !isInstanceRunning && (
+                    <div className="instance-launch-progress-compact" aria-label="Progreso de inicio de ejecución">
+                      <div className="instance-launch-progress-compact-fill" style={{ width: `${launchProgressPercent}%` }} />
+                    </div>
+                  )}
                   {runtimeConsole
                     .filter((entry) => (consoleLevelFilter === 'Todos' ? true : entry.level === consoleLevelFilter))
                     .filter((entry) => (launcherLogFilter === 'Todos' ? true : entry.source === launcherLogFilter))

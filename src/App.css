@@ -81,3 +81,51 @@
 * {
   color: var(--text-color);
 }
+
+/* Mejoras visuales globales de tema/listas/consola */
+ul,
+ol,
+li {
+  color: var(--text-color) !important;
+}
+
+.instance-console,
+.instance-console-panel,
+.execution-log-console,
+.creation-mini-console,
+.runtime-console {
+  background: color-mix(in srgb, var(--container-color) 90%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, var(--accent)) !important;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--accent) 16%, transparent), 0 8px 20px rgba(0, 0, 0, 0.18) !important;
+  transition: border-color 0.28s ease, box-shadow 0.28s ease, filter 0.28s ease;
+}
+
+.execution-log-console:hover,
+.creation-mini-console:hover {
+  border-color: var(--accent-hover) !important;
+  filter: saturate(1.05);
+}
+
+.instance-launch-progress-compact {
+  width: 100%;
+  height: 4px;
+  margin-bottom: 0.55rem;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bg-surface-muted) 88%, black);
+  border: 1px solid color-mix(in srgb, var(--border) 75%, var(--accent));
+}
+
+.instance-launch-progress-compact-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+  transition: width 0.22s ease-out, filter 0.3s ease;
+  animation: launchPulse 1s ease-in-out infinite;
+}
+
+@keyframes launchPulse {
+  0%,
+  100% { filter: brightness(0.95); }
+  50% { filter: brightness(1.15); }
+}
