@@ -52,7 +52,7 @@ pub fn install_loader_if_needed(
             "quilt",
             logs,
         ),
-        "forge" => install_forge_like(
+        "forge" => run_forge_processors(
             &client,
             minecraft_root,
             minecraft_version,
@@ -62,7 +62,7 @@ pub fn install_loader_if_needed(
             "forge",
             logs,
         ),
-        "neoforge" => install_forge_like(
+        "neoforge" => run_neoforge_processors(
             &client,
             minecraft_root,
             minecraft_version,
@@ -181,7 +181,7 @@ fn install_fabric_like(
     Ok(())
 }
 
-fn install_forge_like(
+fn run_forge_processors(
     client: &Client,
     minecraft_root: &Path,
     minecraft_version: &str,
@@ -189,6 +189,68 @@ fn install_forge_like(
     java_exec: &Path,
     installer_url_template: &str,
     loader_name: &str,
+    logs: &mut Vec<String>,
+) -> AppResult<()> {
+    run_forge_like_processors(
+        client,
+        minecraft_root,
+        minecraft_version,
+        loader_version,
+        java_exec,
+        installer_url_template,
+        loader_name,
+        vec![vec![
+            "--installServer".to_string(),
+            minecraft_root.to_string_lossy().to_string(),
+        ]],
+        logs,
+    )
+}
+
+fn run_neoforge_processors(
+    client: &Client,
+    minecraft_root: &Path,
+    minecraft_version: &str,
+    loader_version: &str,
+    java_exec: &Path,
+    installer_url_template: &str,
+    loader_name: &str,
+    logs: &mut Vec<String>,
+) -> AppResult<()> {
+    let extracted_dir = minecraft_root
+        .join("installer-artifacts")
+        .join(format!("{}-{}-extract", loader_name, loader_version));
+    run_forge_like_processors(
+        client,
+        minecraft_root,
+        minecraft_version,
+        loader_version,
+        java_exec,
+        installer_url_template,
+        loader_name,
+        vec![
+            vec![
+                "--installServer".to_string(),
+                minecraft_root.to_string_lossy().to_string(),
+            ],
+            vec![
+                "--extract".to_string(),
+                extracted_dir.to_string_lossy().to_string(),
+            ],
+        ],
+        logs,
+    )
+}
+
+fn run_forge_like_processors(
+    client: &Client,
+    minecraft_root: &Path,
+    minecraft_version: &str,
+    loader_version: &str,
+    java_exec: &Path,
+    installer_url_template: &str,
+    loader_name: &str,
+    modes: Vec<Vec<String>>,
     logs: &mut Vec<String>,
 ) -> AppResult<()> {
     let installer_url = installer_url_template
@@ -220,26 +282,35 @@ fn install_forge_like(
         )
     })?;
 
-    let output = Command::new(java_exec)
-        .arg("-jar")
-        .arg(&installer_jar)
-        .arg("--installClient")
-        .arg(minecraft_root)
-        .output()
-        .map_err(|err| format!("No se pudo ejecutar installer de {loader_name}: {err}"))?;
+    let mut attempts = Vec::new();
+    for mode in modes {
+        let output = Command::new(java_exec)
+            .arg("-jar")
+            .arg(&installer_jar)
+            .args(mode.iter().map(String::as_str))
+            .output()
+            .map_err(|err| format!("No se pudo ejecutar installer de {loader_name}: {err}"))?;
 
-    if !output.status.success() {
+        if output.status.success() {
+            logs.push(format!(
+                "Loader {loader_name}: processors ejecutados con installer usando {}.",
+                mode.join(" ")
+            ));
+            return Ok(());
+        }
+
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
-        return Err(format!(
-            "Falló installer de {loader_name}. stdout: {} | stderr: {}",
+        attempts.push(format!(
+            "modo={} | stdout={} | stderr={}",
+            mode.join(" "),
             stdout.trim(),
             stderr.trim()
         ));
     }
 
-    logs.push(format!(
-        "Loader {loader_name} instalado vía installer jar (processors ejecutados por installer oficial)."
-    ));
-    Ok(())
+    Err(format!(
+        "Falló installer de {loader_name} en todos los modos no-client. Intentos: {}",
+        attempts.join(" || ")
+    ))
 }
