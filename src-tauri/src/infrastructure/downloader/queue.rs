@@ -11,11 +11,24 @@ use reqwest::blocking::Client;
 
 use crate::{infrastructure::checksum::sha1::compute_file_sha1, shared::result::AppResult};
 
-const OFFICIAL_BINARY_HOSTS: [&str; 3] = [
+const OFFICIAL_BINARY_HOSTS: [&str; 5] = [
     "libraries.minecraft.net",
-    "piston-data.mojang.com",
     "resources.download.minecraft.net",
+    "piston-data.mojang.com",
+    "piston-meta.mojang.com",
+    "launchermeta.mojang.com",
 ];
+
+fn normalize_host(host: &str) -> String {
+    host.trim().trim_end_matches('.').to_ascii_lowercase()
+}
+
+fn is_official_binary_host(host: &str) -> bool {
+    let normalized_host = normalize_host(host);
+    OFFICIAL_BINARY_HOSTS
+        .iter()
+        .any(|allowed| normalized_host == *allowed)
+}
 
 #[derive(Clone, Debug)]
 pub struct DownloadJob {
@@ -55,7 +68,7 @@ pub fn ensure_official_binary_url(url: &str) -> AppResult<()> {
         .map_err(|err| format!("URL de descarga inválida: {url}. Error: {err}"))?;
     let host = parsed.host_str().unwrap_or_default();
 
-    if !OFFICIAL_BINARY_HOSTS.contains(&host) {
+    if !is_official_binary_host(host) {
         return Err(format!(
             "Host de descarga bloqueado por política oficial: {host}. URL: {url}"
         ));
