@@ -427,6 +427,12 @@ fn create_instance_impl(
         },
     )?;
     logs.extend(build_logs);
+    push_creation_log(
+        &app,
+        &request_id,
+        &mut logs,
+        format!("DEBUG effective_version_id={}", effective_version_id),
+    );
     for line in progress_logs {
         push_creation_log(&app, &request_id, &mut logs, line);
     }
