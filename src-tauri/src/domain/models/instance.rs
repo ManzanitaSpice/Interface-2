@@ -67,6 +67,12 @@ pub struct InstanceMetadata {
     pub java_runtime: String,
     #[serde(default)]
     pub java_version: String,
+    #[serde(default)]
+    pub required_java_major: u32,
+    #[serde(default)]
+    pub created_at: String,
+    #[serde(default)]
+    pub state: String,
     pub last_used: Option<String>,
     pub internal_uuid: String,
 }
