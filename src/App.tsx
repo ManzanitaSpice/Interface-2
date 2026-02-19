@@ -179,7 +179,7 @@ type LoaderVersionItem = {
   downloadUrl?: string
 }
 
-type LoaderChannelFilter = 'Todos' | 'Stable' | 'Latest' | 'Maven'
+type LoaderChannelFilter = 'Todos' | 'Stable' | 'Latest' | 'Releases'
 
 type InstanceSettingsTab = 'General' | 'Java' | 'Ajustes' | 'Comandos Personalizados' | 'Variables de Entorno'
 
@@ -270,6 +270,8 @@ function mapTypeToSpanish(type: string): string {
   if (type === 'snapshot') return 'Snapshot'
   if (type === 'old_beta') return 'Beta'
   if (type === 'old_alpha') return 'Alfa'
+  if (type === 'stable') return 'Estable'
+  if (type === 'latest') return 'Última'
   return type
 }
 
@@ -279,6 +281,32 @@ function inferNeoForgeFamily(mcVersion: string): string | null {
   const minor = parts[1]
   const patch = parts[2] ?? '0'
   return `${minor}.${patch}`
+}
+
+function parseDateSafe(value: string | undefined): number {
+  if (!value || value === '-') return 0
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function compareVersionLike(a: string, b: string): number {
+  const aParts = a.split(/[.-]/).map((part) => Number.parseInt(part, 10))
+  const bParts = b.split(/[.-]/).map((part) => Number.parseInt(part, 10))
+  const maxLength = Math.max(aParts.length, bParts.length)
+  for (let index = 0; index < maxLength; index += 1) {
+    const aValue = Number.isFinite(aParts[index]) ? aParts[index] : -1
+    const bValue = Number.isFinite(bParts[index]) ? bParts[index] : -1
+    if (aValue !== bValue) return bValue - aValue
+  }
+  return b.localeCompare(a)
+}
+
+function sortLoaderVersions(items: LoaderVersionItem[]): LoaderVersionItem[] {
+  return [...items].sort((left, right) => {
+    const dateDiff = parseDateSafe(right.publishedAt) - parseDateSafe(left.publishedAt)
+    if (dateDiff !== 0) return dateDiff
+    return compareVersionLike(left.version, right.version)
+  })
 }
 
 function App() {
@@ -889,13 +917,13 @@ function App() {
           throw new Error(`Fabric API HTTP ${response.status}`)
         }
         const payload = (await response.json()) as Array<{ loader?: { version?: string }; stable?: boolean }>
-        const items: LoaderVersionItem[] = payload
+        const items = sortLoaderVersions(payload
           .map((entry) => ({
             version: entry.loader?.version ?? '',
             publishedAt: '-',
             source: entry.stable ? 'stable' : 'latest',
           }))
-          .filter((entry) => Boolean(entry.version))
+          .filter((entry) => Boolean(entry.version)))
 
         if (!cancelled) {
           setLoaderVersions(items)
@@ -909,14 +937,14 @@ function App() {
         if (!response.ok) {
           throw new Error(`Quilt API HTTP ${response.status}`)
         }
-        const payload = (await response.json()) as Array<{ loader?: { version?: string } }>
-        const items: LoaderVersionItem[] = payload
+        const payload = (await response.json()) as Array<{ loader?: { version?: string }; stable?: boolean; created?: string }>
+        const items = sortLoaderVersions(payload
           .map((entry) => ({
             version: entry.loader?.version ?? '',
-            publishedAt: '-',
-            source: 'latest',
+            publishedAt: entry.created ?? '-',
+            source: entry.stable ? 'stable' : 'latest',
           }))
-          .filter((entry) => Boolean(entry.version))
+          .filter((entry) => Boolean(entry.version)))
 
         if (!cancelled) {
           setLoaderVersions(items)
@@ -934,17 +962,17 @@ function App() {
         const doc = new DOMParser().parseFromString(xmlText, 'application/xml')
         const versions = Array.from(doc.querySelectorAll('version')).map((node) => node.textContent?.trim() ?? '')
         const prefix = `${selectedMinecraftVersion.id}-`
-        const items: LoaderVersionItem[] = versions
+        const items = sortLoaderVersions(versions
           .filter((version) => version.startsWith(prefix))
           .map((version) => {
             const forgeVersion = version.slice(prefix.length)
             return {
               version: forgeVersion,
               publishedAt: '-',
-              source: 'maven',
+              source: 'release',
               downloadUrl: `https://maven.minecraftforge.net/net/minecraftforge/forge/${selectedMinecraftVersion.id}-${forgeVersion}/forge-${selectedMinecraftVersion.id}-${forgeVersion}-installer.jar`,
             }
-          })
+          }))
 
         if (!cancelled) {
           setLoaderVersions(items)
@@ -962,7 +990,7 @@ function App() {
         const doc = new DOMParser().parseFromString(xmlText, 'application/xml')
         const versions = Array.from(doc.querySelectorAll('version')).map((node) => node.textContent?.trim() ?? '')
         const family = inferNeoForgeFamily(selectedMinecraftVersion.id)
-        const items: LoaderVersionItem[] = versions
+        const items = sortLoaderVersions(versions
           .filter((version) => {
             if (!family) return true
             return version === family || version.startsWith(`${family}.`)
@@ -970,9 +998,9 @@ function App() {
           .map((version) => ({
             version,
             publishedAt: '-',
-            source: 'maven',
+            source: 'release',
             downloadUrl: `https://maven.neoforged.net/releases/net/neoforged/neoforge/${version}/neoforge-${version}-installer.jar`,
-          }))
+          })))
 
         if (!cancelled) {
           setLoaderVersions(items)
@@ -997,6 +1025,31 @@ function App() {
     }
   }, [selectedLoader, selectedMinecraftVersion])
 
+  useEffect(() => {
+    if (!manifestVersions.length) return
+    const versionExists = selectedMinecraftVersion && manifestVersions.some((entry) => entry.id === selectedMinecraftVersion.id)
+    if (versionExists) return
+
+    const latestRelease = [...manifestVersions]
+      .filter((entry) => entry.type === 'release')
+      .sort((left, right) => Date.parse(right.releaseTime) - Date.parse(left.releaseTime))[0]
+
+    setSelectedMinecraftVersion(latestRelease ?? manifestVersions[0])
+  }, [manifestVersions, selectedMinecraftVersion])
+
+  useEffect(() => {
+    if (!loaderVersions.length) {
+      setSelectedLoaderVersion(null)
+      return
+    }
+
+    const currentVersionExists = selectedLoaderVersion && loaderVersions.some((entry) => entry.version === selectedLoaderVersion.version)
+    if (currentVersionExists) return
+
+    const stableFirst = loaderVersions.find((entry) => entry.source === 'stable')
+    setSelectedLoaderVersion(stableFirst ?? loaderVersions[0])
+  }, [loaderVersions, selectedLoaderVersion])
+
   const filteredCards = useMemo(() => {
     const term = instanceSearch.trim().toLowerCase()
     if (!term) {
@@ -1008,7 +1061,8 @@ function App() {
 
   const minecraftRows = useMemo<[string, string, string][]>(() => {
     const searchTerm = minecraftSearch.trim().toLowerCase()
-    return manifestVersions
+    return [...manifestVersions]
+      .sort((left, right) => Date.parse(right.releaseTime) - Date.parse(left.releaseTime))
       .filter((version) => {
         if (selectedMcFilter === 'Releases') return version.type === 'release'
         if (selectedMcFilter === 'Snapshots') return version.type === 'snapshot'
@@ -1032,10 +1086,10 @@ function App() {
         if (selectedLoaderFilter === 'Todos') return true
         if (selectedLoaderFilter === 'Stable') return entry.source === 'stable'
         if (selectedLoaderFilter === 'Latest') return entry.source === 'latest'
-        return entry.source === 'maven'
+        return entry.source === 'release'
       })
       .filter((entry) => !searchTerm || entry.version.toLowerCase().includes(searchTerm))
-      .map((entry) => [entry.version, entry.publishedAt, entry.source])
+      .map((entry) => [entry.version, entry.publishedAt, mapTypeToSpanish(entry.source)])
   }, [loaderSearch, loaderVersions, selectedLoaderFilter])
 
 
@@ -1838,7 +1892,7 @@ function App() {
             {selectedCreatorSection === 'Personalizado' ? (
               <div className="customized-content">
                 <ListInterface
-                  title="Interfaz Minecraft"
+                  title="Versiones Minecraft"
                   search={minecraftSearch}
                   onSearch={setMinecraftSearch}
                   rows={minecraftRows}
@@ -1864,7 +1918,7 @@ function App() {
                   }
                 />
                 <ListInterface
-                  title="Interfaz Loaders"
+                  title="Versiones de Loaders"
                   search={loaderSearch}
                   onSearch={setLoaderSearch}
                   rows={loaderRows}
@@ -1875,7 +1929,7 @@ function App() {
                       setSelectedLoaderVersion(found)
                     }
                   }}
-                  rightActions={['Todos', 'Stable', 'Latest', 'Maven']}
+                  rightActions={['Todos', 'Stable', 'Latest', 'Releases']}
                   selectedAction={selectedLoaderFilter}
                   onActionSelect={(value) => setSelectedLoaderFilter(value as LoaderChannelFilter)}
                   loaderActions={['Ninguno', 'Neoforge', 'Forge', 'Fabric', 'Quilt']}
@@ -1893,7 +1947,7 @@ function App() {
                       ? 'Selecciona primero una versión de Minecraft para resolver loaders compatibles.'
                       : loaderLoading
                         ? `Cargando loaders compatibles para MC ${selectedMinecraftVersion.id}...`
-                        : loaderError || `Loader seleccionado: ${selectedLoader}`
+                        : loaderError || `Catálogo activo: ${selectedLoader}`
                   }
                 />
               </div>
@@ -2131,7 +2185,9 @@ function PrincipalTopBar({
     <header className="top-launcher-shell">
       <div className="top-bar principal">
         <div className="launcher-brand-block">
-          <span className="launcher-brand-logo" aria-hidden="true" />
+          <div className="launcher-brand-logo-slot" aria-hidden="true">
+            <img className="launcher-brand-logo-image" src="/vite.svg" alt="" />
+          </div>
           <strong>INTERFACE</strong>
           <button type="button" className="window-chip" aria-label="Ir hacia atrás" onClick={onNavigateBack} disabled={!canNavigateBack}>←</button>
           <button type="button" className="window-chip" aria-label="Ir hacia adelante" onClick={onNavigateForward} disabled={!canNavigateForward}>→</button>
@@ -2239,6 +2295,7 @@ function ListInterface({
         </div>
 
         <aside className="mini-right-sidebar buttons-only">
+          {loaderActions && <p className="filter-label">Loader</p>}
           {loaderActions?.map((action) => (
             <button
               key={`${title}-loader-${action}`}
@@ -2249,10 +2306,12 @@ function ListInterface({
             </button>
           ))}
           {loaderActions && <hr className="sidebar-divider" />}
+          {advancedActions && <p className="filter-label">Canal</p>}
           {advancedActions?.map((action) => (
             <button key={`${title}-advanced-${action}`} className={selectedAdvancedAction === action ? 'active' : ''} onClick={() => onAdvancedActionSelect?.(action)}>{action}</button>
           ))}
           {advancedActions && <hr className="sidebar-divider" />}
+          <p className="filter-label">Tipo</p>
           {rightActions.map((action) => (
             <button key={`${title}-${action}`} className={selectedAction === action ? 'active' : ''} onClick={() => onActionSelect(action)}>
               {action}

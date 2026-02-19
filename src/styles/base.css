@@ -1,16 +1,19 @@
 :root {
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  color: #e5ebf5;
-  background-color: #090d14;
-  --bg-main: #090d14;
-  --bg-surface: #121924;
-  --bg-surface-muted: #1e2532;
-  --bg-hover: #283141;
-  --border: #2f3a4a;
-  --text-main: #e5ebf5;
-  --text-muted: #9ba7ba;
+  color: #e6e3dc;
+  background-color: #0f0f0d;
+  --bg-main: #0f0f0d;
+  --bg-surface: #191915;
+  --bg-surface-muted: #23231f;
+  --bg-hover: #2c2c26;
+  --border: #393931;
+  --text-main: #e6e3dc;
+  --text-muted: #aaa59a;
   --accent: #3f8cff;
-  --accent-hover: #60a4ff;
+  --accent-hover: #66a7ff;
+  --success: #22c55e;
+  --danger: #ef4444;
+  --warning: #f59e0b;
   --sidebar-width: 168px;
 }
 
@@ -20,7 +23,7 @@
 
 body {
   margin: 0;
-  background: radial-gradient(circle at top right, rgba(34, 74, 140, 0.12) 0%, rgba(9, 13, 20, 1) 46%), var(--bg-main);
+  background: radial-gradient(circle at top right, rgba(130, 98, 58, 0.1) 0%, rgba(15, 15, 13, 1) 44%), var(--bg-main);
   height: 100vh;
   color: var(--text-main);
   overflow: hidden;
@@ -34,31 +37,36 @@ button,
 input,
 select {
   border: 1px solid var(--border);
-  border-radius: 0.75rem;
+  border-radius: 0.38rem;
   background: var(--bg-surface-muted);
   color: var(--text-main);
-  padding: 0.55rem 0.85rem;
-  min-height: 42px;
+  padding: 0.5rem 0.75rem;
+  min-height: 38px;
 }
 
 button {
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
-  background: linear-gradient(180deg, #272f3d 0%, #1f2733 100%);
-  border-color: #3a4658;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, #2a2924 0%, #21201c 100%);
+  border-color: #424139;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 button:hover {
-  background: linear-gradient(180deg, #2e3848 0%, #242d3a 100%);
-  border-color: #4b5a70;
+  background: linear-gradient(180deg, #34332d 0%, #272621 100%);
+  border-color: #59574d;
   transform: translateY(-1px);
 }
 
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 button.primary {
-  background: linear-gradient(180deg, rgba(63, 140, 255, 0.26) 0%, rgba(63, 140, 255, 0.2) 100%);
+  background: linear-gradient(180deg, rgba(63, 140, 255, 0.23) 0%, rgba(63, 140, 255, 0.16) 100%);
   border-color: color-mix(in srgb, var(--accent) 72%, var(--border));
-  color: #f0f6ff;
+  color: #f2f6ff;
   font-weight: 600;
 }
 
@@ -68,9 +76,21 @@ button.primary:hover {
 }
 
 button.danger {
-  border-color: color-mix(in srgb, #ef4444 70%, var(--border));
+  border-color: color-mix(in srgb, var(--danger) 70%, var(--border));
   color: #fecaca;
-  background: color-mix(in srgb, #ef4444 10%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+button.warning {
+  border-color: color-mix(in srgb, var(--warning) 70%, var(--border));
+  color: #fde68a;
+  background: color-mix(in srgb, var(--warning) 11%, transparent);
+}
+
+button.success {
+  border-color: color-mix(in srgb, var(--success) 70%, var(--border));
+  color: #bbf7d0;
+  background: color-mix(in srgb, var(--success) 10%, transparent);
 }
 
 html,

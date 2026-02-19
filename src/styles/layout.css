@@ -2,8 +2,8 @@
   height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 0.9rem;
-  gap: 0.9rem;
+  padding: 0.65rem;
+  gap: 0.65rem;
   overflow: hidden;
 }
 
@@ -19,32 +19,31 @@
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 0.8rem;
-  padding: 0.8rem 1rem;
+  gap: 0.65rem;
+  padding: 0.58rem 0.82rem;
   border-bottom: 1px solid var(--border);
 }
 
 .top-bar.principal {
   justify-content: space-between;
-  background: linear-gradient(180deg, #171d28 0%, #141a24 100%);
-  border: 1px solid #263243;
-  border-radius: 0.95rem 0.95rem 0 0;
-  border-bottom: 1px solid #2a3445;
-  position: sticky;
-  top: 0.9rem;
+  background: linear-gradient(180deg, #1a1a18 0%, #161614 100%);
+  border: 1px solid #303029;
+  border-radius: 0.45rem 0.45rem 0 0;
+  border-bottom: 1px solid #383831;
+  position: relative;
+  top: 0;
   z-index: 6;
 }
 
 .top-bar.secondary {
-  background: linear-gradient(180deg, #171d28 0%, #141a24 100%);
-  border: 1px solid #263243;
+  background: linear-gradient(180deg, #1a1a18 0%, #161614 100%);
+  border: 1px solid #303029;
   border-top: 0;
-  border-radius: 0 0 0.95rem 0.95rem;
-  flex-wrap: wrap;
+  border-radius: 0 0 0.45rem 0.45rem;
 }
 
 .top-bar.secondary button.active {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
   border-color: var(--accent);
 }
 
@@ -55,7 +54,7 @@
 }
 
 .content-padded {
-  padding: 1rem;
+  padding: 0;
 }
 
 .page-title {
@@ -100,7 +99,6 @@
   background: var(--bg-surface);
 }
 
-
 .top-launcher-shell {
   display: flex;
   flex-direction: column;
@@ -109,20 +107,27 @@
 .launcher-brand-block {
   display: flex;
   align-items: center;
-  gap: 0.7rem;
+  gap: 0.56rem;
 }
 
-.launcher-brand-logo {
-  width: 1.2rem;
-  height: 1.2rem;
-  border-radius: 0.45rem;
-  background: linear-gradient(180deg, #ffcf67, #c9862f);
-  box-shadow: 0 0 16px rgba(255, 196, 89, 0.35);
+.launcher-brand-logo-slot {
+  width: 1.35rem;
+  height: 1.35rem;
+  border: 1px solid #4a4637;
+  background: linear-gradient(180deg, #2d2b23, #1f1d18);
+  display: grid;
+  place-items: center;
+}
+
+.launcher-brand-logo-image {
+  width: 0.95rem;
+  height: 0.95rem;
+  object-fit: contain;
 }
 
 .window-chip {
-  min-height: 28px;
-  width: 28px;
+  min-height: 24px;
+  width: 24px;
   border-radius: 999px;
   padding: 0;
   font-weight: 700;
@@ -130,26 +135,26 @@
 }
 
 .launcher-main-nav {
-  padding-top: 0.7rem;
-  padding-bottom: 0.8rem;
-  gap: 0.9rem;
+  padding-top: 0.42rem;
+  padding-bottom: 0.45rem;
+  gap: 0.45rem;
+  flex-wrap: nowrap;
+  overflow-x: auto;
 }
 
 .launcher-main-nav button {
-  min-height: 40px;
-  padding-inline: 1.35rem;
+  min-height: 34px;
+  padding-inline: 0.9rem;
   font-weight: 500;
   background: transparent;
   border-color: transparent;
   box-shadow: none;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .launcher-main-nav button.active {
-  background: rgba(63, 140, 255, 0.13);
-  border-color: #4f93ff;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-}
-
-.content-padded {
-  padding: 0;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: var(--accent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
