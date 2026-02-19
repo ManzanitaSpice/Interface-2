@@ -1,7 +1,5 @@
 use std::{fs, path::Path};
 
-use sha1::{Digest, Sha1};
-
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -14,7 +12,10 @@ use crate::{
         },
         models::instance::InstanceMetadata,
     },
-    infrastructure::filesystem::file_ops::write_placeholder_file,
+    infrastructure::{
+        downloader::queue::{build_official_client, download_with_retry},
+        filesystem::file_ops::write_placeholder_file,
+    },
     shared::result::AppResult,
 };
 
@@ -217,12 +218,6 @@ fn ensure_official_url(url: &str) -> AppResult<()> {
     Ok(())
 }
 
-fn sha1_hex(bytes: &[u8]) -> String {
-    let mut hasher = Sha1::new();
-    hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
-}
-
 fn download_version_json(minecraft_version: &str) -> AppResult<Value> {
     let manifest = reqwest::blocking::get(MOJANG_MANIFEST_URL)
         .map_err(|err| format!("No se pudo descargar version_manifest oficial: {err}"))?
@@ -275,14 +270,13 @@ fn download_libraries(
     total_downloads: u64,
     on_progress: &mut dyn FnMut(u64, u64, String),
 ) -> AppResult<usize> {
-    let mut downloaded = 0usize;
-
     let libraries = version_json
         .get("libraries")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
 
+    let mut jobs = Vec::new();
     for library in libraries {
         let rules = library
             .get("rules")
@@ -295,36 +289,41 @@ fn download_libraries(
         }
 
         if let Some((url, path, sha1)) = artifact_download_entry(&library) {
-            let output_path = minecraft_root.join("libraries").join(path);
-            if download_binary(url, &output_path, false, Some(sha1))? {
-                downloaded += 1;
-            }
-            *completed_downloads += 1;
-            on_progress(
-                *completed_downloads,
-                total_downloads,
-                format!("Librerías: {}/{}", *completed_downloads, total_downloads),
-            );
+            jobs.push(crate::infrastructure::downloader::queue::DownloadJob {
+                url: url.to_string(),
+                target_path: minecraft_root.join("libraries").join(path),
+                expected_sha1: sha1.to_string(),
+                label: format!("lib {path}"),
+            });
         }
 
         if let Some((url, path, sha1)) = native_download_entry(&library, rule_context) {
-            let output_path = minecraft_root.join("libraries").join(path);
-            if download_binary(url, &output_path, false, Some(sha1))? {
-                downloaded += 1;
-            }
-            *completed_downloads += 1;
-            on_progress(
-                *completed_downloads,
-                total_downloads,
-                format!(
-                    "Librerías/Natives: {}/{}",
-                    *completed_downloads, total_downloads
-                ),
-            );
+            jobs.push(crate::infrastructure::downloader::queue::DownloadJob {
+                url: url.to_string(),
+                target_path: minecraft_root.join("libraries").join(path),
+                expected_sha1: sha1.to_string(),
+                label: format!("native {path}"),
+            });
         }
     }
 
-    Ok(downloaded)
+    let planned = jobs.len() as u64;
+    for idx in 0..planned {
+        *completed_downloads += 1;
+        on_progress(
+            *completed_downloads,
+            total_downloads,
+            format!("Librerías: {}/{}", *completed_downloads, total_downloads),
+        );
+        if idx == 0 {
+            // advance progress early to avoid UI freeze while downloads run in parallel.
+        }
+    }
+
+    let client = build_official_client()?;
+    let completed =
+        crate::infrastructure::downloader::queue::download_jobs_parallel(&client, jobs)?;
+    Ok(completed.len())
 }
 
 fn artifact_download_entry(library: &Value) -> Option<(&str, &str, &str)> {
@@ -494,47 +493,16 @@ fn download_binary(
     force: bool,
     expected_sha1: Option<&str>,
 ) -> AppResult<bool> {
-    if !force && target_path.exists() {
-        return Ok(false);
-    }
-
-    if let Some(parent) = target_path.parent() {
-        fs::create_dir_all(parent).map_err(|err| {
-            format!(
-                "No se pudo crear directorio {} para descarga: {err}",
-                parent.display()
-            )
-        })?;
-    }
-
     ensure_official_url(url)?;
-
-    let bytes = reqwest::blocking::get(url)
-        .map_err(|err| format!("No se pudo descargar recurso oficial {url}: {err}"))?
-        .error_for_status()
-        .map_err(|err| format!("Recurso oficial devolvió error HTTP ({url}): {err}"))?
-        .bytes()
-        .map_err(|err| format!("No se pudo leer bytes descargados de {url}: {err}"))?;
-
-    if let Some(expected) = expected_sha1 {
-        let actual = sha1_hex(bytes.as_ref());
-        if !actual.eq_ignore_ascii_case(expected) {
-            return Err(format!(
-                "SHA1 inválido para {}. Esperado: {expected}, actual: {actual}",
-                url
-            ));
-        }
-    }
-
     write_placeholder_file(target_path, "")?;
-    fs::write(target_path, &bytes).map_err(|err| {
-        format!(
-            "No se pudo guardar archivo descargado en {}: {err}",
-            target_path.display()
-        )
-    })?;
-
-    Ok(true)
+    let client = build_official_client()?;
+    download_with_retry(
+        &client,
+        url,
+        target_path,
+        expected_sha1.unwrap_or_default(),
+        force,
+    )
 }
 
 #[derive(Debug, Deserialize)]

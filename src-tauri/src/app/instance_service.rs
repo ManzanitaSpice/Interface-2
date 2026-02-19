@@ -14,7 +14,6 @@ use std::{
 
 use serde::Serialize;
 use serde_json::Value;
-use sha1::{Digest, Sha1};
 use tauri::{AppHandle, Emitter};
 use zip::ZipArchive;
 
@@ -37,6 +36,9 @@ use crate::{
         },
         models::instance::{InstanceMetadata, LaunchAuthSession},
         models::java::JavaRuntime,
+    },
+    infrastructure::downloader::queue::{
+        build_official_client, download_jobs_parallel, ensure_official_binary_url, DownloadJob,
     },
     services::java_installer::ensure_embedded_java,
 };
@@ -401,8 +403,7 @@ pub fn validate_and_prepare_launch(
         ..RuleContext::current()
     };
 
-    let mut resolved =
-        resolve_launch_arguments(&version_json, &launch_context, &launch_rules)?;
+    let mut resolved = resolve_launch_arguments(&version_json, &launch_context, &launch_rules)?;
     let memory_args = vec![
         format!("-Xms{}M", metadata.ram_mb.max(512) / 2),
         format!("-Xmx{}M", metadata.ram_mb.max(512)),
@@ -892,7 +893,9 @@ fn validate_official_minecraft_auth(
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(20))
         .build()
-        .map_err(|err| format!("No se pudo construir cliente HTTP para auth de Minecraft: {err}"))?;
+        .map_err(|err| {
+            format!("No se pudo construir cliente HTTP para auth de Minecraft: {err}")
+        })?;
     let mut active_minecraft_token = auth_session.minecraft_access_token.clone();
     let mut active_minecraft_expires_at = auth_session.minecraft_access_token_expires_at;
 
@@ -978,7 +981,10 @@ fn validate_official_minecraft_auth(
     })?;
 
     let profile_status = profile_response.status();
-    logs.push(format!("GET /minecraft/profile -> HTTP {}", profile_status.as_u16()));
+    logs.push(format!(
+        "GET /minecraft/profile -> HTTP {}",
+        profile_status.as_u16()
+    ));
     if profile_status.as_u16() != 200 {
         let body = profile_response.text().unwrap_or_default();
         return Err(format!(
@@ -1333,54 +1339,20 @@ fn hydrate_missing_libraries(
         return Ok(());
     }
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(20))
-        .build()
-        .map_err(|err| format!("No se pudo construir cliente HTTP para auth de Minecraft: {err}"))?;
+    let client = build_official_client()?;
+    let jobs = missing_entries
+        .iter()
+        .map(|entry| DownloadJob {
+            url: entry.url.clone(),
+            target_path: PathBuf::from(&entry.path),
+            expected_sha1: entry.sha1.clone(),
+            label: format!("librería runtime {}", entry.path),
+        })
+        .collect::<Vec<_>>();
 
-    for entry in missing_entries {
-        let path = Path::new(&entry.path);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|err| {
-                format!(
-                    "No se pudo crear directorio para librería faltante {}: {err}",
-                    parent.display()
-                )
-            })?;
-        }
-
-        let bytes = client
-            .get(&entry.url)
-            .send()
-            .and_then(reqwest::blocking::Response::error_for_status)
-            .map_err(|err| {
-                format!(
-                    "No se pudo descargar librería faltante {}: {err}",
-                    entry.url
-                )
-            })?
-            .bytes()
-            .map_err(|err| format!("No se pudo leer librería faltante {}: {err}", entry.url))?;
-
-        let actual_sha1 = sha1_hex(bytes.as_ref());
-        if !actual_sha1.eq_ignore_ascii_case(&entry.sha1) {
-            return Err(format!(
-                "SHA1 inválido en librería {}. Esperado {}, obtenido {}",
-                entry.path, entry.sha1, actual_sha1
-            ));
-        }
-
-        fs::write(path, &bytes).map_err(|err| {
-            format!(
-                "No se pudo guardar librería faltante {}: {err}",
-                path.display()
-            )
-        })?;
-
-        logs.push(format!(
-            "✔ librería faltante descargada en runtime: {}",
-            entry.path
-        ));
+    let completed = download_jobs_parallel(&client, jobs)?;
+    for label in completed {
+        logs.push(format!("✔ {}", label));
     }
     Ok(())
 }
@@ -1413,12 +1385,12 @@ fn ensure_assets_available(
 
     let index_path = indexes_dir.join(format!("{index_id}.json"));
     if !index_path.exists() {
-        let index_bytes = reqwest::blocking::get(index_url)
+        let bytes = reqwest::blocking::get(index_url)
             .and_then(reqwest::blocking::Response::error_for_status)
             .map_err(|err| format!("No se pudo descargar asset index oficial: {err}"))?
             .bytes()
             .map_err(|err| format!("No se pudo leer asset index oficial: {err}"))?;
-        fs::write(&index_path, &index_bytes).map_err(|err| {
+        fs::write(&index_path, &bytes).map_err(|err| {
             format!(
                 "No se pudo guardar asset index en {}: {err}",
                 index_path.display()
@@ -1441,7 +1413,7 @@ fn ensure_assets_available(
         .and_then(Value::as_object)
         .ok_or_else(|| format!("asset index sin objects: {}", index_path.display()))?;
 
-    let mut missing = Vec::new();
+    let mut jobs = Vec::new();
     for object in objects.values() {
         let Some(hash) = object.get("hash").and_then(Value::as_str) else {
             continue;
@@ -1449,80 +1421,45 @@ fn ensure_assets_available(
         if hash.len() < 2 {
             continue;
         }
+
         let prefix = &hash[..2];
         let object_path = mc_root
             .join("assets")
             .join("objects")
             .join(prefix)
             .join(hash);
-        if !object_path.exists() {
-            missing.push((hash.to_string(), object_path));
+        if object_path.exists() {
+            continue;
         }
+
+        let url = format!("https://resources.download.minecraft.net/{prefix}/{hash}");
+        ensure_official_binary_url(&url)?;
+        jobs.push(DownloadJob {
+            url,
+            target_path: object_path,
+            expected_sha1: hash.to_string(),
+            label: format!("asset {hash}"),
+        });
     }
 
-    if missing.is_empty() {
+    if jobs.is_empty() {
         logs.push("✔ assets listos en disco (sin descargas diferidas).".to_string());
         return Ok(());
     }
 
     logs.push(format!(
         "ℹ assets faltantes detectados para esta ejecución: {}",
-        missing.len()
+        jobs.len()
     ));
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(20))
-        .build()
-        .map_err(|err| format!("No se pudo construir cliente HTTP para auth de Minecraft: {err}"))?;
-    for (idx, (hash, object_path)) in missing.iter().enumerate() {
-        if let Some(parent) = object_path.parent() {
-            fs::create_dir_all(parent).map_err(|err| {
-                format!(
-                    "No se pudo crear carpeta de asset {}: {err}",
-                    parent.display()
-                )
-            })?;
-        }
-
-        let prefix = &hash[..2];
-        let url = format!("https://resources.download.minecraft.net/{prefix}/{hash}");
-        let bytes = client
-            .get(&url)
-            .send()
-            .and_then(reqwest::blocking::Response::error_for_status)
-            .map_err(|err| format!("No se pudo descargar asset {hash}: {err}"))?
-            .bytes()
-            .map_err(|err| format!("No se pudo leer asset {hash}: {err}"))?;
-
-        let actual_sha1 = sha1_hex(bytes.as_ref());
-        if !actual_sha1.eq_ignore_ascii_case(hash) {
-            return Err(format!(
-                "SHA1 inválido en asset {}. Esperado {}, obtenido {}",
-                object_path.display(),
-                hash,
-                actual_sha1
-            ));
-        }
-
-        fs::write(object_path, &bytes)
-            .map_err(|err| format!("No se pudo guardar asset {}: {err}", object_path.display()))?;
-
-        if (idx + 1) % 250 == 0 || idx + 1 == missing.len() {
-            logs.push(format!(
-                "✔ assets diferidos descargados: {}/{}",
-                idx + 1,
-                missing.len()
-            ));
-        }
-    }
+    let client = build_official_client()?;
+    let completed = download_jobs_parallel(&client, jobs)?;
+    logs.push(format!(
+        "✔ assets diferidos descargados/verificados: {}",
+        completed.len()
+    ));
 
     Ok(())
-}
-
-fn sha1_hex(bytes: &[u8]) -> String {
-    let mut hasher = Sha1::new();
-    hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
 }
 
 fn validate_jars_as_zip(jars: &[PathBuf]) -> Result<(), String> {
