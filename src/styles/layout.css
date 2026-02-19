@@ -26,18 +26,18 @@
 
 .top-bar.principal {
   justify-content: space-between;
-  background: linear-gradient(180deg, #182231 0%, #131b28 100%);
-  border: 1px solid #2a394f;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 90%, #162131) 0%, color-mix(in srgb, var(--bg-surface-muted) 92%, #111a28) 100%);
+  border: 1px solid color-mix(in srgb, var(--border) 86%, #2a394f);
   border-radius: 0.45rem 0.45rem 0 0;
-  border-bottom: 1px solid #344861;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 78%, #344861);
   position: relative;
   top: 0;
   z-index: 6;
 }
 
 .top-bar.secondary {
-  background: linear-gradient(180deg, #15202f 0%, #121b29 100%);
-  border: 1px solid #2a394f;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 86%, #15202f) 0%, color-mix(in srgb, var(--bg-surface-muted) 92%, #121b29) 100%);
+  border: 1px solid color-mix(in srgb, var(--border) 86%, #2a394f);
   border-top: 0;
   border-radius: 0 0 0.45rem 0.45rem;
 }
@@ -128,7 +128,7 @@
 .window-chip {
   min-height: 24px;
   width: 24px;
-  border-radius: 999px;
+  border-radius: 0.2rem;
   padding: 0;
   font-weight: 700;
   line-height: 1;

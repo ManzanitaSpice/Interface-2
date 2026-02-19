@@ -175,7 +175,7 @@
 
 .floating-modal {
   width: min(460px, calc(100vw - 2rem));
-  background: var(--bg-surface);
+  background: color-mix(in srgb, var(--bg-surface) 96%, #121923);
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   padding: 1rem;
@@ -317,7 +317,7 @@
 
 .compact-sidebar,
 .edit-left-sidebar {
-  background: var(--bg-surface);
+  background: color-mix(in srgb, var(--bg-surface) 94%, #121923);
   border-right: 1px solid var(--border);
   padding: 0.65rem;
   display: flex;
@@ -842,8 +842,8 @@
 .account-menu-trigger {
   min-width: 170px;
   border-radius: 0.4rem;
-  background: linear-gradient(180deg, #2a2924, #1f1e1b);
-  border-color: #4b483e;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-hover) 68%, #26231f), color-mix(in srgb, var(--bg-surface) 88%, #1b1a18));
+  border-color: color-mix(in srgb, var(--border) 78%, #4b483e);
   font-weight: 700;
 }
 
@@ -852,7 +852,7 @@
   right: 0;
   top: calc(100% + 0.35rem);
   min-width: 220px;
-  background: var(--bg-surface);
+  background: color-mix(in srgb, var(--bg-surface) 96%, #121923);
   border: 1px solid var(--border);
   border-radius: 0.6rem;
   padding: 0.45rem;
@@ -875,7 +875,7 @@
 }
 
 .account-manager-panel {
-  background: var(--bg-surface);
+  background: color-mix(in srgb, var(--bg-surface) 96%, #121923);
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   padding: 0.75rem;
@@ -889,7 +889,7 @@
 }
 
 .account-manager-main {
-  background: var(--bg-surface);
+  background: color-mix(in srgb, var(--bg-surface) 96%, #121923);
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   padding: 0.95rem;
@@ -990,7 +990,7 @@
 }
 
 .skins-catalog-panel {
-  background: var(--bg-surface);
+  background: color-mix(in srgb, var(--bg-surface) 96%, #121923);
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   padding: 0.9rem;
@@ -1244,9 +1244,9 @@
 
 .news-card,
 .news-side-note {
-  border: 1px solid #314761;
+  border: 1px solid color-mix(in srgb, var(--border) 86%, #314761);
   border-radius: 0.75rem;
-  background: linear-gradient(170deg, #1a2940, #131f32);
+  background: linear-gradient(170deg, color-mix(in srgb, var(--bg-surface) 92%, #1a2940), color-mix(in srgb, var(--bg-surface-muted) 94%, #131f32));
   padding: 0.9rem;
   display: flex;
   flex-direction: column;
@@ -1327,9 +1327,9 @@
 }
 
 .global-settings-list {
-  border: 1px solid #314761;
+  border: 1px solid color-mix(in srgb, var(--border) 86%, #314761);
   border-radius: 0.75rem;
-  background: linear-gradient(170deg, #1a2940, #131f32);
+  background: linear-gradient(170deg, color-mix(in srgb, var(--bg-surface) 92%, #1a2940), color-mix(in srgb, var(--bg-surface-muted) 94%, #131f32));
   padding: 0.9rem;
   display: grid;
   gap: 0.6rem;
@@ -1337,10 +1337,10 @@
 }
 
 .global-setting-item {
-  border: 1px solid #3d5270;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, #3d5270);
   border-radius: 0.6rem;
   padding: 0.7rem 0.8rem;
-  background: rgba(17, 28, 46, 0.72);
+  background: color-mix(in srgb, var(--bg-surface-muted) 84%, transparent);
 }
 
 .global-setting-item h3,
@@ -1365,9 +1365,9 @@
 
 .appearance-presets,
 .appearance-preview {
-  border: 1px solid #314761;
+  border: 1px solid color-mix(in srgb, var(--border) 86%, #314761);
   border-radius: 0.75rem;
-  background: linear-gradient(170deg, #1a2940, #131f32);
+  background: linear-gradient(170deg, color-mix(in srgb, var(--bg-surface) 92%, #1a2940), color-mix(in srgb, var(--bg-surface-muted) 94%, #131f32));
   padding: 0.9rem;
 }
 
@@ -1473,9 +1473,9 @@
 }
 
 .updates-table-wrap {
-  border: 1px solid #314761;
+  border: 1px solid color-mix(in srgb, var(--border) 86%, #314761);
   border-radius: 0.75rem;
-  background: linear-gradient(170deg, #1a2940, #131f32);
+  background: linear-gradient(170deg, color-mix(in srgb, var(--bg-surface) 92%, #1a2940), color-mix(in srgb, var(--bg-surface-muted) 94%, #131f32));
   overflow: auto;
 }
 
@@ -1503,4 +1503,43 @@
 
 .tauri-updater-guide code {
   color: color-mix(in srgb, var(--accent-hover) 86%, white);
+}
+
+.appearance-preview.detailed {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.appearance-control-field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.appearance-control-field span {
+  font-weight: 600;
+}
+
+.appearance-scale-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.appearance-color-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem 0.9rem;
+}
+
+.appearance-color-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.appearance-color-row input[type='color'] {
+  width: 52px;
+  height: 32px;
+  padding: 0.15rem;
 }

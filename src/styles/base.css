@@ -1,13 +1,15 @@
 :root {
-  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-ui, Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
   color: #e8edf7;
   background-color: #090d14;
   --bg-main: #0b111a;
   --bg-surface: #121a25;
   --bg-surface-muted: #0f1622;
+  --bg-soft: #0f1622;
   --bg-hover: #1a2433;
   --border: #243143;
   --text-main: #e8edf7;
+  --text: #e8edf7;
   --text-muted: #9caac0;
   --accent: #5f95ff;
   --accent-hover: #86afff;
@@ -15,6 +17,8 @@
   --danger: #ef4444;
   --warning: #f59e0b;
   --sidebar-width: 168px;
+  --font-ui: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --ui-scale: 1;
 }
 
 * {
@@ -38,9 +42,10 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   border: 1px solid var(--border);
-  border-radius: 0.38rem;
+  border-radius: 0.22rem;
   background: var(--bg-surface-muted);
   color: var(--text-main);
   padding: 0.5rem 0.75rem;
@@ -50,16 +55,16 @@ select {
 button {
   cursor: pointer;
   transition: background 0.24s ease, border-color 0.24s ease, transform 0.2s ease, box-shadow 0.28s ease, opacity 0.2s ease;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-hover) 84%, #1a1f2d) 0%, color-mix(in srgb, var(--bg-surface-muted) 88%, #151a24) 100%);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 90%, #151a24) 0%, color-mix(in srgb, var(--bg-surface-muted) 94%, #121823) 100%);
   border-color: color-mix(in srgb, var(--border) 88%, #2b3449);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 6px 14px rgba(2, 8, 18, 0.28);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 5px 12px rgba(2, 8, 18, 0.22);
 }
 
 button:hover {
   background: linear-gradient(180deg, color-mix(in srgb, var(--bg-hover) 94%, #222b3f) 0%, color-mix(in srgb, var(--bg-surface) 86%, #192235) 100%);
   border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
-  transform: translateY(-1px) scale(1.01);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 10px 20px rgba(4, 12, 26, 0.42);
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 9px 18px rgba(4, 12, 26, 0.32);
 }
 
 button:focus-visible {
@@ -111,4 +116,8 @@ body,
 *::-webkit-scrollbar {
   width: 0;
   height: 0;
+}
+
+html {
+  font-size: calc(16px * var(--ui-scale, 1));
 }
