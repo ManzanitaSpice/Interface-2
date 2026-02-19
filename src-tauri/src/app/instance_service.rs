@@ -37,9 +37,6 @@ use crate::{
         models::instance::{InstanceMetadata, LaunchAuthSession},
         models::java::JavaRuntime,
     },
-    infrastructure::downloader::queue::{
-        build_official_client, download_jobs_parallel, ensure_official_binary_url, DownloadJob,
-    },
     services::java_installer::ensure_embedded_java,
 };
 
@@ -289,8 +286,6 @@ pub fn validate_and_prepare_launch(
 
     let rule_context = RuleContext::current();
     let mut resolved_libraries = resolve_libraries(&mc_root, &version_json, &rule_context);
-    hydrate_missing_libraries(&resolved_libraries.missing_classpath_entries, &mut logs)?;
-    ensure_assets_available(&mc_root, &version_json, &mut logs)?;
     resolved_libraries = resolve_libraries(&mc_root, &version_json, &rule_context);
 
     if !resolved_libraries.missing_classpath_entries.is_empty() {
@@ -336,6 +331,28 @@ pub fn validate_and_prepare_launch(
     logs.push(format!("BOOTSTRAP EN CP: {has_bootstrap}"));
 
     let loader_lower = metadata.loader.trim().to_ascii_lowercase();
+    logs.push(format!("JAVA ejecutado: {}", embedded_java));
+    logs.push(format!("versionId efectivo: {selected_version_id}"));
+    logs.push(format!("mainClass efectiva: {resolved_main_class}"));
+    logs.push(format!(
+        "classpath tamaño: {}",
+        resolved_libraries.classpath_entries.len() + 1
+    ));
+    let classpath_preview = resolved_libraries
+        .classpath_entries
+        .iter()
+        .take(5)
+        .cloned()
+        .collect::<Vec<_>>();
+    if classpath_preview.is_empty() {
+        logs.push("primeros 5 jars del classpath: (vacío)".to_string());
+    } else {
+        logs.push(format!(
+            "primeros 5 jars del classpath: {}",
+            classpath_preview.join(" | ")
+        ));
+    }
+
     if loader_lower != "vanilla" && resolved_main_class == "net.minecraft.client.main.Main" {
         return Err(format!(
             "Regla de validación incumplida: loader={} pero mainClass quedó en vanilla ({resolved_main_class}).",
@@ -1495,137 +1512,6 @@ fn resolve_libraries(
         native_jars,
         missing_native_entries,
     }
-}
-
-fn hydrate_missing_libraries(
-    missing_entries: &[MissingLibraryEntry],
-    logs: &mut Vec<String>,
-) -> Result<(), String> {
-    if missing_entries.is_empty() {
-        return Ok(());
-    }
-
-    let client = build_official_client()?;
-    let jobs = missing_entries
-        .iter()
-        .map(|entry| DownloadJob {
-            url: entry.url.clone(),
-            target_path: PathBuf::from(&entry.path),
-            expected_sha1: entry.sha1.clone(),
-            label: format!("librería runtime {}", entry.path),
-        })
-        .collect::<Vec<_>>();
-
-    let completed = download_jobs_parallel(&client, jobs)?;
-    for label in completed {
-        logs.push(format!("✔ {}", label));
-    }
-    Ok(())
-}
-
-fn ensure_assets_available(
-    mc_root: &Path,
-    version_json: &Value,
-    logs: &mut Vec<String>,
-) -> Result<(), String> {
-    let asset_index = version_json
-        .get("assetIndex")
-        .ok_or_else(|| "version.json no incluye assetIndex".to_string())?;
-
-    let index_url = asset_index
-        .get("url")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "assetIndex.url no está presente".to_string())?;
-    let index_id = asset_index
-        .get("id")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "assetIndex.id no está presente".to_string())?;
-
-    let indexes_dir = mc_root.join("assets").join("indexes");
-    fs::create_dir_all(&indexes_dir).map_err(|err| {
-        format!(
-            "No se pudo crear carpeta de asset indexes {}: {err}",
-            indexes_dir.display()
-        )
-    })?;
-
-    let index_path = indexes_dir.join(format!("{index_id}.json"));
-    if !index_path.exists() {
-        let bytes = reqwest::blocking::get(index_url)
-            .and_then(reqwest::blocking::Response::error_for_status)
-            .map_err(|err| format!("No se pudo descargar asset index oficial: {err}"))?
-            .bytes()
-            .map_err(|err| format!("No se pudo leer asset index oficial: {err}"))?;
-        fs::write(&index_path, &bytes).map_err(|err| {
-            format!(
-                "No se pudo guardar asset index en {}: {err}",
-                index_path.display()
-            )
-        })?;
-    }
-
-    let raw_index = fs::read_to_string(&index_path).map_err(|err| {
-        format!(
-            "No se pudo leer asset index {}: {err}",
-            index_path.display()
-        )
-    })?;
-
-    let parsed: Value = serde_json::from_str(&raw_index)
-        .map_err(|err| format!("asset index inválido {}: {err}", index_path.display()))?;
-
-    let objects = parsed
-        .get("objects")
-        .and_then(Value::as_object)
-        .ok_or_else(|| format!("asset index sin objects: {}", index_path.display()))?;
-
-    let mut jobs = Vec::new();
-    for object in objects.values() {
-        let Some(hash) = object.get("hash").and_then(Value::as_str) else {
-            continue;
-        };
-        if hash.len() < 2 {
-            continue;
-        }
-
-        let prefix = &hash[..2];
-        let object_path = mc_root
-            .join("assets")
-            .join("objects")
-            .join(prefix)
-            .join(hash);
-        if object_path.exists() {
-            continue;
-        }
-
-        let url = format!("https://resources.download.minecraft.net/{prefix}/{hash}");
-        ensure_official_binary_url(&url)?;
-        jobs.push(DownloadJob {
-            url,
-            target_path: object_path,
-            expected_sha1: hash.to_string(),
-            label: format!("asset {hash}"),
-        });
-    }
-
-    if jobs.is_empty() {
-        logs.push("✔ assets listos en disco (sin descargas diferidas).".to_string());
-        return Ok(());
-    }
-
-    logs.push(format!(
-        "ℹ assets faltantes detectados para esta ejecución: {}",
-        jobs.len()
-    ));
-
-    let client = build_official_client()?;
-    let completed = download_jobs_parallel(&client, jobs)?;
-    logs.push(format!(
-        "✔ assets diferidos descargados/verificados: {}",
-        completed.len()
-    ));
-
-    Ok(())
 }
 
 fn validate_jars_as_zip(jars: &[PathBuf]) -> Result<(), String> {
