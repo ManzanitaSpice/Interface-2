@@ -46,6 +46,16 @@ fn build_minecraft_identity_token(uhs: &str, xsts_token: &str) -> String {
     format!("XBL3.0 x={uhs};{xsts_token}")
 }
 
+fn build_entitlements_unauthorized_hint(minecraft_access_token: &str) -> String {
+    format!(
+        "La API de entitlements rechazó el token de Minecraft (HTTP 401). \
+Posibles causas: token expirado, token inválido o flujo incompleto Microsoft→Xbox→XSTS→Minecraft. \
+Verifica que se use el access token de login_with_xbox y no un token de Microsoft/Xbox. \
+Longitud del token recibido: {} caracteres.",
+        minecraft_access_token.len()
+    )
+}
+
 #[derive(Debug)]
 pub struct XboxLiveToken {
     pub token: String,
@@ -210,6 +220,13 @@ pub async fn has_minecraft_license(
     let status = response.status();
     if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
+        if status.as_u16() == 401 {
+            return Err(format!(
+                "{}. Body completo: {body}",
+                build_entitlements_unauthorized_hint(minecraft_access_token)
+            ));
+        }
+
         return Err(format!(
             "La API de entitlements de Minecraft devolvió error HTTP: {status}. Body completo: {body}"
         ));
@@ -251,7 +268,9 @@ pub async fn read_minecraft_profile(
 
 #[cfg(test)]
 mod tests {
-    use super::{build_minecraft_identity_token, build_xsts_request};
+    use super::{
+        build_entitlements_unauthorized_hint, build_minecraft_identity_token, build_xsts_request,
+    };
 
     #[test]
     fn build_xsts_request_uses_minecraft_relying_party() {
@@ -269,5 +288,14 @@ mod tests {
     fn minecraft_identity_token_has_expected_format() {
         let token = build_minecraft_identity_token("user-hash", "xsts-token");
         assert_eq!(token, "XBL3.0 x=user-hash;xsts-token");
+    }
+
+    #[test]
+    fn entitlements_unauthorized_hint_describes_common_causes() {
+        let message = build_entitlements_unauthorized_hint("abc123");
+
+        assert!(message.contains("HTTP 401"));
+        assert!(message.contains("login_with_xbox"));
+        assert!(message.contains("6 caracteres"));
     }
 }
