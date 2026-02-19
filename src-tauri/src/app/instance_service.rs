@@ -367,6 +367,14 @@ pub fn validate_and_prepare_launch(
             metadata.loader
         ));
     }
+    if let Some(expected_main_class) = expected_main_class_for_loader(&loader_lower) {
+        if resolved_main_class != expected_main_class {
+            return Err(format!(
+                "Regla de validación incumplida: loader={} requiere mainClass={} pero se obtuvo {}.",
+                metadata.loader, expected_main_class, resolved_main_class
+            ));
+        }
+    }
     if (loader_lower == "forge" || loader_lower == "neoforge") && !has_bootstrap {
         return Err(format!(
             "Regla de validación incumplida: loader={} requiere bootstraplauncher en classpath.",
@@ -1570,6 +1578,15 @@ fn extract_natives(native_jars: &[NativeJarEntry], natives_dir: &Path) -> Result
         }
     }
     Ok(())
+}
+
+fn expected_main_class_for_loader(loader: &str) -> Option<&'static str> {
+    match loader.trim().to_ascii_lowercase().as_str() {
+        "vanilla" | "" => Some("net.minecraft.client.main.Main"),
+        "fabric" => Some("net.fabricmc.loader.impl.launch.knot.KnotClient"),
+        "forge" | "neoforge" => Some("cpw.mods.bootstraplauncher.BootstrapLauncher"),
+        _ => None,
+    }
 }
 
 fn ensure_loader_ready_for_launch(
