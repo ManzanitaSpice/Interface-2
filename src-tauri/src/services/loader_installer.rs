@@ -9,6 +9,12 @@ use reqwest::blocking::Client;
 use serde_json::Value;
 use zip::ZipArchive;
 
+use crate::domain::loaders::{
+    fabric::installer::fabric_profile_url,
+    forge::installer::{ensure_modern_forge_java, modern_installer_args},
+    neoforge::installer::{ensure_neoforge_java, neoforge_installer_args},
+    quilt::installer::quilt_profile_url,
+};
 use crate::shared::result::AppResult;
 
 pub fn install_loader_if_needed(
@@ -33,8 +39,8 @@ pub fn install_loader_if_needed(
     }
 
     let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .connect_timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(300))
+        .connect_timeout(std::time::Duration::from_secs(60))
         .user_agent("InterfaceLauncher/0.2")
         .build()
         .map_err(|err| format!("No se pudo crear cliente HTTP para loaders: {err}"))?;
@@ -50,7 +56,7 @@ pub fn install_loader_if_needed(
             minecraft_root,
             minecraft_version,
             loader_version,
-            "https://meta.fabricmc.net/v2/versions/loader/{minecraft_version}/{loader_version}/profile/json",
+            &fabric_profile_url(minecraft_version, loader_version),
             "fabric",
             logs,
         ),
@@ -59,7 +65,7 @@ pub fn install_loader_if_needed(
             minecraft_root,
             minecraft_version,
             loader_version,
-            "https://meta.quiltmc.org/v3/versions/loader/{minecraft_version}/{loader_version}/profile/json",
+            &quilt_profile_url(minecraft_version, loader_version),
             "quilt",
             logs,
         ),
@@ -80,6 +86,8 @@ pub fn install_loader_if_needed(
                     loader_version,
                     java_exec,
                     "https://maven.minecraftforge.net/net/minecraftforge/forge/{minecraft_version}-{loader_version}/forge-{minecraft_version}-{loader_version}-installer.jar",
+                    &modern_installer_args(minecraft_version, true),
+                    ensure_modern_forge_java(java_exec, "Forge")?,
                     "forge",
                     logs,
                 )
@@ -92,6 +100,8 @@ pub fn install_loader_if_needed(
             loader_version,
             java_exec,
             "https://maven.neoforged.net/releases/net/neoforged/neoforge/{loader_version}/neoforge-{loader_version}-installer.jar",
+            &neoforge_installer_args(minecraft_version),
+            ensure_neoforge_java(java_exec)?,
             "neoforge",
             logs,
         ),
@@ -102,18 +112,14 @@ pub fn install_loader_if_needed(
 fn install_fabric_like(
     client: &Client,
     minecraft_root: &Path,
-    minecraft_version: &str,
-    loader_version: &str,
-    profile_url_template: &str,
+    _minecraft_version: &str,
+    _loader_version: &str,
+    profile_url: &str,
     loader_name: &str,
     logs: &mut Vec<String>,
 ) -> AppResult<()> {
-    let profile_url = profile_url_template
-        .replace("{minecraft_version}", minecraft_version)
-        .replace("{loader_version}", loader_version);
-
     let profile = client
-        .get(&profile_url)
+        .get(profile_url)
         .send()
         .and_then(|response| response.error_for_status())
         .map_err(|err| format!("No se pudo descargar profile de {loader_name}: {err}"))?
@@ -239,6 +245,8 @@ fn install_forge_like_modern(
     loader_version: &str,
     java_exec: &Path,
     installer_url_template: &str,
+    installer_args: &[String],
+    java_major: u32,
     loader_name: &str,
     logs: &mut Vec<String>,
 ) -> AppResult<()> {
@@ -277,14 +285,17 @@ fn install_forge_like_modern(
     let existing_versions = collect_version_ids(&versions_dir)?;
 
     logs.push(format!(
-        "Ejecutando installer {loader_name} con cwd={}.",
-        minecraft_root.display()
+        "Ejecutando installer {loader_name} con cwd={} (Java detectado: {java_major}).",
+        minecraft_root.display(),
     ));
 
-    let output = Command::new(java_exec)
-        .arg("-jar")
-        .arg(&installer_jar)
-        .arg("--installClient")
+    let mut command = Command::new(java_exec);
+    command.arg("-jar").arg(&installer_jar);
+    for arg in installer_args {
+        command.arg(arg);
+    }
+
+    let output = command
         .current_dir(minecraft_root)
         .output()
         .map_err(|err| {
@@ -303,6 +314,10 @@ fn install_forge_like_modern(
     if !stderr.is_empty() {
         logs.push(format!("Installer {loader_name} stderr: {stderr}"));
     }
+    logs.push(format!(
+        "Installer {loader_name} exit code: {:?}",
+        output.status.code()
+    ));
 
     if !output.status.success() {
         return Err(format!(
