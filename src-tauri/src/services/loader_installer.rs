@@ -24,11 +24,11 @@ pub fn install_loader_if_needed(
     loader_version: &str,
     java_exec: &Path,
     logs: &mut Vec<String>,
-) -> AppResult<()> {
+) -> AppResult<String> {
     let normalized_loader = loader.trim().to_ascii_lowercase();
     if normalized_loader == "vanilla" || normalized_loader.is_empty() {
         logs.push("Loader vanilla: no se requiere instalación adicional.".to_string());
-        return Ok(());
+        return Ok(minecraft_version.to_string());
     }
 
     if loader_version.trim().is_empty() {
@@ -117,7 +117,7 @@ fn install_fabric_like(
     profile_url: &str,
     loader_name: &str,
     logs: &mut Vec<String>,
-) -> AppResult<()> {
+) -> AppResult<String> {
     let profile = client
         .get(profile_url)
         .send()
@@ -157,7 +157,7 @@ fn install_fabric_like(
             .and_then(Value::as_str)
             .unwrap_or("(sin inheritsFrom)")
     ));
-    Ok(())
+    Ok(version_id)
 }
 
 fn install_forge_legacy(
@@ -166,7 +166,7 @@ fn install_forge_legacy(
     minecraft_version: &str,
     loader_version: &str,
     logs: &mut Vec<String>,
-) -> AppResult<()> {
+) -> AppResult<String> {
     let universal_url = format!(
         "https://maven.minecraftforge.net/net/minecraftforge/forge/{minecraft_version}-{loader_version}/forge-{minecraft_version}-{loader_version}-universal.jar"
     );
@@ -235,7 +235,7 @@ fn install_forge_legacy(
     logs.push(format!(
         "Forge legacy instalado: versionId={version_id}, librerías nuevas={downloaded}."
     ));
-    Ok(())
+    Ok(version_id)
 }
 
 fn install_forge_like_modern(
@@ -249,7 +249,7 @@ fn install_forge_like_modern(
     java_major: u32,
     loader_name: &str,
     logs: &mut Vec<String>,
-) -> AppResult<()> {
+) -> AppResult<String> {
     ensure_minecraft_layout(minecraft_root)?;
 
     let versions_dir = minecraft_root.join("versions");
@@ -262,7 +262,7 @@ fn install_forge_like_modern(
         logs.push(format!(
             "Loader {loader_name} ya disponible en versions como {existing_version_id}. Se omite reinstalación.",
         ));
-        return Ok(());
+        return Ok(existing_version_id);
     }
 
     let installer_url = installer_url_template
@@ -377,7 +377,7 @@ fn install_forge_like_modern(
     logs.push(format!(
         "Loader {loader_name} moderno instalado con installer oficial (--installClient): versionId={installed_version_id}."
     ));
-    Ok(())
+    Ok(installed_version_id)
 }
 
 fn ensure_minecraft_layout(minecraft_root: &Path) -> AppResult<()> {

@@ -447,7 +447,7 @@ fn create_instance_impl(
         &mut logs,
         "Ejecutando instalación de loader (si aplica)...",
     );
-    install_loader_if_needed(
+    let effective_version_id = install_loader_if_needed(
         &minecraft_root,
         &payload.minecraft_version,
         &payload.loader,
@@ -461,6 +461,7 @@ fn create_instance_impl(
         name: payload.name,
         group: payload.group,
         minecraft_version: payload.minecraft_version,
+        version_id: effective_version_id,
         loader: payload.loader,
         loader_version: payload.loader_version,
         ram_mb: payload.ram_mb,

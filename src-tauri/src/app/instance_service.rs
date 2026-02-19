@@ -224,6 +224,7 @@ pub fn validate_and_prepare_launch(
 
     let mc_root = instance_path.join("minecraft");
     let selected_version_id = resolve_effective_version_id(&mc_root, &metadata)?;
+    logs.push(format!("VERSION JSON efectivo: {selected_version_id}"));
     let version_json = load_merged_version_json(&mc_root, &selected_version_id)?;
 
     let executable_version_id = version_json
@@ -1219,6 +1220,11 @@ fn resolve_effective_version_id(
     mc_root: &Path,
     metadata: &InstanceMetadata,
 ) -> Result<String, String> {
+    let explicit_version_id = metadata.version_id.trim();
+    if !explicit_version_id.is_empty() {
+        return Ok(explicit_version_id.to_string());
+    }
+
     let base = metadata.minecraft_version.trim();
     let loader = metadata.loader.trim().to_ascii_lowercase();
     let loader_version = metadata.loader_version.trim().to_ascii_lowercase();
