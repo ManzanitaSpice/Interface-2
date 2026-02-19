@@ -24,6 +24,12 @@ type InstanceCard = {
   instanceRoot?: string
 }
 
+type InstanceVisualMeta = {
+  icon?: string
+  minecraftVersion?: string
+  loader?: string
+}
+
 type CreatorSection =
   | 'Personalizado'
   | 'CurseForge'
@@ -222,6 +228,7 @@ const sidebarMaxWidth = 320
 const mojangManifestUrl = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json'
 const authSessionKey = 'launcher_microsoft_auth_session_v1'
 const managedAccountsKey = 'launcher_managed_accounts_v1'
+const instanceVisualMetaKey = 'launcher_instance_visual_meta_v1'
 const authCodeRegenerateCooldownMs = 10_000
 
 function nowTimestamp() {
@@ -296,12 +303,15 @@ function App() {
   const [loaderError, setLoaderError] = useState('')
   const [selectedLoaderFilter, setSelectedLoaderFilter] = useState<LoaderChannelFilter>('Todos')
   const [runtimeConsole, setRuntimeConsole] = useState<ConsoleEntry[]>([])
+  const [runtimeConsoleByInstance, setRuntimeConsoleByInstance] = useState<Record<string, ConsoleEntry[]>>({})
   const [launchPreparation] = useState<LaunchValidationResult | null>(null)
   const [consoleLevelFilter, setConsoleLevelFilter] = useState<'Todos' | ConsoleLevel>('Todos')
   const [launcherLogFilter, setLauncherLogFilter] = useState<'Todos' | ConsoleSource>('Todos')
   const [autoScrollConsole, setAutoScrollConsole] = useState(true)
   const [instanceDrafts, setInstanceDrafts] = useState<Record<string, InstanceSummary>>({})
   const [selectedInstanceMetadata, setSelectedInstanceMetadata] = useState<InstanceMetadataView | null>(null)
+  const [instanceMetaByRoot, setInstanceMetaByRoot] = useState<Record<string, InstanceMetadataView>>({})
+  const [instanceVisualMeta, setInstanceVisualMeta] = useState<Record<string, InstanceVisualMeta>>({})
   const [selectedSettingsTab, setSelectedSettingsTab] = useState<InstanceSettingsTab>('General')
   const [isStartingInstance, setIsStartingInstance] = useState(false)
   const [isInstanceRunning, setIsInstanceRunning] = useState(false)
@@ -332,6 +342,33 @@ function App() {
       const next = [...prev, entry]
       return next.length > 2000 ? next.slice(next.length - 2000) : next
     })
+    setRuntimeConsoleByInstance((prev) => {
+      if (!selectedCard?.instanceRoot) return prev
+      const current = prev[selectedCard.instanceRoot] ?? []
+      const next = [...current, entry]
+      return {
+        ...prev,
+        [selectedCard.instanceRoot]: next.length > 2000 ? next.slice(next.length - 2000) : next,
+      }
+    })
+  }
+
+  const appendRuntimeForRoot = (instanceRoot: string | undefined, entry: ConsoleEntry) => {
+    if (!instanceRoot) return
+    setRuntimeConsoleByInstance((prev) => {
+      const current = prev[instanceRoot] ?? []
+      const next = [...current, entry]
+      return {
+        ...prev,
+        [instanceRoot]: next.length > 2000 ? next.slice(next.length - 2000) : next,
+      }
+    })
+    if (selectedCard?.instanceRoot === instanceRoot) {
+      setRuntimeConsole((prev) => {
+        const next = [...prev, entry]
+        return next.length > 2000 ? next.slice(next.length - 2000) : next
+      })
+    }
   }
 
   const persistAuthSession = (session: AuthSession | null) => {
@@ -477,8 +514,36 @@ function App() {
       }
     }
 
+    const savedVisualMeta = localStorage.getItem(instanceVisualMetaKey)
+    if (savedVisualMeta) {
+      try {
+        const parsed = JSON.parse(savedVisualMeta) as Record<string, InstanceVisualMeta>
+        setInstanceVisualMeta(parsed)
+      } catch {
+        localStorage.removeItem(instanceVisualMetaKey)
+      }
+    }
+
     setIsAuthReady(true)
   }, [])
+
+  useEffect(() => {
+    localStorage.setItem(instanceVisualMetaKey, JSON.stringify(instanceVisualMeta))
+  }, [instanceVisualMeta])
+
+  useEffect(() => {
+    if (!selectedCard?.instanceRoot) {
+      setRuntimeConsole([])
+      return
+    }
+    setRuntimeConsole(runtimeConsoleByInstance[selectedCard.instanceRoot] ?? [])
+  }, [runtimeConsoleByInstance, selectedCard?.instanceRoot])
+
+  useEffect(() => {
+    if (activePage !== 'Creador de Instancias') return
+    setCreationConsoleLogs([])
+    setCreationProgress(null)
+  }, [activePage])
 
   useEffect(() => {
     if (!autoScrollConsole || !runtimeConsoleRef.current) return
@@ -517,11 +582,12 @@ function App() {
         const metadata = await invoke<InstanceMetadataView>('get_instance_metadata', { instanceRoot: selectedCard.instanceRoot })
         if (!cancelled) {
           setSelectedInstanceMetadata(metadata)
+          setInstanceMetaByRoot((prev) => ({ ...prev, [selectedCard.instanceRoot ?? '']: metadata }))
         }
       } catch (error) {
         if (cancelled) return
         const message = error instanceof Error ? error.message : String(error)
-        appendRuntime(makeConsoleEntry('ERROR', 'launcher', `No se pudo cargar la configuración de la instancia: ${message}`))
+        appendRuntimeForRoot(selectedCard.instanceRoot, makeConsoleEntry('ERROR', 'launcher', `No se pudo cargar la configuración de la instancia: ${message}`))
       }
     }
 
@@ -531,6 +597,29 @@ function App() {
       cancelled = true
     }
   }, [activePage, selectedCard])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const warmupMetadata = async () => {
+      const items = cards.filter((card) => card.instanceRoot)
+      for (const card of items) {
+        if (cancelled || !card.instanceRoot || instanceMetaByRoot[card.instanceRoot]) continue
+        try {
+          const metadata = await invoke<InstanceMetadataView>('get_instance_metadata', { instanceRoot: card.instanceRoot })
+          if (cancelled) return
+          setInstanceMetaByRoot((prev) => ({ ...prev, [card.instanceRoot ?? '']: metadata }))
+        } catch {
+          // Ignorar errores silenciosamente para no ensuciar la consola de creación.
+        }
+      }
+    }
+
+    void warmupMetadata()
+    return () => {
+      cancelled = true
+    }
+  }, [cards, instanceMetaByRoot])
 
   useEffect(() => {
     if (!selectedCard?.instanceRoot) {
@@ -550,9 +639,9 @@ function App() {
         if (!status.running && status.exitCode !== null) {
           const exitKey = `${selectedCard.instanceRoot}:${status.exitCode}:${status.pid ?? 'none'}`
           if (exitKey !== lastRuntimeExitKey) {
-            appendRuntime(makeConsoleEntry(status.exitCode === 0 ? 'INFO' : 'ERROR', 'launcher', `Proceso finalizado con exit_code=${status.exitCode}.`))
+            appendRuntimeForRoot(selectedCard.instanceRoot, makeConsoleEntry(status.exitCode === 0 ? 'INFO' : 'ERROR', 'launcher', `Proceso finalizado con exit_code=${status.exitCode}.`))
             if (status.stderrTail.length > 0) {
-              appendRuntime(makeConsoleEntry('WARN', 'game', `stderr (últimas ${status.stderrTail.length} líneas): ${status.stderrTail.join(' | ')}`))
+              appendRuntimeForRoot(selectedCard.instanceRoot, makeConsoleEntry('WARN', 'game', `stderr (últimas ${status.stderrTail.length} líneas): ${status.stderrTail.join(' | ')}`))
             }
             setLastRuntimeExitKey(exitKey)
           }
@@ -593,14 +682,10 @@ function App() {
 
     const wireRuntimeOutput = async () => {
       unlistenRuntimeOutput = await listen<RuntimeOutputEvent>('instance_runtime_output', (event) => {
-        if (!selectedCard?.instanceRoot || event.payload.instanceRoot !== selectedCard.instanceRoot) {
-          return
-        }
-
         const level = event.payload.stream === 'stderr' ? 'WARN' : 'INFO'
         const source = event.payload.stream === 'system' ? 'launcher' : 'game'
         const prefix = event.payload.stream === 'system' ? '' : `[${event.payload.stream.toUpperCase()}] `
-        appendRuntime(makeConsoleEntry(level, source, `${prefix}${event.payload.line}`))
+        appendRuntimeForRoot(event.payload.instanceRoot, makeConsoleEntry(level, source, `${prefix}${event.payload.line}`))
       })
     }
 
@@ -626,7 +711,7 @@ function App() {
           return
         }
         if (isInstanceRunning || isStartingInstance) {
-          appendRuntime(makeConsoleEntry('WARN', 'launcher', 'No se puede cerrar el editor mientras la instancia está ejecutándose.'))
+          appendRuntimeForRoot(selectedCard?.instanceRoot, makeConsoleEntry('WARN', 'launcher', 'No se puede cerrar el editor mientras la instancia está ejecutándose.'))
           return
         }
         setCreationProgress((prev) => prev ? { completed: prev.total, total: prev.total } : prev)
@@ -1029,6 +1114,7 @@ function App() {
     const requestId = `create-${Date.now()}-${Math.random().toString(16).slice(2)}`
     let unlistenCreationProgress: UnlistenFn | null = null
     setCreationProgress(null)
+    setCreationConsoleLogs([])
     setCreationConsoleLogs([
       'FASE 2 iniciada al presionar OK.',
       'Validación ✓ nombre no vacío.',
@@ -1076,6 +1162,14 @@ function App() {
       setCards((prev) => [...prev, created])
       setInstanceDrafts((prev) => ({ ...prev, [created.id]: created }))
       setSelectedCard(created)
+      setInstanceVisualMeta((prev) => ({
+        ...prev,
+        [created.id]: {
+          icon: instanceIconPreview.startsWith('data:image') ? instanceIconPreview : undefined,
+          minecraftVersion: selectedMinecraftVersion.id,
+          loader: selectedLoader === 'none' ? 'Vanilla' : `${selectedLoader} ${selectedLoaderVersion?.version ?? ''}`.trim(),
+        },
+      }))
       setCreationConsoleLogs((prev) => [...prev, ...result.logs, '✅ Instancia creada correctamente.'])
       setInstanceName('')
       setGroupName(defaultGroup)
@@ -1116,16 +1210,17 @@ function App() {
   const startInstanceProcess = async () => {
     if (!selectedCard?.instanceRoot) return
     if (!authSession) {
-      appendRuntime(makeConsoleEntry('ERROR', 'launcher', 'Debes iniciar sesión con cuenta oficial para iniciar (sin Demo).'))
+      appendRuntimeForRoot(selectedCard.instanceRoot, makeConsoleEntry('ERROR', 'launcher', 'Debes iniciar sesión con cuenta oficial para iniciar (sin Demo).'))
       return
     }
     if (isStartingInstance || isInstanceRunning) {
-      appendRuntime(makeConsoleEntry('WARN', 'launcher', 'La instancia ya está en ejecución o iniciándose.'))
+      appendRuntimeForRoot(selectedCard.instanceRoot, makeConsoleEntry('WARN', 'launcher', 'La instancia ya está en ejecución o iniciándose.'))
       return
     }
 
     setIsStartingInstance(true)
-    appendRuntime(makeConsoleEntry('INFO', 'launcher', 'Iniciando validación final y arranque en vivo de Minecraft...'))
+    setRuntimeConsoleByInstance((prev) => ({ ...prev, [selectedCard.instanceRoot ?? '']: [] }))
+    appendRuntimeForRoot(selectedCard.instanceRoot, makeConsoleEntry('INFO', 'launcher', 'Iniciando validación final y arranque en vivo de Minecraft...'))
 
     try {
       const result = await invoke<StartInstanceResult>('start_instance', {
@@ -1154,18 +1249,12 @@ function App() {
       syncManagedAccountFromSession(refreshedSession)
       persistAuthSession(refreshedSession)
 
-      setRuntimeConsole((prev) => {
-        const next = [
-          ...prev,
-          makeConsoleEntry('INFO', 'launcher', `Proceso de Minecraft iniciado (PID ${result.pid}) con Java ${result.javaPath}`),
-          ...result.logs.map((line) => makeConsoleEntry('INFO', 'launcher', line)),
-        ]
-        return next.length > 2000 ? next.slice(next.length - 2000) : next
-      })
+      appendRuntimeForRoot(selectedCard.instanceRoot, makeConsoleEntry('INFO', 'launcher', `Proceso de Minecraft iniciado (PID ${result.pid}) con Java ${result.javaPath}`))
+      result.logs.forEach((line) => appendRuntimeForRoot(selectedCard.instanceRoot, makeConsoleEntry('INFO', 'launcher', line)))
       setIsInstanceRunning(true)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      appendRuntime(makeConsoleEntry('ERROR', 'launcher', `No se pudo iniciar el proceso de la instancia: ${message}`))
+      appendRuntimeForRoot(selectedCard.instanceRoot, makeConsoleEntry('ERROR', 'launcher', `No se pudo iniciar el proceso de la instancia: ${message}`))
     } finally {
       setIsStartingInstance(false)
     }
@@ -1514,25 +1603,43 @@ function App() {
             <div className={`instances-workspace ${selectedCard ? 'with-right-panel' : ''}`}>
               <div className="cards-grid instances-grid-area">
                 {filteredCards.length === 0 && <article className="instance-card placeholder">No hay instancias para mostrar.</article>}
-                {filteredCards.map((card) => (
-                  <article
-                    key={card.id}
-                    className={`instance-card clickable ${selectedCard?.id === card.id ? 'active' : ''}`}
-                    onClick={() => setSelectedCard(card)}
-                  >
-                    <strong>{card.name}</strong>
-                    <span className="instance-group-chip">Grupo: {card.group}</span>
-                    {(selectedCard?.id === card.id && (isStartingInstance || isInstanceRunning)) && (
-                      <>
-                        <span className="instance-state-chip">{isStartingInstance ? 'Iniciando' : 'Ejecutando'}</span>
-                        <div className="instance-run-progress" aria-label="Progreso de ejecución">
-                          <div className={`instance-run-progress-fill ${isInstanceRunning ? 'running' : ''}`} />
+                {filteredCards.map((card) => {
+                  const visual = instanceVisualMeta[card.id]
+                  const metadata = card.instanceRoot ? instanceMetaByRoot[card.instanceRoot] : undefined
+                  const cardVersion = metadata?.minecraftVersion ?? visual?.minecraftVersion ?? '-'
+                  const cardLoader = metadata ? `${metadata.loader} ${metadata.loaderVersion}`.trim() : (visual?.loader ?? '-')
+                  const icon = visual?.icon
+
+                  return (
+                    <article
+                      key={card.id}
+                      className={`instance-card clickable ${selectedCard?.id === card.id ? 'active' : ''}`}
+                      onClick={() => setSelectedCard(card)}
+                    >
+                      <div className="instance-card-header-row">
+                        <div className="instance-card-icon" style={icon ? { backgroundImage: `url(${icon})` } : undefined} aria-hidden="true">
+                          {!icon ? '🧱' : ''}
                         </div>
-                      </>
-                    )}
-                    <small>{card.instanceRoot ?? "Ruta pendiente"}</small>
-                  </article>
-                ))}
+                        <div>
+                          <strong>{card.name}</strong>
+                          <span className="instance-group-chip">Grupo: {card.group}</span>
+                        </div>
+                      </div>
+                      <div className="instance-card-meta">
+                        <small>MC: {cardVersion}</small>
+                        <small>Loader: {cardLoader}</small>
+                      </div>
+                      {(selectedCard?.id === card.id && (isStartingInstance || isInstanceRunning)) && (
+                        <>
+                          <span className="instance-state-chip">{isStartingInstance ? 'Iniciando' : 'Ejecutando'}</span>
+                          <div className="instance-run-progress" aria-label="Progreso de ejecución">
+                            <div className={`instance-run-progress-fill ${isInstanceRunning ? 'running' : ''}`} />
+                          </div>
+                        </>
+                      )}
+                    </article>
+                  )
+                })}
               </div>
 
               {selectedCard && (

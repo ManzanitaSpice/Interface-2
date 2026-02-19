@@ -42,11 +42,15 @@ select {
 
 button {
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  background: linear-gradient(180deg, #1a2435 0%, #111827 100%);
+  border-color: #334155;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 0 rgba(15, 23, 42, 0.5);
 }
 
 button:hover {
-  background: var(--bg-hover);
+  background: linear-gradient(180deg, #243349 0%, #182236 100%);
+  border-color: #475569;
   transform: translateY(-1px);
 }
 
