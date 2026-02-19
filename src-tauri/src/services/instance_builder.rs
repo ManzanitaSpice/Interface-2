@@ -72,6 +72,12 @@ pub fn build_instance_structure(
         java_exec,
         logs,
     )?;
+    ensure_loader_contract(
+        minecraft_root,
+        minecraft_version,
+        loader,
+        &effective_version_id,
+    )?;
 
     // FASE 5 (opcional pro): solo pre-verificar
     on_progress(3, 4, "FASE 5: Pre-verificación opcional...".to_string());
@@ -136,6 +142,70 @@ fn prepare_loader(
     }
 
     Err(format!("Loader no soportado todavía: {loader}"))
+}
+
+fn ensure_loader_contract(
+    minecraft_root: &Path,
+    minecraft_version: &str,
+    loader: &str,
+    effective_version_id: &str,
+) -> AppResult<()> {
+    let normalized_loader = loader.trim().to_ascii_lowercase();
+    if normalized_loader.is_empty() || normalized_loader == "vanilla" {
+        return Ok(());
+    }
+
+    if effective_version_id.trim().is_empty() {
+        return Err(format!("Loader {loader} devolvió un version_id vacío."));
+    }
+
+    if effective_version_id == minecraft_version {
+        return Err(format!(
+            "Loader {loader} devolvió version_id base ({minecraft_version}) en lugar del id del loader."
+        ));
+    }
+
+    let version_json_path = minecraft_root
+        .join("versions")
+        .join(effective_version_id)
+        .join(format!("{effective_version_id}.json"));
+    if !version_json_path.exists() {
+        return Err(format!(
+            "No existe version.json del loader en {}.",
+            version_json_path.display()
+        ));
+    }
+
+    let version_json = serde_json::from_str::<Value>(
+        &fs::read_to_string(&version_json_path)
+            .map_err(|err| format!("No se pudo leer version.json del loader: {err}"))?,
+    )
+    .map_err(|err| format!("version.json del loader inválido: {err}"))?;
+
+    if normalized_loader == "forge" || normalized_loader == "neoforge" {
+        let main_class = version_json
+            .get("mainClass")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if main_class != "cpw.mods.bootstraplauncher.BootstrapLauncher" {
+            return Err(format!(
+                "version.json de {loader} inválido: mainClass='{}' (esperado='cpw.mods.bootstraplauncher.BootstrapLauncher').",
+                main_class
+            ));
+        }
+
+        if version_json
+            .get("inheritsFrom")
+            .and_then(Value::as_str)
+            .is_none()
+        {
+            return Err(format!(
+                "version.json de {loader} no contiene inheritsFrom."
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 fn ensure_global_version_cache(
