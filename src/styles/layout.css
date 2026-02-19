@@ -26,18 +26,18 @@
 
 .top-bar.principal {
   justify-content: space-between;
-  background: linear-gradient(180deg, #1a1a18 0%, #161614 100%);
-  border: 1px solid #303029;
+  background: linear-gradient(180deg, #182231 0%, #131b28 100%);
+  border: 1px solid #2a394f;
   border-radius: 0.45rem 0.45rem 0 0;
-  border-bottom: 1px solid #383831;
+  border-bottom: 1px solid #344861;
   position: relative;
   top: 0;
   z-index: 6;
 }
 
 .top-bar.secondary {
-  background: linear-gradient(180deg, #1a1a18 0%, #161614 100%);
-  border: 1px solid #303029;
+  background: linear-gradient(180deg, #15202f 0%, #121b29 100%);
+  border: 1px solid #2a394f;
   border-top: 0;
   border-radius: 0 0 0.45rem 0.45rem;
 }
@@ -65,15 +65,15 @@
   display: grid;
   grid-template-columns: var(--sidebar-width) 6px minmax(0, 1fr);
   gap: 0;
-  min-height: calc(100vh - 56px);
-  max-height: calc(100vh - 56px);
+  min-height: calc(100vh - 84px);
+  max-height: calc(100vh - 84px);
 }
 
 .creator-main {
-  display: flex;
-  flex-direction: column;
-  min-height: calc(100vh - 56px);
-  max-height: calc(100vh - 56px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: calc(100vh - 84px);
+  max-height: calc(100vh - 84px);
 }
 
 .edit-main-content {
