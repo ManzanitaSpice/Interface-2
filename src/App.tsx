@@ -9,7 +9,7 @@ type MainPage =
   | 'Inicio'
   | 'Mis Modpacks'
   | 'Novedades'
-  | 'Updates Launcher'
+  | 'Updates'
   | 'Explorador'
   | 'Servers'
   | 'Configuración Global'
@@ -242,6 +242,14 @@ type AppearancePreset = {
   vars: Record<string, string>
 }
 
+type AppearanceColorKey = '--bg-main' | '--bg-surface' | '--border' | '--text-main' | '--accent'
+
+type FontOption = {
+  id: string
+  label: string
+  family: string
+}
+
 type FolderRouteKey = 'launcher' | 'instances' | 'icons' | 'java' | 'skins' | 'downloads'
 
 type FolderRouteItem = {
@@ -372,6 +380,14 @@ const appearancePresets: AppearancePreset[] = [
   },
 ]
 
+const fontOptions: FontOption[] = [
+  { id: 'inter', label: 'Inter (predeterminada)', family: "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" },
+  { id: 'poppins', label: 'Poppins', family: "Poppins, 'Segoe UI', Inter, sans-serif" },
+  { id: 'nunito', label: 'Nunito', family: "Nunito, 'Segoe UI', Inter, sans-serif" },
+  { id: 'jetbrains', label: 'JetBrains Sans', family: "'JetBrains Sans', 'Segoe UI', Inter, sans-serif" },
+  { id: 'fira', label: 'Fira Sans', family: "'Fira Sans', 'Segoe UI', Inter, sans-serif" },
+]
+
 const launcherUpdatesUrl = 'https://github.com/TU_USUARIO/TU_REPO/releases'
 
 const instanceActions = ['Iniciar', 'Forzar Cierre', 'Editar', 'Cambiar Grupo', 'Carpeta', 'Exportar', 'Copiar', 'Crear atajo']
@@ -383,6 +399,7 @@ const authSessionKey = 'launcher_microsoft_auth_session_v1'
 const managedAccountsKey = 'launcher_managed_accounts_v1'
 const instanceVisualMetaKey = 'launcher_instance_visual_meta_v1'
 const folderRoutesKey = 'launcher_folder_routes_v1'
+const appearanceSettingsKey = 'launcher_appearance_settings_v1'
 const authCodeRegenerateCooldownMs = 10_000
 
 const defaultFolderRoutes: FolderRouteItem[] = [
@@ -537,6 +554,15 @@ function App() {
   const [selectedGlobalSettingsTab, setSelectedGlobalSettingsTab] = useState<GlobalSettingsTab>('General')
   const [selectedLanguage, setSelectedLanguage] = useState(languageCatalog[0])
   const [selectedAppearancePreset, setSelectedAppearancePreset] = useState(appearancePresets[0].id)
+  const [selectedFontFamily, setSelectedFontFamily] = useState(fontOptions[0].family)
+  const [uiScalePercent, setUiScalePercent] = useState(100)
+  const [customAppearanceVars, setCustomAppearanceVars] = useState<Record<AppearanceColorKey, string>>({
+    '--bg-main': appearancePresets[0].vars['--bg-main'],
+    '--bg-surface': appearancePresets[0].vars['--bg-surface'],
+    '--border': appearancePresets[0].vars['--border'],
+    '--text-main': appearancePresets[0].vars['--text-main'],
+    '--accent': appearancePresets[0].vars['--accent'],
+  })
   const [folderRoutes, setFolderRoutes] = useState<FolderRouteItem[]>(defaultFolderRoutes)
   const [updatesAutoCheck, setUpdatesAutoCheck] = useState(true)
   const [updatesChannel, setUpdatesChannel] = useState<'Stable' | 'Preview'>('Stable')
@@ -1767,11 +1793,57 @@ function App() {
   }, [])
 
   useEffect(() => {
+    const raw = localStorage.getItem(appearanceSettingsKey)
+    if (!raw) return
+    try {
+      const parsed = JSON.parse(raw) as {
+        preset?: string
+        fontFamily?: string
+        uiScalePercent?: number
+        customVars?: Partial<Record<AppearanceColorKey, string>>
+      }
+      if (parsed.preset && (appearancePresets.some((item) => item.id === parsed.preset) || parsed.preset === 'custom')) {
+        setSelectedAppearancePreset(parsed.preset)
+      }
+      if (parsed.fontFamily) {
+        setSelectedFontFamily(parsed.fontFamily)
+      }
+      if (typeof parsed.uiScalePercent === 'number') {
+        setUiScalePercent(Math.min(120, Math.max(85, Math.round(parsed.uiScalePercent))))
+      }
+      if (parsed.customVars) {
+        setCustomAppearanceVars((prev) => ({ ...prev, ...parsed.customVars }))
+      }
+    } catch {
+      localStorage.removeItem(appearanceSettingsKey)
+    }
+  }, [])
+
+  useEffect(() => {
     const preset = appearancePresets.find((item) => item.id === selectedAppearancePreset) ?? appearancePresets[0]
-    Object.entries(preset.vars).forEach(([key, value]) => {
+    const vars = selectedAppearancePreset === 'custom' ? customAppearanceVars : {
+      ...preset.vars,
+      '--bg-main': customAppearanceVars['--bg-main'] ?? preset.vars['--bg-main'],
+      '--bg-surface': customAppearanceVars['--bg-surface'] ?? preset.vars['--bg-surface'],
+      '--border': customAppearanceVars['--border'] ?? preset.vars['--border'],
+      '--text-main': customAppearanceVars['--text-main'] ?? preset.vars['--text-main'],
+      '--accent': customAppearanceVars['--accent'] ?? preset.vars['--accent'],
+    }
+    Object.entries(vars).forEach(([key, value]) => {
       document.documentElement.style.setProperty(key, value)
     })
-  }, [selectedAppearancePreset])
+    document.documentElement.style.setProperty('--bg-soft', vars['--bg-surface'])
+    document.documentElement.style.setProperty('--text', vars['--text-main'])
+    document.documentElement.style.setProperty('--font-ui', selectedFontFamily)
+    document.documentElement.style.setProperty('--ui-scale', `${uiScalePercent / 100}`)
+
+    localStorage.setItem(appearanceSettingsKey, JSON.stringify({
+      preset: selectedAppearancePreset,
+      fontFamily: selectedFontFamily,
+      uiScalePercent,
+      customVars: customAppearanceVars,
+    }))
+  }, [selectedAppearancePreset, selectedFontFamily, uiScalePercent, customAppearanceVars])
 
   return (
     <div className="app-shell">
@@ -1787,7 +1859,7 @@ function App() {
         onNavigateForward={navigateForward}
         canNavigateBack={backHistory.length > 0}
         canNavigateForward={forwardHistory.length > 0}
-        hideSecondaryNav={activePage === 'Creador de Instancias' || activePage === 'Editor de skins'}
+        hideSecondaryNav={activePage === 'Creador de Instancias' || activePage === 'Editor de skins' || activePage === 'Editar Instancia' || activePage === 'Updates'}
       />
 
       <AnimatePresence mode="wait">
@@ -2067,18 +2139,18 @@ function App() {
               <span className="summary-label">Instancias registradas</span>
               <strong>{cards.length}</strong>
             </div>
-            <button className="primary" onClick={() => navigateToPage('Updates Launcher')}>Updates</button>
+            <button className="primary" onClick={() => navigateToPage('Updates')}>Updates</button>
           </section>
         </main>
       )}
 
 
-      {authSession && activePage === 'Updates Launcher' && (
+      {authSession && activePage === 'Updates' && (
         <main className="content content-padded updates-page">
           <section className="instances-panel updates-panel">
             <header className="news-panel-header updates-header">
               <div>
-                <h2>Updates del Launcher</h2>
+                <h2>Updates</h2>
                 <p>Historial de versiones, fechas y descripciones. Preparado para auto-update nativo de Tauri + GitHub Releases.</p>
               </div>
               <div className="updates-actions">
@@ -2185,7 +2257,7 @@ function App() {
                 <article className="global-setting-item">
                   <h3>Updates</h3>
                   <p>Canal de actualizaciones preparado para flujo con GitHub Releases + updater nativo Tauri.</p>
-                  <button className="primary" onClick={() => navigateToPage('Updates Launcher')}>Abrir panel de updates</button>
+                  <button className="primary" onClick={() => navigateToPage('Updates')}>Abrir panel de updates</button>
                 </article>
                 <article className="global-setting-item folder-routes-card">
                   <h3>Carpetas del Launcher</h3>
@@ -2224,7 +2296,7 @@ function App() {
             {selectedGlobalSettingsTab === 'Apariencia' && (
               <section className="appearance-workspace">
                 <div className="appearance-presets">
-                  {appearancePresets.map((preset) => (
+                  {[...appearancePresets, { id: 'custom', name: 'Personalizado', description: 'Ajuste manual de colores globales.' } as AppearancePreset].map((preset) => (
                     <button
                       key={preset.id}
                       className={selectedAppearancePreset === preset.id ? 'active' : ''}
@@ -2235,15 +2307,63 @@ function App() {
                     </button>
                   ))}
                 </div>
-                <div className="appearance-preview">
-                  <h3>Vista previa profesional</h3>
-                  <p>El esquema elegido se aplica en tiempo real a todo el launcher.</p>
-                  <div className="appearance-preview-strip">
-                    <span style={{ background: 'var(--bg-main)' }} />
-                    <span style={{ background: 'var(--bg-surface)' }} />
-                    <span style={{ background: 'var(--bg-hover)' }} />
-                    <span style={{ background: 'var(--accent)' }} />
-                    <span style={{ background: 'var(--border)' }} />
+                <div className="appearance-preview detailed">
+                  <h3>Apariencia</h3>
+                  <p>Define tema y escala visual.</p>
+
+                  <label className="appearance-control-field">
+                    <span>Preferencia de tema</span>
+                    <select value={selectedAppearancePreset} onChange={(event) => setSelectedAppearancePreset(event.target.value)}>
+                      {appearancePresets.map((preset) => (
+                        <option key={preset.id} value={preset.id}>{preset.name}</option>
+                      ))}
+                      <option value="custom">Personalizado</option>
+                    </select>
+                  </label>
+
+                  <label className="appearance-control-field">
+                    <span>Tipografía</span>
+                    <select value={selectedFontFamily} onChange={(event) => setSelectedFontFamily(event.target.value)}>
+                      {fontOptions.map((font) => (
+                        <option key={font.id} value={font.family}>{font.label}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="appearance-control-field appearance-scale-field">
+                    <span>Escala UI</span>
+                    <div className="appearance-scale-row">
+                      <input
+                        type="range"
+                        min={85}
+                        max={120}
+                        value={uiScalePercent}
+                        onChange={(event) => setUiScalePercent(Number(event.target.value))}
+                      />
+                      <strong>{uiScalePercent}%</strong>
+                    </div>
+                  </label>
+
+                  <div className="appearance-color-grid">
+                    {([
+                      ['Fondo', '--bg-main'],
+                      ['Superficie', '--bg-surface'],
+                      ['Borde', '--border'],
+                      ['Texto', '--text-main'],
+                      ['Acento', '--accent'],
+                    ] as [string, AppearanceColorKey][]).map(([label, key]) => (
+                      <label key={key} className="appearance-color-row">
+                        <span>{label}</span>
+                        <input
+                          type="color"
+                          value={customAppearanceVars[key]}
+                          onChange={(event) => {
+                            setSelectedAppearancePreset('custom')
+                            setCustomAppearanceVars((prev) => ({ ...prev, [key]: event.target.value }))
+                          }}
+                        />
+                      </label>
+                    ))}
                   </div>
                 </div>
               </section>
@@ -2657,7 +2777,7 @@ function PrincipalTopBar({
   canNavigateForward,
   hideSecondaryNav,
 }: PrincipalTopBarProps) {
-  const principalSections: MainPage[] = ['Mis Modpacks', 'Novedades', 'Updates Launcher', 'Explorador', 'Servers', 'Configuración Global']
+  const principalSections: MainPage[] = ['Mis Modpacks', 'Novedades', 'Explorador', 'Servers', 'Configuración Global']
 
   return (
     <header className="top-launcher-shell">

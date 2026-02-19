@@ -1,0 +1,132 @@
+Comparaciones de flujo de loaders (Interface-2 vs flujo recomendado)
+===============================================================
+
+Fecha: 2026-02-19
+Referencia interna revisada en código:
+- src-tauri/src/app/launcher_service.rs
+- src-tauri/src/services/instance_builder.rs
+- src-tauri/src/app/instance_service.rs
+- src-tauri/src/services/loader_installer.rs
+- src-tauri/src/domain/loaders/* (installer/resolver)
+
+Resumen ejecutivo
+-----------------
+1) Vanilla: actualmente sí está implementado de forma funcional (descarga version.json, libraries, assets, classpath y launch). ✅
+2) Fabric/Quilt/Forge/NeoForge: no se observa un instalador de loader ejecutándose realmente durante creación o pre-launch. ❌
+3) For ge/NeoForge: no hay ejecución visible de processors del installer (paso crítico), por eso es esperable fallo por BootstrapLauncher faltante. ❌
+4) El sistema sí hace merge por inheritsFrom en runtime, pero depende de que exista un version.json de loader válido en disco; hoy no se genera ese artefacto por el flujo actual. ⚠️
+
+Comparación detallada por loader
+--------------------------------
+
+🟢 VANILLA (referencia base)
+Esperado:
+- Descargar versión vanilla
+- Descargar libraries
+- Descargar assets
+- Construir classpath
+- Lanzar con Java embebido
+- mainClass = net.minecraft.client.main.Main
+
+Actual en Interface-2:
+- build_instance_structure descarga version.json oficial + client.jar + libraries + assets.
+- validate_launch prepara classpath y lanza con Java embebido.
+- Se resuelven args desde JSON.
+=> Resultado: alineado, por eso vanilla funciona.
+
+🟣 FABRIC
+Esperado:
+- Resolver vanilla base
+- Obtener metadata loader
+- Descargar fabric-loader + intermediary + libs fabric
+- Fusionar con vanilla
+- Leer version.json fabric
+- Construir classpath (vanilla libs + fabric jars + client jar)
+- mainClass desde JSON (normalmente KnotClient)
+
+Actual en Interface-2:
+- No se observa instalación real de Fabric durante create_instance.
+- loader_installer.rs está vacío de lógica efectiva.
+- domain/loaders/fabric/* aparece solo con placeholders/comentarios.
+- Se persiste metadata.loader, pero no se generan artefactos de loader por ese dato.
+=> Brecha principal: faltan descarga y generación de version.json de Fabric.
+
+🔵 QUILT
+Esperado:
+- Similar a Fabric con metadata de Quilt
+- Merge manifests
+- mainClass desde JSON Quilt
+
+Actual:
+- Mismo problema que Fabric: no existe pipeline real de instalación/resolución.
+- No se detecta generación de JSON ejecutable de Quilt.
+=> Brecha principal: pipeline ausente.
+
+🟠 FORGE (1.13+)
+Esperado:
+- Descargar installer Forge
+- Ejecutar processors del installer (obligatorio)
+- Generar libraries forge + version.json generado
+- Leer args JVM/Game desde JSON (ej: --launchTarget forgeclient)
+- mainClass desde JSON (frecuente BootstrapLauncher)
+
+Actual:
+- No hay ejecución de installer/processors en el flujo revisado.
+- No aparece extracción de args específicos forge desde un JSON de forge generado por processors.
+- Resultado típico esperado: ClassNotFoundException de BootstrapLauncher.
+=> Brecha principal: falta paso de processors y consumo de JSON generado.
+
+🔵 NEOFORGE
+Esperado:
+- Igual que Forge moderno: installer + processors + JSON generado + args JVM del JSON
+
+Actual:
+- Mismo gap crítico que Forge.
+- Sin processors no se arma el classpath correcto de bootstrap y librerías.
+=> Brecha principal: falta instalación real del loader + processors.
+
+Hallazgos técnicos transversales
+--------------------------------
+1) load_merged_version_json (runtime) sí soporta inheritsFrom recursivo.
+   Esto ayuda, pero solo funciona si ya existe un árbol de version.json de loader válido en disco.
+
+2) validate_launch en instance_service aún verifica explícitamente la clase
+   net.minecraft.client.main.Main dentro del jar ejecutable.
+   Para loaders modernos este check puede ser incorrecto si el entrypoint real viene de loader JSON.
+
+3) El classpath final se arma como [libraries resueltas] + [client.jar],
+   que es válido para vanilla; para Forge/NeoForge depende totalmente de que esas libraries
+   ya hayan sido generadas por installer/processors (hoy no se ve ese paso).
+
+Qué está mal hoy (concreto)
+---------------------------
+- Se guarda metadata de loader, pero no se ejecuta pipeline de instalación real por loader.
+- No hay processors de Forge/NeoForge.
+- No se construyen artefactos/JSON específicos por loader durante create_instance.
+- La validación de main class está sesgada a vanilla.
+
+Recomendación de implementación (arquitectura mínima)
+------------------------------------------------------
+Implementar un flujo real por fases:
+
+resolve_instance()
+  ├─ resolve_vanilla()
+  ├─ resolve_loader(loader, version)
+  │    ├─ fabric/quilt: descargar metadata + libs + version json
+  │    └─ forge/neoforge: descargar installer + ejecutar processors + generar json/libs
+  ├─ merge_version_json()
+  ├─ build_classpath()
+  └─ launch_with_embedded_java()
+
+Checklist de logs recomendado
+-----------------------------
+Imprimir en validación/lanzamiento:
+- JAVA ejecutado
+- VERSION JSON efectivo usado
+- MAIN CLASS efectiva
+- tamaño del classpath
+- primeros N jars del classpath
+
+Si MAIN CLASS termina en net.minecraft.client.main.Main para una instancia con loader,
+estás arrancando vanilla o un merge incorrecto.
+
