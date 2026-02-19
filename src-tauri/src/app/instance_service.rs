@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     fs,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
@@ -84,7 +84,8 @@ struct RuntimeState {
     pid: Option<u32>,
     running: bool,
     exit_code: Option<i32>,
-    stderr_tail: Vec<String>,
+    stderr_tail: VecDeque<String>,
+    started_at: Instant,
 }
 
 #[derive(Debug, Clone)]
@@ -113,7 +114,7 @@ pub fn get_runtime_status(instance_root: String) -> Result<RuntimeStatus, String
             running: state.running,
             pid: state.pid,
             exit_code: state.exit_code,
-            stderr_tail: state.stderr_tail.clone(),
+            stderr_tail: state.stderr_tail.iter().cloned().collect(),
         });
     }
 
@@ -666,7 +667,8 @@ pub async fn start_instance(
                 pid: None,
                 running: true,
                 exit_code: None,
-                stderr_tail: Vec::new(),
+                stderr_tail: VecDeque::new(),
+                started_at: Instant::now(),
             },
         );
     }
@@ -693,7 +695,9 @@ pub async fn start_instance(
         .arg(&prepared.main_class)
         .args(&prepared.game_args)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null())
+        .current_dir(Path::new(&instance_root).join("minecraft"));
 
     let mut child = match command
         .spawn()
@@ -737,7 +741,7 @@ pub async fn start_instance(
                 monitor_stop_signal,
             );
         });
-        let stderr_tail = Arc::new(Mutex::new(Vec::<String>::new()));
+        let stderr_tail = Arc::new(Mutex::new(VecDeque::<String>::new()));
         let mut stream_threads = Vec::new();
 
         if let Some(stdout_pipe) = stdout {
@@ -761,9 +765,8 @@ pub async fn start_instance(
                     );
                     if let Ok(mut tail) = tail_for_stdout.lock() {
                         tail.push(format!("[stdout] {line}"));
-                        if tail.len() > 100 {
-                            let drop_count = tail.len() - 100;
-                            tail.drain(0..drop_count);
+                        if tail.len() > 200 {
+                            tail.pop_front();
                         }
                     }
                 }
@@ -791,9 +794,8 @@ pub async fn start_instance(
                     );
                     if let Ok(mut tail) = tail_for_stderr.lock() {
                         tail.push(format!("[stderr] {line}"));
-                        if tail.len() > 100 {
-                            let drop_count = tail.len() - 100;
-                            tail.drain(0..drop_count);
+                        if tail.len() > 200 {
+                            tail.pop_front();
                         }
                     }
                 }
@@ -810,7 +812,7 @@ pub async fn start_instance(
         let final_tail = stderr_tail
             .lock()
             .map(|tail| tail.clone())
-            .unwrap_or_else(|_| Vec::new());
+            .unwrap_or_else(|_| VecDeque::new());
 
         let _ = app_for_thread.emit(
             "instance_runtime_output",
@@ -826,6 +828,24 @@ pub async fn start_instance(
             },
         );
 
+        let runtime_tail: VecDeque<String> = final_tail
+            .into_iter()
+            .rev()
+            .take(50)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+
+        let _ = app_for_thread.emit(
+            "instance_runtime_exit",
+            serde_json::json!({
+                "instanceRoot": instance_root_for_thread.clone(),
+                "exitCode": exit_code,
+                "pid": pid,
+            }),
+        );
+
         if let Ok(mut registry) = runtime_registry().lock() {
             registry.insert(
                 instance_root_for_thread,
@@ -833,7 +853,8 @@ pub async fn start_instance(
                     pid: Some(pid),
                     running: false,
                     exit_code,
-                    stderr_tail: final_tail,
+                    stderr_tail: runtime_tail,
+                    started_at: Instant::now(),
                 },
             );
         }
