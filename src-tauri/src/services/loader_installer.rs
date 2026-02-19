@@ -242,6 +242,8 @@ fn install_forge_like_modern(
     loader_name: &str,
     logs: &mut Vec<String>,
 ) -> AppResult<()> {
+    ensure_minecraft_layout(minecraft_root)?;
+
     let installer_url = installer_url_template
         .replace("{minecraft_version}", minecraft_version)
         .replace("{loader_version}", loader_version);
@@ -274,6 +276,11 @@ fn install_forge_like_modern(
     let versions_dir = minecraft_root.join("versions");
     let existing_versions = collect_version_ids(&versions_dir)?;
 
+    logs.push(format!(
+        "Ejecutando installer {loader_name} con cwd={}.",
+        minecraft_root.display()
+    ));
+
     let output = Command::new(java_exec)
         .arg("-jar")
         .arg(&installer_jar)
@@ -287,11 +294,20 @@ fn install_forge_like_modern(
             )
         })?;
 
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+
+    if !stdout.is_empty() {
+        logs.push(format!("Installer {loader_name} stdout: {stdout}"));
+    }
+    if !stderr.is_empty() {
+        logs.push(format!("Installer {loader_name} stderr: {stderr}"));
+    }
+
     if !output.status.success() {
         return Err(format!(
             "Installer {loader_name} falló. stdout={} stderr={}",
-            String::from_utf8_lossy(&output.stdout).trim(),
-            String::from_utf8_lossy(&output.stderr).trim()
+            stdout, stderr
         ));
     }
 
@@ -327,6 +343,25 @@ fn install_forge_like_modern(
     logs.push(format!(
         "Loader {loader_name} moderno instalado con installer oficial (--installClient): versionId={installed_version_id}."
     ));
+    Ok(())
+}
+
+fn ensure_minecraft_layout(minecraft_root: &Path) -> AppResult<()> {
+    let required_dirs = [
+        minecraft_root.to_path_buf(),
+        minecraft_root.join("libraries"),
+        minecraft_root.join("versions"),
+    ];
+
+    for dir in required_dirs {
+        fs::create_dir_all(&dir).map_err(|err| {
+            format!(
+                "No se pudo preparar directorio requerido para installer en {}: {err}",
+                dir.display()
+            )
+        })?;
+    }
+
     Ok(())
 }
 
