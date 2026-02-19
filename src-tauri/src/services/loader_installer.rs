@@ -109,6 +109,30 @@ pub fn install_loader_if_needed(
     }
 }
 
+fn expected_main_class_for_loader(loader: &str) -> Option<&'static str> {
+    match loader.trim().to_ascii_lowercase().as_str() {
+        "vanilla" | "" => Some("net.minecraft.client.main.Main"),
+        "fabric" => Some("net.fabricmc.loader.impl.launch.knot.KnotClient"),
+        "forge" | "neoforge" => Some("cpw.mods.bootstraplauncher.BootstrapLauncher"),
+        _ => None,
+    }
+}
+
+fn ensure_loader_main_class(version_json: &mut Value, loader_name: &str) -> Option<String> {
+    let expected = expected_main_class_for_loader(loader_name)?;
+    let current = version_json
+        .get("mainClass")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    if current == expected {
+        return None;
+    }
+
+    version_json["mainClass"] = Value::String(expected.to_string());
+    Some(current.to_string())
+}
+
 fn install_fabric_like(
     client: &Client,
     minecraft_root: &Path,
@@ -135,6 +159,17 @@ fn install_fabric_like(
     let version_dir = minecraft_root.join("versions").join(&version_id);
     fs::create_dir_all(&version_dir)
         .map_err(|err| format!("No se pudo crear directorio de versión loader: {err}"))?;
+
+    if let Some(previous_main_class) = ensure_loader_main_class(&mut profile, loader_name) {
+        logs.push(format!(
+            "Loader {loader_name}: mainClass normalizada (anterior='{}').",
+            if previous_main_class.is_empty() {
+                "(vacía)"
+            } else {
+                previous_main_class.as_str()
+            }
+        ));
+    }
 
     let version_json_path = version_dir.join(format!("{version_id}.json"));
     fs::write(
@@ -203,6 +238,17 @@ fn install_forge_legacy(
 
     if version_json.get("inheritsFrom").is_none() {
         version_json["inheritsFrom"] = Value::String(minecraft_version.to_string());
+    }
+
+    if let Some(previous_main_class) = ensure_loader_main_class(&mut version_json, "forge") {
+        logs.push(format!(
+            "Forge legacy: mainClass normalizada (anterior='{}').",
+            if previous_main_class.is_empty() {
+                "(vacía)"
+            } else {
+                previous_main_class.as_str()
+            }
+        ));
     }
 
     let version_id = version_json
@@ -364,6 +410,32 @@ fn install_forge_like_modern(
         return Err(format!(
             "Installer {loader_name} no generó version.json esperado en {}.",
             installed_version_json.display()
+        ));
+    }
+
+    let mut installed_json = serde_json::from_str::<Value>(
+        &fs::read_to_string(&installed_version_json)
+            .map_err(|err| format!("No se pudo leer version.json de {loader_name}: {err}"))?,
+    )
+    .map_err(|err| format!("version.json de {loader_name} inválido: {err}"))?;
+    if let Some(previous_main_class) = ensure_loader_main_class(&mut installed_json, loader_name) {
+        fs::write(
+            &installed_version_json,
+            serde_json::to_vec_pretty(&installed_json).map_err(|err| err.to_string())?,
+        )
+        .map_err(|err| {
+            format!(
+                "No se pudo persistir mainClass corregida para {loader_name} en {}: {err}",
+                installed_version_json.display()
+            )
+        })?;
+        logs.push(format!(
+            "Loader {loader_name}: mainClass normalizada tras installer (anterior='{}').",
+            if previous_main_class.is_empty() {
+                "(vacía)"
+            } else {
+                previous_main_class.as_str()
+            }
         ));
     }
 
