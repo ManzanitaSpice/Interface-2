@@ -1,7 +1,7 @@
 .instances-panel {
   background: linear-gradient(180deg, rgba(26, 25, 22, 0.98) 0%, rgba(20, 19, 17, 0.98) 100%);
   border-radius: 0.5rem;
-  border: 1px solid #34322b;
+  border: 1px solid #000000;
   padding: 1.1rem;
   min-height: 420px;
   max-height: calc(100vh - 180px);
