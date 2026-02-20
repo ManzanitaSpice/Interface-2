@@ -24,7 +24,7 @@ use crate::{
     domain::{
         minecraft::{
             argument_resolver::{resolve_launch_arguments, LaunchContext},
-            rule_engine::{evaluate_rules, RuleContext, RuleFeatures},
+            rule_engine::{evaluate_rules, OsName, RuleContext, RuleFeatures},
         },
         models::{instance::LaunchAuthSession, java::JavaRuntime},
     },
@@ -810,6 +810,13 @@ fn current_native_os() -> &'static str {
 }
 
 fn library_applies_to_current_os(library: &Value, current_os: &str) -> bool {
+    let os_name = match current_os {
+        "windows" => OsName::Windows,
+        "linux" => OsName::Linux,
+        "osx" | "macos" => OsName::Macos,
+        _ => OsName::Unknown,
+    };
+
     let rules = library
         .get("rules")
         .and_then(Value::as_array)
@@ -822,7 +829,7 @@ fn library_applies_to_current_os(library: &Value, current_os: &str) -> bool {
     evaluate_rules(
         &rules,
         &RuleContext {
-            os_name: current_os.to_string(),
+            os_name,
             arch: std::env::consts::ARCH.to_string(),
             features: RuleFeatures::default(),
         },
@@ -929,7 +936,10 @@ pub async fn extract_natives(
             .and_then(|v| v.get("path"))
             .and_then(Value::as_str)
             .map(str::to_string)
-            .or_else(|| maven_library_path(&format!("{name}:{classifier}")));
+            .or_else(|| {
+                maven_library_path(&format!("{name}:{classifier}"))
+                    .map(|path| path.to_string_lossy().replace('\\', "/"))
+            });
         let Some(relative_path) = relative_path else {
             continue;
         };
