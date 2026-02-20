@@ -17,9 +17,19 @@ const resolveIcon = (iconPath?: string | null) => {
   }
 }
 
+const normalizeLoaderName = (loader: string) => {
+  const key = loader.trim().toLowerCase()
+  if (key.includes('fabric')) return 'Fabric'
+  if (key.includes('neoforge')) return 'NeoForge'
+  if (key.includes('forge')) return 'Forge'
+  if (key.includes('quilt') || key.includes('quilit')) return 'Quilt'
+  return 'Vanilla'
+}
+
 export function DetectedInstanceCard({ item, selected, onToggle }: Props) {
   const icon = resolveIcon(item.iconPath)
-  const loaderLabel = `${item.loader || 'vanilla'} ${item.loaderVersion || ''}`.trim()
+  const loaderName = normalizeLoaderName(item.loader)
+  const loaderLabel = `${loaderName}${item.loaderVersion && item.loaderVersion !== '-' ? ` ${item.loaderVersion}` : ''}`
   const sizeLabel = item.sizeMb && item.sizeMb > 0 ? `${item.sizeMb} MB` : 'Tamaño no detectado'
 
   return (
@@ -32,6 +42,7 @@ export function DetectedInstanceCard({ item, selected, onToggle }: Props) {
         {!icon ? '📦' : null}
       </div>
       <strong className="instance-card-title">{item.name}</strong>
+      <span className="import-loader-chip">{loaderName}</span>
       <div className="instance-card-meta">
         <small>Origen: {item.sourceLauncher}</small>
         <small>MC {item.minecraftVersion}</small>

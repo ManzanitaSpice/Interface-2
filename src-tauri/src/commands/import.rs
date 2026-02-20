@@ -419,18 +419,38 @@ fn detect_loader_from_versions_dir(path: &Path) -> Option<(String, String)> {
         if !versions_dir.is_dir() {
             continue;
         }
-        let mut best: Option<(String, String)> = None;
         if let Ok(entries) = fs::read_dir(&versions_dir) {
             for entry in entries.flatten() {
                 let version_id = entry.file_name().to_string_lossy().to_string();
                 if let Some(loader) = detect_loader_from_version_id(&version_id) {
-                    best = Some(loader);
-                    break;
+                    return Some(loader);
+                }
+
+                let version_json = entry.path().join(format!("{version_id}.json"));
+                if let Some(json) = read_json(&version_json) {
+                    if let Some(libraries) = json.get("libraries").and_then(|v| v.as_array()) {
+                        for lib in libraries {
+                            let name = lib
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or_default()
+                                .to_ascii_lowercase();
+                            if name.contains("fabric") {
+                                return Some(("fabric".to_string(), version_id.clone()));
+                            }
+                            if name.contains("neoforge") {
+                                return Some(("neoforge".to_string(), version_id.clone()));
+                            }
+                            if name.contains("forge") {
+                                return Some(("forge".to_string(), version_id.clone()));
+                            }
+                            if name.contains("quilt") || name.contains("quilit") {
+                                return Some(("quilt".to_string(), version_id.clone()));
+                            }
+                        }
+                    }
                 }
             }
-        }
-        if best.is_some() {
-            return best;
         }
     }
     None

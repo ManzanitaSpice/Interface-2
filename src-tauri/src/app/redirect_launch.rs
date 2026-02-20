@@ -57,8 +57,11 @@ pub struct RedirectValidationResult {
     pub source_exists: bool,
     pub version_json_found: bool,
     pub version_json_path: Option<String>,
+    pub minecraft_jar_found: bool,
+    pub minecraft_jar_path: Option<String>,
     pub java_available: bool,
     pub java_path: Option<String>,
+    pub searched_paths: Vec<String>,
     pub warnings: Vec<String>,
     pub errors: Vec<String>,
 }
@@ -137,6 +140,125 @@ fn known_launcher_root(source_launcher: &str) -> Option<PathBuf> {
     None
 }
 
+fn known_launcher_roots_for_search(source_launcher: &str) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if source_launcher.eq_ignore_ascii_case("auto detectado") {
+        for launcher in ["curseforge", "prism", "modrinth", "multimc"] {
+            if let Some(root) = known_launcher_root(launcher) {
+                roots.push(root);
+            }
+        }
+    } else if let Some(root) = known_launcher_root(source_launcher) {
+        roots.push(root);
+    }
+    roots
+}
+
+fn find_version_json(
+    source_path: &Path,
+    version_id: &str,
+    source_launcher: &str,
+) -> Option<PathBuf> {
+    let mut candidates = vec![
+        source_path
+            .join(".minecraft/versions")
+            .join(version_id)
+            .join(format!("{version_id}.json")),
+        source_path
+            .join("versions")
+            .join(version_id)
+            .join(format!("{version_id}.json")),
+        source_path
+            .join("minecraft/versions")
+            .join(version_id)
+            .join(format!("{version_id}.json")),
+    ];
+    if let Some(system_root) = system_minecraft_root() {
+        candidates.push(
+            system_root
+                .join("versions")
+                .join(version_id)
+                .join(format!("{version_id}.json")),
+        );
+    }
+    for launcher_root in known_launcher_roots_for_search(source_launcher) {
+        candidates.push(
+            launcher_root
+                .join("versions")
+                .join(version_id)
+                .join(format!("{version_id}.json")),
+        );
+    }
+    candidates.into_iter().find(|p| p.exists())
+}
+
+fn find_minecraft_jar(
+    source_path: &Path,
+    version_id: &str,
+    source_launcher: &str,
+) -> (Option<PathBuf>, Vec<PathBuf>) {
+    let mut candidates = vec![
+        source_path
+            .join(".minecraft/versions")
+            .join(version_id)
+            .join(format!("{version_id}.jar")),
+        source_path
+            .join("versions")
+            .join(version_id)
+            .join(format!("{version_id}.jar")),
+        source_path
+            .join("minecraft/versions")
+            .join(version_id)
+            .join(format!("{version_id}.jar")),
+    ];
+    if let Some(system_root) = system_minecraft_root() {
+        candidates.push(
+            system_root
+                .join("versions")
+                .join(version_id)
+                .join(format!("{version_id}.jar")),
+        );
+    }
+    for launcher_root in known_launcher_roots_for_search(source_launcher) {
+        candidates.push(
+            launcher_root
+                .join("versions")
+                .join(version_id)
+                .join(format!("{version_id}.jar")),
+        );
+    }
+    let found = candidates.iter().find(|p| p.exists()).cloned();
+    (found, candidates)
+}
+
+fn find_libraries_dir(source_path: &Path, source_launcher: &str) -> Option<PathBuf> {
+    let mut candidates = vec![
+        source_path.join("libraries"),
+        source_path.join(".minecraft/libraries"),
+    ];
+    if let Some(system_root) = system_minecraft_root() {
+        candidates.push(system_root.join("libraries"));
+    }
+    for launcher_root in known_launcher_roots_for_search(source_launcher) {
+        candidates.push(launcher_root.join("libraries"));
+    }
+    candidates.into_iter().find(|p| p.exists())
+}
+
+fn find_assets_dir(source_path: &Path, source_launcher: &str) -> Option<PathBuf> {
+    let mut candidates = vec![
+        source_path.join("assets"),
+        source_path.join(".minecraft/assets"),
+    ];
+    if let Some(system_root) = system_minecraft_root() {
+        candidates.push(system_root.join("assets"));
+    }
+    for launcher_root in known_launcher_roots_for_search(source_launcher) {
+        candidates.push(launcher_root.join("assets"));
+    }
+    candidates.into_iter().find(|p| p.exists())
+}
+
 pub fn resolve_redirect_launch_context(
     source_path: &Path,
     version_id: &str,
@@ -164,42 +286,7 @@ pub fn resolve_redirect_launch_context(
         }
     }
 
-    let mut candidates = vec![
-        source_path
-            .join(".minecraft/versions")
-            .join(version_id)
-            .join(format!("{version_id}.json")),
-        source_path
-            .join("versions")
-            .join(version_id)
-            .join(format!("{version_id}.json")),
-        source_path
-            .join("minecraft/versions")
-            .join(version_id)
-            .join(format!("{version_id}.json")),
-    ];
-
-    if let Some(system_root) = system_minecraft_root() {
-        candidates.push(
-            system_root
-                .join("versions")
-                .join(version_id)
-                .join(format!("{version_id}.json")),
-        );
-    }
-
-    if let Some(launcher_root) = known_launcher_root(source_launcher) {
-        candidates.push(
-            launcher_root
-                .join("versions")
-                .join(version_id)
-                .join(format!("{version_id}.json")),
-        );
-    }
-
-    let version_json_path = candidates
-        .into_iter()
-        .find(|p| p.exists())
+    let version_json_path = find_version_json(source_path, version_id, source_launcher)
         .ok_or_else(|| format!("No se encontró el archivo de versión {version_id}.json. Asegúrate de que la versión esté instalada en {source_launcher} o en el launcher oficial de Mojang."))?;
 
     let version_raw = fs::read_to_string(&version_json_path).map_err(|err| {
@@ -215,43 +302,31 @@ pub fn resolve_redirect_launch_context(
         )
     })?;
 
-    let versions_dir = version_json_path
+    let (minecraft_jar, searched_jar_paths) =
+        find_minecraft_jar(source_path, version_id, source_launcher);
+    let minecraft_jar = minecraft_jar.ok_or_else(|| {
+        let tried = searched_jar_paths
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!(
+            "No se encontró {version_id}.jar. Se buscó en:\n{}\nAsegúrate de que la versión esté completamente instalada en el launcher de origen.",
+            tried
+        )
+    })?;
+
+    let versions_dir = minecraft_jar
         .parent()
         .and_then(Path::parent)
-        .ok_or_else(|| "No se pudo resolver versions_dir para instancia atajo.".to_string())?
+        .ok_or_else(|| "No se pudo resolver versions_dir desde el JAR encontrado.".to_string())?
         .to_path_buf();
 
-    let minecraft_jar = versions_dir
-        .join(version_id)
-        .join(format!("{version_id}.jar"));
-    if !minecraft_jar.exists() {
-        return Err(format!("No se encontró {version_id}.jar. La versión puede no estar completamente instalada en {source_launcher}."));
-    }
+    let libraries_dir = find_libraries_dir(source_path, source_launcher)
+        .ok_or_else(|| "No se encontró carpeta libraries para instancia REDIRECT.".to_string())?;
 
-    let libraries_dir = [
-        source_path.join("libraries"),
-        source_path.join(".minecraft/libraries"),
-        system_minecraft_root()
-            .map(|p| p.join("libraries"))
-            .unwrap_or_else(PathBuf::new),
-        known_launcher_root(source_launcher)
-            .map(|p| p.join("libraries"))
-            .unwrap_or_else(PathBuf::new),
-    ]
-    .into_iter()
-    .find(|p| !p.as_os_str().is_empty() && p.exists())
-    .ok_or_else(|| "No se encontró carpeta libraries para instancia REDIRECT.".to_string())?;
-
-    let assets_dir = [
-        source_path.join("assets"),
-        source_path.join(".minecraft/assets"),
-        system_minecraft_root()
-            .map(|p| p.join("assets"))
-            .unwrap_or_else(PathBuf::new),
-    ]
-    .into_iter()
-    .find(|p| !p.as_os_str().is_empty() && p.exists())
-    .ok_or_else(|| "No se encontró carpeta assets para instancia REDIRECT.".to_string())?;
+    let assets_dir = find_assets_dir(source_path, source_launcher)
+        .ok_or_else(|| "No se encontró carpeta assets para instancia REDIRECT.".to_string())?;
 
     let game_dir = if source_path.join(".minecraft").exists() {
         source_path.join(".minecraft")
@@ -266,7 +341,7 @@ pub fn resolve_redirect_launch_context(
         versions_dir,
         libraries_dir,
         assets_dir,
-        minecraft_jar,
+        minecraft_jar: minecraft_jar.clone(),
         launcher_name: source_launcher.to_string(),
     };
 
@@ -490,8 +565,11 @@ pub fn validate_redirect_instance(
 
     let mut version_json_found = false;
     let mut version_json_path = None;
+    let mut minecraft_jar_found = false;
+    let mut minecraft_jar_path = None;
     let mut java_available = false;
     let mut java_path = None;
+    let mut searched_paths = Vec::new();
 
     if !source_exists {
         errors.push(format!("La carpeta original de la instancia ya no existe en: {}. Es posible que el launcher externo haya movido o eliminado la instancia.", source.display()));
@@ -504,6 +582,11 @@ pub fn validate_redirect_instance(
             Ok(ctx) => {
                 version_json_found = true;
                 version_json_path = Some(ctx.version_json_path.display().to_string());
+                minecraft_jar_found = ctx.minecraft_jar.exists();
+                minecraft_jar_path = Some(ctx.minecraft_jar.display().to_string());
+                let (_, searched) =
+                    find_minecraft_jar(&source, &metadata.version_id, &redirect.source_launcher);
+                searched_paths = searched.iter().map(|p| p.display().to_string()).collect();
                 let runtime =
                     parse_java_runtime_for_redirect(&ctx.version_json, &metadata.version_id);
                 let launcher_root =
@@ -523,7 +606,12 @@ pub fn validate_redirect_instance(
                     }
                 }
             }
-            Err(err) => errors.push(err),
+            Err(err) => {
+                let (_, searched) =
+                    find_minecraft_jar(&source, &metadata.version_id, &redirect.source_launcher);
+                searched_paths = searched.iter().map(|p| p.display().to_string()).collect();
+                errors.push(err)
+            }
         }
     }
 
@@ -532,8 +620,11 @@ pub fn validate_redirect_instance(
         source_exists,
         version_json_found,
         version_json_path,
+        minecraft_jar_found,
+        minecraft_jar_path,
         java_available,
         java_path,
+        searched_paths,
         warnings,
         errors,
     })

@@ -2341,7 +2341,7 @@ function App() {
                       <div className="instance-card-meta">
                         <small>Version: {cardVersion}</small>
                         <small>Loader: {cardLoader}</small>
-                        {metadata?.state?.toUpperCase() === 'REDIRECT' && <small>Target: Re Direccion</small>}
+                        {metadata?.state?.toUpperCase() === 'REDIRECT' && <span className="instance-card-badge">Atajo</span>}
                       </div>
                       <div className="instance-card-hover-info">
                         {(() => {

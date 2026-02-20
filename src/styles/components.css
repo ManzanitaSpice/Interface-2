@@ -1954,3 +1954,103 @@
 
 
 button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); transform-origin: left center; }
+
+
+.import-toolbar button {
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 80%, var(--accent) 20%), var(--bg-surface-muted));
+  box-shadow: 0 6px 18px rgba(0,0,0,.18);
+  font-weight: 600;
+}
+
+.import-toolbar button.primary {
+  background: linear-gradient(180deg, var(--accent), var(--accent-hover));
+  color: #111;
+}
+
+.import-loader-chip {
+  margin-left: auto;
+  font-size: .68rem;
+  padding: .2rem .45rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface-muted);
+  text-transform: uppercase;
+}
+
+.instance-card-badge {
+  position: absolute;
+  top: .55rem;
+  right: .55rem;
+  padding: .16rem .5rem;
+  border-radius: 999px;
+  font-size: .68rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 20%, var(--bg-surface));
+}
+
+.appearance-workspace {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+}
+
+.explorer-actions-compact {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.5fr) repeat(6, minmax(130px, 1fr));
+  gap: .6rem;
+  align-items: end;
+  margin-bottom: .8rem;
+  position: sticky;
+  top: .35rem;
+  z-index: 6;
+  background: color-mix(in srgb, var(--bg-main) 88%, transparent);
+  backdrop-filter: blur(7px);
+  padding: .55rem;
+  border-radius: .7rem;
+}
+
+.explorer-content-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: .9rem;
+}
+
+.catalog-panel-header {
+  border: 1px solid var(--border);
+  background: var(--bg-surface-muted);
+  border-radius: .7rem;
+  padding: .75rem;
+  height: fit-content;
+  position: sticky;
+  top: 5rem;
+}
+
+.catalog-panel-header ul {
+  margin: .6rem 0 0;
+  padding-left: 1rem;
+}
+
+.explorer-results-shell {
+  min-height: 420px;
+}
+
+@media (max-width: 1280px) {
+  .explorer-actions-compact {
+    grid-template-columns: repeat(3, minmax(170px, 1fr));
+  }
+
+  .explorer-content-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .catalog-panel-header {
+    position: static;
+  }
+}
+
+@media (max-width: 980px) {
+  .appearance-workspace {
+    grid-template-columns: 1fr;
+  }
+}

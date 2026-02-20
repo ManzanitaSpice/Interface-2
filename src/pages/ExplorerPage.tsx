@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core'
 import { useEffect, useMemo, useState } from 'react'
 
 type Category = 'All' | 'Modpacks' | 'Mods' | 'DataPacks' | 'Resource Packs' | 'Shaders' | 'Worlds' | 'Addons' | 'Customizacion'
@@ -15,14 +16,12 @@ type ExplorerItem = {
   author: string
   downloads: number
   updatedAt: string
-  size: string
   minecraftVersions: string[]
   loaders: string[]
   projectType: string
   tags: string[]
 }
 
-const curseforgeApiKey = '$2a$10$jK7YyZHdUNTDlcME9Egd6.Zt5RananLQKn/tpIhmRDezd2.wHGU9G'
 const categoryToProjectType: Record<Category, string | null> = {
   All: null,
   Modpacks: 'modpack',
@@ -61,7 +60,7 @@ export function ExplorerPage() {
       try {
         const [modrinthItems, curseforgeItems] = await Promise.all([
           platform === 'Curseforge' ? Promise.resolve([]) : fetchModrinth(search, category, sort, mcVersion, loader),
-          platform === 'Modrinth' ? Promise.resolve([]) : fetchCurseforge(search, category, sort, mcVersion),
+          platform === 'Modrinth' ? Promise.resolve([]) : fetchCurseforge(search, category, sort, mcVersion, loader),
         ])
         if (!cancelled) setItems(sortItems([...modrinthItems, ...curseforgeItems], sort))
       } catch (err) {
@@ -97,47 +96,52 @@ export function ExplorerPage() {
           <label>Vista
             <select value={view} onChange={(e) => setView(e.target.value as ViewMode)}>{['lista', 'tablero', 'titulos'].map((value) => <option key={value} value={value}>{value}</option>)}</select>
           </label>
-          <details className="advanced-filter-menu">
-            <summary>Filtro Avanzado</summary>
-            <div className="advanced-filter-body">
-              <label>Versión Minecraft
-                <select value={mcVersion} onChange={(e) => setMcVersion(e.target.value)}>
-                  <option value="">Todas</option>
-                  {officialVersions.map((version) => <option key={version} value={version}>{version}</option>)}
-                </select>
-              </label>
-              <label>Loader
-                <select value={loader} onChange={(e) => setLoader(e.target.value as LoaderFilter)}>
-                  {['Todos', 'Fabric', 'Forge', 'Neoforge', 'Quilt'].map((value) => <option key={value} value={value}>{value}</option>)}
-                </select>
-              </label>
-            </div>
-          </details>
+          <label>Versión MC
+            <select value={mcVersion} onChange={(e) => setMcVersion(e.target.value)}>
+              <option value="">Todas</option>
+              {officialVersions.map((version) => <option key={version} value={version}>{version}</option>)}
+            </select>
+          </label>
+          <label>Loader
+            <select value={loader} onChange={(e) => setLoader(e.target.value as LoaderFilter)}>
+              {['Todos', 'Fabric', 'Forge', 'Neoforge', 'Quilt'].map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
         </header>
 
-        <div className="catalog-panel-header">
-          <strong>Catálogo completo de CurseForge y Modrinth</strong>
-          <small>Controlado por los botones de la barra superior.</small>
-        </div>
+        <div className="explorer-content-layout">
+          <aside className="catalog-panel-header">
+            <strong>Catálogo completo</strong>
+            <small>Integrado en backend con APIs reales de CurseForge y Modrinth.</small>
+            <ul>
+              <li>{visibleItems.length} resultados visibles</li>
+              <li>Orden: {sort}</li>
+              <li>Plataforma: {platform}</li>
+              <li>Vista: {view}</li>
+            </ul>
+          </aside>
 
-        {loading && <p>Cargando catálogo...</p>}
-        {error && <p className="error-banner">{error}</p>}
-
-        <div className={`explorer-results ${view}`}>
-          {visibleItems.map((item) => (
-            <article key={`${item.source}-${item.id}`} className="instance-card explorer-card">
-              <div className="instance-card-icon hero" style={item.image ? { backgroundImage: `url(${item.image})` } : undefined} />
-              <strong className="instance-card-title">{item.title}</strong>
-              {view !== 'titulos' && (
-                <>
-                  <small>{item.description}</small>
-                  <div className="instance-card-meta">
-                    <small>{item.source}</small><small>Autor: {item.author}</small><small>Actualizado: {item.updatedAt}</small><small>Descargas: {numberFormatter.format(item.downloads)}</small>
-                  </div>
-                </>
-              )}
-            </article>
-          ))}
+          <section className="explorer-results-shell">
+            {loading && <p>Cargando catálogo...</p>}
+            {error && <p className="error-banner">{error}</p>}
+            <div className={`explorer-results ${view}`}>
+              {visibleItems.map((item) => (
+                <article key={`${item.source}-${item.id}`} className="instance-card explorer-card">
+                  <div className="instance-card-icon hero" style={item.image ? { backgroundImage: `url(${item.image})` } : undefined} />
+                  <strong className="instance-card-title">{item.title}</strong>
+                  {view !== 'titulos' && (
+                    <>
+                      <small>{item.description}</small>
+                      <div className="instance-card-meta">
+                        <small>{item.source}</small><small>Autor: {item.author}</small><small>Actualizado: {item.updatedAt}</small><small>Descargas: {numberFormatter.format(item.downloads)}</small>
+                      </div>
+                    </>
+                  )}
+                </article>
+              ))}
+              {!loading && visibleItems.length === 0 && <article className="instance-card placeholder">No hay elementos con los filtros actuales.</article>}
+            </div>
+          </section>
         </div>
       </section>
     </main>
@@ -145,37 +149,25 @@ export function ExplorerPage() {
 }
 
 async function fetchModrinth(search: string, category: Category, sort: SortMode, mcVersion: string, loader: LoaderFilter): Promise<ExplorerItem[]> {
-  const projectType = categoryToProjectType[category]
-  const facets: string[][] = []
-  if (projectType) facets.push([`project_type:${projectType}`])
-  if (mcVersion) facets.push([`versions:${mcVersion}`])
-  if (loader !== 'Todos') facets.push([`categories:${loader.toLowerCase()}`])
-  const params = new URLSearchParams({ query: search, limit: '30', index: mapModrinthSort(sort), facets: JSON.stringify(facets) })
-  const response = await fetch(`https://api.modrinth.com/v2/search?${params.toString()}`)
-  if (!response.ok) throw new Error(`Modrinth respondió con ${response.status}`)
-  const payload = await response.json() as { hits: Array<Record<string, unknown>> }
-  return payload.hits.map((hit) => {
-    const categories = Array.isArray(hit.categories) ? hit.categories.filter((item): item is string => typeof item === 'string') : []
-    const versions = Array.isArray(hit.versions) ? hit.versions.filter((item): item is string => typeof item === 'string') : []
-    return { id: String(hit.project_id ?? crypto.randomUUID()), source: 'Modrinth', title: String(hit.title ?? 'Sin título'), description: String(hit.description ?? ''), image: String(hit.icon_url ?? ''), author: String(hit.author ?? '-'), downloads: Number(hit.downloads ?? 0), updatedAt: String(hit.date_modified ?? ''), size: '-', minecraftVersions: versions, loaders: categories, projectType: String(hit.project_type ?? '-'), tags: categories }
+  const payload = await invoke<ExplorerItem[]>('fetch_modrinth_catalog', {
+    query: search,
+    projectType: categoryToProjectType[category],
+    sortIndex: mapModrinthSort(sort),
+    mcVersion: mcVersion || null,
+    loader: loader === 'Todos' ? null : loader,
   })
+  return payload
 }
 
-async function fetchCurseforge(search: string, category: Category, sort: SortMode, mcVersion: string): Promise<ExplorerItem[]> {
-  const params = new URLSearchParams({ gameId: '432', pageSize: '30', sortField: String(mapCurseSortField(sort)), sortOrder: 'desc' })
-  if (search) params.set('searchFilter', search)
-  if (mcVersion) params.set('gameVersion', mcVersion)
-  const classId = categoryToClassId[category]
-  if (classId) params.set('classId', String(classId))
-  const response = await fetch(`https://api.curseforge.com/v1/mods/search?${params.toString()}`, { headers: { 'x-api-key': curseforgeApiKey } })
-  if (!response.ok) throw new Error(`CurseForge respondió con ${response.status}`)
-  const payload = await response.json() as { data: Array<Record<string, unknown>> }
-  return payload.data.map((entry) => {
-    const latestIndexes = Array.isArray(entry.latestFilesIndexes) ? entry.latestFilesIndexes as Array<Record<string, unknown>> : []
-    const gameVersions = latestIndexes.map((item) => String(item.gameVersion ?? '')).filter(Boolean)
-    const loaders = latestIndexes.map((item) => String(item.modLoader ?? '')).filter(Boolean)
-    return { id: String(entry.id ?? crypto.randomUUID()), source: 'CurseForge', title: String(entry.name ?? 'Sin título'), description: String(entry.summary ?? ''), image: String((entry.logo as { thumbnailUrl?: string } | null)?.thumbnailUrl ?? ''), author: String((entry.authors as Array<{ name?: string }> | undefined)?.[0]?.name ?? '-'), downloads: Number(entry.downloadCount ?? 0), updatedAt: String(entry.dateReleased ?? ''), size: '-', minecraftVersions: gameVersions, loaders, projectType: String((entry.class as { name?: string } | null)?.name ?? '-'), tags: Array.isArray(entry.categories) ? (entry.categories as Array<{ name?: string }>).map((item) => item.name ?? '').filter(Boolean) : [] }
+async function fetchCurseforge(search: string, category: Category, sort: SortMode, mcVersion: string, loader: LoaderFilter): Promise<ExplorerItem[]> {
+  const payload = await invoke<ExplorerItem[]>('fetch_curseforge_catalog', {
+    query: search,
+    classId: categoryToClassId[category] ?? null,
+    sortField: mapCurseSortField(sort),
+    mcVersion: mcVersion || null,
+    loader: loader === 'Todos' ? null : loader,
   })
+  return payload
 }
 
 function sortItems(items: ExplorerItem[], sort: SortMode): ExplorerItem[] {
