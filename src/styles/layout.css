@@ -1,8 +1,8 @@
 .app-shell {
-  height: 100vh;
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 0.65rem;
+  padding: 0.9rem;
   gap: 0.65rem;
   overflow: hidden;
 }
@@ -50,7 +50,7 @@
 .content {
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .content-padded {
@@ -65,29 +65,29 @@
   display: grid;
   grid-template-columns: var(--sidebar-width) 6px minmax(0, 1fr);
   gap: 0;
-  min-height: calc(100vh - 84px);
-  max-height: calc(100vh - 84px);
+  min-height: 0;
+  height: 100%;
 }
 
 .creator-main {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  min-height: calc(100vh - 84px);
-  max-height: calc(100vh - 84px);
+  min-height: 0;
+  height: 100%;
 }
 
 .edit-main-content {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
-  max-height: 100vh;
+  min-height: 0;
+  height: 100%;
 }
 
 .edit-instance-layout {
   display: grid;
   grid-template-columns: var(--sidebar-width) 6px minmax(0, 1fr);
-  min-height: 100vh;
-  max-height: 100vh;
+  min-height: 0;
+  height: 100%;
 }
 
 .third-top-bar,
