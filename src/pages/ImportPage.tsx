@@ -8,7 +8,7 @@ import { useImportExecution } from '../hooks/useImportExecution'
 import { useImportScanner } from '../hooks/useImportScanner'
 
 export function ImportPage() {
-  const { instances, status, scan, clear } = useImportScanner()
+  const { instances, status, progressPercent, scanLogs, isScanning, scan, clear } = useImportScanner()
   const { running, message, execute } = useImportExecution()
   const [selected, setSelected] = useState<string[]>([])
 
@@ -18,7 +18,7 @@ export function ImportPage() {
     <main className="content content-padded">
       <section className="instances-panel huge-panel">
         <ImportToolbar status={status} onScan={() => void scan()} onClear={clear} />
-        <ScanStatusBar status={status} />
+        <ScanStatusBar status={status} progressPercent={progressPercent} scanLogs={scanLogs} isScanning={isScanning} />
         <div className="instances-workspace with-right-panel">
           <div className="cards-grid instances-grid-area">
             {instances.map((item) => (
