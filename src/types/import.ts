@@ -30,3 +30,5 @@ export type ImportRequest = {
   copyScreenshots: boolean
   copyLogs: boolean
 }
+
+export type ImportAction = 'ejecutar' | 'clonar' | 'migrar'

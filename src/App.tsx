@@ -1203,6 +1203,11 @@ function App() {
   }, [refreshInstances])
 
   useEffect(() => {
+    if (activePage !== 'Mis Modpacks') return
+    void refreshInstances()
+  }, [activePage, refreshInstances])
+
+  useEffect(() => {
     let cancelled = false
     setManifestLoading(true)
     setManifestError('')
@@ -2379,7 +2384,7 @@ function App() {
 
 
       {authSession && activePage === 'Importar Instancias' && (
-        <ImportPage />
+        <ImportPage onInstancesChanged={refreshInstances} />
       )}
 
       {authSession && activePage === 'Updates' && (
