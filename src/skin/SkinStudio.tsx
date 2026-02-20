@@ -16,6 +16,7 @@ type SkinSummary = { id: string; name: string; updated_at: string }
 type SkinCardPreview = {
   src: string
   height: number
+  texture?: THREE.CanvasTexture
 }
 
 type ThreeCtx = {
@@ -39,6 +40,93 @@ const PARTS: Array<{ key: SkinPartKey; label: string }> = [
   { key: 'leftLeg', label: 'Pierna Izq' },
   { key: 'rightLeg', label: 'Pierna Der' },
 ]
+
+
+function SkinCardModelPreview({ src, skinName }: { src?: string; skinName: string }) {
+  const mountRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const mount = mountRef.current
+    if (!mount) return
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color('#0c111b')
+    const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 140)
+    camera.position.set(17, 14, 17)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' })
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
+    renderer.setSize(mount.clientWidth || 200, mount.clientHeight || 140)
+    mount.innerHTML = ''
+    mount.appendChild(renderer.domElement)
+
+    const ambient = new THREE.AmbientLight(0xffffff, 0.84)
+    const key = new THREE.DirectionalLight(0xffffff, 0.65)
+    key.position.set(15, 20, 12)
+    scene.add(ambient, key)
+
+    const canvas = document.createElement('canvas')
+    canvas.width = 64
+    canvas.height = 64
+    const ctx = canvas.getContext('2d')
+    const texture = new THREE.CanvasTexture(canvas)
+    texture.magFilter = THREE.NearestFilter
+    texture.minFilter = THREE.NearestFilter
+    texture.generateMipmaps = false
+    texture.colorSpace = THREE.SRGBColorSpace
+
+    let model = buildMinecraftModel(texture, 'classic', 64, defaultLayerVisibility())
+    scene.add(model)
+
+    let cancelled = false
+    if (src && ctx) {
+      const image = new Image()
+      image.onload = () => {
+        if (cancelled) return
+        const h = image.height === 128 ? 128 : 64
+        canvas.width = 64
+        canvas.height = h
+        ctx.imageSmoothingEnabled = false
+        ctx.clearRect(0, 0, 64, h)
+        ctx.drawImage(image, 0, 0, 64, h)
+        scene.remove(model)
+        const nextModel = buildMinecraftModel(texture, 'classic', h, defaultLayerVisibility())
+        scene.add(nextModel)
+        model = nextModel
+      }
+      image.src = src
+    }
+
+    let raf = 0
+    const animate = () => {
+      raf = requestAnimationFrame(animate)
+      model.rotation.y += 0.011
+      renderer.render(scene, camera)
+    }
+    animate()
+
+    const resizeObserver = new ResizeObserver(() => {
+      const width = Math.max(120, mount.clientWidth)
+      const height = Math.max(120, mount.clientHeight)
+      camera.aspect = width / height
+      camera.updateProjectionMatrix()
+      renderer.setSize(width, height)
+    })
+    resizeObserver.observe(mount)
+
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(raf)
+      resizeObserver.disconnect()
+      renderer.dispose()
+      texture.dispose()
+      mount.innerHTML = ''
+    }
+  }, [src])
+
+  return <div ref={mountRef} className="skin-card-preview-model" aria-label={`Preview 3D de ${skinName}`} />
+}
+
 
 export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: { activePage: 'Administradora de skins' | 'Editor de skins'; selectedAccountId: string; onNavigateEditor: () => void }) {
   const [skins, setSkins] = useState<SkinSummary[]>([])
@@ -428,11 +516,7 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
               {skins.map((skin) => (
                 <article key={skin.id} className={`instance-card skin-card clickable ${selectedSkinId === skin.id ? 'active' : ''}`} onClick={() => setSelectedSkinId(skin.id)}>
                   <div className="skin-card-preview" aria-hidden="true">
-                    {skinPreviews[skin.id]?.src ? (
-                      <img className="skin-card-preview-face" src={skinPreviews[skin.id].src} alt={`Preview de ${skin.name}`} />
-                    ) : (
-                      <div className="skin-card-preview-face">🙂</div>
-                    )}
+                    <SkinCardModelPreview src={skinPreviews[skin.id]?.src} skinName={skin.name} />
                   </div>
                   <strong title={skin.name}>{skin.name}</strong>
                   <small className="skin-preview-meta">Formato: {skinPreviews[skin.id]?.height === 128 ? '128x128 HD' : '64x64 estándar'}</small>

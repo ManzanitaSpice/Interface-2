@@ -11,7 +11,7 @@
 
 .huge-panel {
   min-height: 0;
-  height: min(100%, calc(100vh - 285px));
+  height: min(100%, calc(100vh - 180px));
 }
 
 .panel-actions {
@@ -38,24 +38,24 @@
 }
 
 .instances-workspace.with-right-panel {
-  grid-template-columns: minmax(0, 1fr) 260px;
+  grid-template-columns: minmax(0, 1fr) 240px;
   align-items: stretch;
 }
 
 .cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 0.68rem;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.58rem;
   overflow: auto;
   padding-right: 0.2rem;
 }
 
 .instances-grid-area {
-  max-height: calc(100vh - 300px);
+  max-height: calc(100vh - 220px);
 }
 
 .instance-card {
-  min-height: 220px;
+  min-height: 172px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--bg-surface-muted) 95%, black), color-mix(in srgb, var(--bg-surface) 96%, black));
   border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
   border-radius: 0;
@@ -91,7 +91,7 @@
 
 .instance-card-icon.hero {
   width: calc(100% + 1.2rem);
-  height: 124px;
+  height: 92px;
   border: 0;
   margin: 0 -0.6rem 0.25rem;
   font-size: 2rem;
@@ -103,7 +103,7 @@
 }
 
 .instance-card-title {
-  font-size: 1.08rem;
+  font-size: 0.96rem;
   line-height: 1.25;
   letter-spacing: 0.01em;
 }
@@ -116,7 +116,7 @@
 
 .instance-card-meta {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.25rem;
   margin-top: auto;
 }
 
@@ -150,8 +150,8 @@
   border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
   border-radius: 0;
   padding: 0.62rem;
-  min-height: calc(100vh - 360px);
-  max-height: calc(100vh - 320px);
+  min-height: calc(100vh - 260px);
+  max-height: calc(100vh - 240px);
   overflow: auto;
 }
 
@@ -402,24 +402,24 @@
 }
 
 .third-top-bar {
-  min-height: 64px;
+  min-height: 50px;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
-  gap: 0.8rem;
-  padding: 0.7rem 0.9rem;
+  gap: 0.55rem;
+  padding: 0.45rem 0.65rem;
 }
 
 .icon-button {
-  width: 58px;
-  height: 58px;
-  font-size: 1.5rem;
+  width: 46px;
+  height: 46px;
+  font-size: 1.2rem;
 }
 
 .name-fields-with-console {
   display: grid;
-  grid-template-columns: minmax(320px, 520px) minmax(340px, 1fr);
-  gap: 0.6rem;
+  grid-template-columns: minmax(280px, 460px) minmax(280px, 1fr);
+  gap: 0.45rem;
   align-items: stretch;
   width: 100%;
 }
@@ -491,11 +491,11 @@
 }
 
 .list-interface {
-  padding: 0.52rem 0.62rem;
+  padding: 0.4rem 0.5rem;
   border-bottom: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 0.48rem;
+  gap: 0.3rem;
   min-height: 0;
 }
 
@@ -537,7 +537,7 @@
 .table-body-scroll {
   overflow: auto;
   min-height: 0;
-  max-height: 240px;
+  max-height: 170px;
 }
 
 .table-row-button {
@@ -657,13 +657,13 @@
 .creator-footer-actions,
 .execution-actions {
   border-top: 1px solid var(--border);
-  padding: 0.65rem;
+  padding: 0.45rem 0.65rem;
   display: flex;
   justify-content: flex-end;
   gap: 0.55rem;
   background: linear-gradient(180deg, rgba(18, 26, 38, 0.96), rgba(14, 20, 30, 0.98));
   position: sticky;
-  bottom: 0.35rem;
+  bottom: 0;
   z-index: 3;
 }
 
@@ -702,10 +702,10 @@
   border-bottom: 1px solid var(--border);
   padding: 0.6rem;
   overflow: auto;
-  height: clamp(280px, 52vh, 640px);
-  min-height: 280px;
-  max-height: 66vh;
-  margin-bottom: 0.45rem;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  margin-bottom: 0;
   font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.78rem;
 }
@@ -1056,7 +1056,7 @@
 
 .skins-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
   gap: 0.6rem;
   max-height: min(66vh, 760px);
   overflow: auto;
@@ -1067,6 +1067,7 @@
   display: flex;
   flex-direction: column;
   min-height: calc(100vh - 84px);
+  height: calc(100vh - 84px);
 }
 
 .skin-tabs-bar {
@@ -1091,13 +1092,15 @@
   display: grid;
   grid-template-columns: 180px minmax(0, 1fr) 220px;
   min-height: 0;
+  height: 100%;
 }
 
 .skin-editor-canvas {
   border-left: 1px solid var(--border);
   border-right: 1px solid var(--border);
   background: var(--bg-surface);
-  padding: 1rem;
+  padding: 0.55rem;
+  min-height: 0;
 }
 
 .browser-tabs {
@@ -1126,7 +1129,7 @@
 }
 
 .skin-editor-workspace.pro.compact {
-  grid-template-columns: 250px minmax(0, 1fr) 270px;
+  grid-template-columns: 240px minmax(0, 1fr) 250px;
 }
 
 .editor-left-sidebar,
@@ -1155,7 +1158,7 @@
 .three-preview {
   width: 100%;
   height: 100%;
-  min-height: 460px;
+  min-height: 360px;
   border-radius: 0.7rem;
   border: 1px solid #2d4058;
   background: radial-gradient(circle at 30% 20%, color-mix(in srgb, var(--bg-hover) 72%, #1d3048) 0%, color-mix(in srgb, var(--bg-surface) 92%, #111926) 62%);
@@ -1330,7 +1333,7 @@
 }
 
 .skin-card {
-  min-height: 210px;
+  min-height: 244px;
   gap: 0.4rem;
   border-radius: 0.6rem;
 }
@@ -1338,11 +1341,19 @@
 .skin-card-preview {
   border: 1px solid color-mix(in srgb, var(--border) 80%, var(--accent));
   border-radius: 0.45rem;
-  min-height: 116px;
+  min-height: 148px;
   display: grid;
   place-items: center;
   overflow: hidden;
   background: repeating-conic-gradient(color-mix(in srgb, var(--bg-main) 92%, black) 0% 25%, color-mix(in srgb, var(--bg-surface-muted) 90%, black) 0% 50%) 50% / 16px 16px;
+}
+
+
+.skin-card-preview-model {
+  width: 100%;
+  height: 148px;
+  border-radius: 0.35rem;
+  overflow: hidden;
 }
 
 .skin-card-preview-face {
@@ -1359,14 +1370,6 @@
   white-space: nowrap;
 }
 
-.editor-section-header {
-  grid-column: 1 / -1;
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  margin-bottom: -0.2rem;
-}
 
 .global-settings-panel {
   min-height: 0;
