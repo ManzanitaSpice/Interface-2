@@ -61,6 +61,19 @@
     grid-template-columns: 1fr;
   }
 
+  .skin-editor-workspace.pro,
+  .skin-editor-workspace.pro.compact {
+    grid-template-columns: 220px minmax(0, 1fr) 230px;
+  }
+
+  .paint-canvas {
+    height: 220px;
+  }
+
+  .three-preview {
+    min-height: 360px;
+  }
+
   .account-table-head,
   .account-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -72,6 +85,10 @@
 
   
   .skin-editor-workspace.pro.compact {
+    grid-template-columns: 1fr;
+  }
+
+  .skins-manager-layout {
     grid-template-columns: 1fr;
   }
 
