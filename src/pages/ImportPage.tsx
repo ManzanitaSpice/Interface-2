@@ -14,7 +14,7 @@ type Props = {
 }
 
 export function ImportPage({ onInstancesChanged }: Props) {
-  const { instances, status, progressPercent, scanLogs, isScanning, scan, clear } = useImportScanner()
+  const { instances, status, progressPercent, scanLogs, isScanning, keepDetected, setKeepDetected, scan, clear } = useImportScanner()
   const { running, message, progressPercent: executionProgressPercent, execute, executeActionBatch } = useImportExecution()
   const [selected, setSelected] = useState<string[]>([])
   const [search, setSearch] = useState('')
@@ -93,6 +93,8 @@ export function ImportPage({ onInstancesChanged }: Props) {
           detectedCount={instances.length}
           selectedCount={selectedItems.length}
           isScanning={isScanning}
+          keepDetected={keepDetected}
+          onToggleKeepDetected={() => setKeepDetected((prev) => !prev)}
           onScan={() => void scan()}
           onClear={() => { clear(); setSelected([]) }}
         />

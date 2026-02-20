@@ -8,6 +8,7 @@ import { FolderRow } from './components/FolderRow'
 import { MigrationModal } from './components/MigrationModal'
 import { useMigration } from './hooks/useMigration'
 import { ImportPage } from './pages/ImportPage'
+import { ExplorerPage } from './pages/ExplorerPage'
 
 type MainPage =
   | 'Inicio'
@@ -2387,6 +2388,10 @@ function App() {
 
       {authSession && activePage === 'Importar Instancias' && (
         <ImportPage onInstancesChanged={refreshInstances} />
+      )}
+
+      {authSession && activePage === 'Explorador' && (
+        <ExplorerPage />
       )}
 
       {authSession && activePage === 'Updates' && (
