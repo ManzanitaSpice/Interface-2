@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use serde_json::Value;
 
 use super::rule_engine::{evaluate_rules, RuleContext};
@@ -52,11 +50,9 @@ pub fn resolve_launch_arguments(
         .ok_or_else(|| "version.json no contiene mainClass".to_string())?
         .to_string();
 
-    let replacements = replacement_map(launch);
-
     if let Some(arguments) = version_json.get("arguments") {
-        let jvm = resolve_argument_section(arguments.get("jvm"), &replacements, rule_context);
-        let game = resolve_argument_section(arguments.get("game"), &replacements, rule_context);
+        let jvm = resolve_argument_section(arguments.get("jvm"), launch, rule_context);
+        let game = resolve_argument_section(arguments.get("game"), launch, rule_context);
         let mut all = Vec::with_capacity(jvm.len() + game.len());
         all.extend(jvm.clone());
         all.extend(game.clone());
@@ -69,15 +65,8 @@ pub fn resolve_launch_arguments(
         });
     }
 
-    if let Some(legacy) = version_json
-        .get("minecraftArguments")
-        .and_then(Value::as_str)
-    {
-        let game = legacy
-            .split_whitespace()
-            .map(|item| replace_variables(item, &replacements))
-            .collect::<Vec<_>>();
-
+    let game = parse_legacy_minecraft_arguments(version_json, launch);
+    if !game.is_empty() {
         return Ok(ResolvedLaunchArguments {
             main_class,
             jvm: Vec::new(),
@@ -91,7 +80,7 @@ pub fn resolve_launch_arguments(
 
 fn resolve_argument_section(
     maybe_section: Option<&Value>,
-    replacements: &HashMap<String, String>,
+    launch: &LaunchContext,
     rule_context: &RuleContext,
 ) -> Vec<String> {
     let Some(section) = maybe_section.and_then(Value::as_array) else {
@@ -101,7 +90,7 @@ fn resolve_argument_section(
     let mut args = Vec::new();
     for item in section {
         match item {
-            Value::String(value) => args.push(replace_variables(value, replacements)),
+            Value::String(value) => args.push(replace_launch_variables(value, launch)),
             Value::Object(_) => {
                 let rules = item
                     .get("rules")
@@ -114,11 +103,13 @@ fn resolve_argument_section(
 
                 if let Some(value) = item.get("value") {
                     match value {
-                        Value::String(single) => args.push(replace_variables(single, replacements)),
+                        Value::String(single) => {
+                            args.push(replace_launch_variables(single, launch))
+                        }
                         Value::Array(multiple) => {
                             for entry in multiple {
                                 if let Some(single) = entry.as_str() {
-                                    args.push(replace_variables(single, replacements));
+                                    args.push(replace_launch_variables(single, launch));
                                 }
                             }
                         }
@@ -134,112 +125,65 @@ fn resolve_argument_section(
 }
 
 pub fn replace_launch_variables(raw: &str, launch: &LaunchContext) -> String {
-    let replacements = replacement_map(launch);
-    replace_variables(raw, &replacements)
-}
+    let replacements: [(&str, &str); 32] = [
+        ("${auth_player_name}", &launch.auth_player_name),
+        ("${auth_uuid}", &launch.auth_uuid),
+        ("${auth_access_token}", &launch.auth_access_token),
+        ("${auth_session}", &launch.auth_access_token),
+        ("${user_type}", &launch.user_type),
+        ("${user_properties}", &launch.user_properties),
+        ("${version_name}", &launch.version_name),
+        ("${version_type}", &launch.version_type),
+        ("${game_directory}", &launch.game_directory),
+        ("${assets_root}", &launch.assets_root),
+        ("${game_assets}", &launch.assets_root),
+        ("${assets_index_name}", &launch.assets_index_name),
+        ("${natives_directory}", &launch.natives_dir),
+        ("${launcher_name}", &launch.launcher_name),
+        ("${launcher_version}", &launch.launcher_version),
+        ("${classpath}", &launch.classpath),
+        ("${library_directory}", &launch.library_directory),
+        ("${classpath_separator}", &launch.classpath_separator),
+        ("${resolution_width}", &launch.resolution_width),
+        ("${resolution_height}", &launch.resolution_height),
+        ("${clientid}", &launch.clientid),
+        ("${auth_xuid}", &launch.auth_xuid),
+        ("${quickPlayPath}", &launch.quick_play_path),
+        ("${quickPlaySingleplayer}", &launch.quick_play_singleplayer),
+        ("${quickPlayMultiplayer}", &launch.quick_play_multiplayer),
+        ("${quickPlayRealms}", &launch.quick_play_realms),
+        ("${username}", &launch.auth_player_name),
+        ("${uuid}", &launch.auth_uuid),
+        ("${accessToken}", &launch.auth_access_token),
+        ("${gameDir}", &launch.game_directory),
+        ("${assetsDir}", &launch.assets_root),
+        ("${assetIndex}", &launch.assets_index_name),
+    ];
 
-fn replacement_map(launch: &LaunchContext) -> HashMap<String, String> {
-    let mut map = HashMap::new();
-    map.insert("classpath".to_string(), launch.classpath.clone());
-    map.insert(
-        "classpath_separator".to_string(),
-        launch.classpath_separator.clone(),
-    );
-    map.insert(
-        "library_directory".to_string(),
-        launch.library_directory.clone(),
-    );
-    map.insert("natives_directory".to_string(), launch.natives_dir.clone());
-    map.insert("launcher_name".to_string(), launch.launcher_name.clone());
-    map.insert(
-        "launcher_version".to_string(),
-        launch.launcher_version.clone(),
-    );
-    map.insert(
-        "auth_player_name".to_string(),
-        launch.auth_player_name.clone(),
-    );
-    map.insert("auth_uuid".to_string(), launch.auth_uuid.clone());
-    map.insert(
-        "auth_access_token".to_string(),
-        launch.auth_access_token.clone(),
-    );
-    map.insert("user_type".to_string(), launch.user_type.clone());
-    map.insert(
-        "user_properties".to_string(),
-        launch.user_properties.clone(),
-    );
-    map.insert("version_name".to_string(), launch.version_name.clone());
-    map.insert("game_directory".to_string(), launch.game_directory.clone());
-    map.insert("assets_root".to_string(), launch.assets_root.clone());
-    map.insert(
-        "assets_index_name".to_string(),
-        launch.assets_index_name.clone(),
-    );
-    map.insert("version_type".to_string(), launch.version_type.clone());
-    map.insert(
-        "resolution_width".to_string(),
-        launch.resolution_width.clone(),
-    );
-    map.insert(
-        "resolution_height".to_string(),
-        launch.resolution_height.clone(),
-    );
-    map.insert("clientid".to_string(), launch.clientid.clone());
-    map.insert("auth_xuid".to_string(), launch.auth_xuid.clone());
-    map.insert("xuid".to_string(), launch.xuid.clone());
-    map.insert(
-        "quickPlaySingleplayer".to_string(),
-        launch.quick_play_singleplayer.clone(),
-    );
-    map.insert(
-        "quickPlayMultiplayer".to_string(),
-        launch.quick_play_multiplayer.clone(),
-    );
-    map.insert(
-        "quickPlayRealms".to_string(),
-        launch.quick_play_realms.clone(),
-    );
-    map.insert("quickPlayPath".to_string(), launch.quick_play_path.clone());
-
-    map.insert("username".to_string(), launch.auth_player_name.clone());
-    map.insert("uuid".to_string(), launch.auth_uuid.clone());
-    map.insert("accessToken".to_string(), launch.auth_access_token.clone());
-    map.insert("gameDir".to_string(), launch.game_directory.clone());
-    map.insert("assetsDir".to_string(), launch.assets_root.clone());
-    map.insert("assetIndex".to_string(), launch.assets_index_name.clone());
-    map.insert("game_assets".to_string(), launch.assets_root.clone());
-
-    map
-}
-
-fn replace_variables(raw: &str, replacements: &HashMap<String, String>) -> String {
-    let mut output = String::with_capacity(raw.len());
-    let mut cursor = raw;
-
-    while let Some(start) = cursor.find("${") {
-        output.push_str(&cursor[..start]);
-        let variable_start = start + 2;
-        let candidate = &cursor[variable_start..];
-
-        if let Some(end) = candidate.find('}') {
-            let key = &candidate[..end];
-            if let Some(value) = replacements.get(key) {
-                output.push_str(value);
-            } else {
-                output.push_str("${");
-                output.push_str(key);
-                output.push('}');
-            }
-            cursor = &candidate[end + 1..];
-        } else {
-            output.push_str(&cursor[start..]);
-            return output;
-        }
+    let mut result = raw.to_string();
+    for (placeholder, value) in replacements {
+        result = result.replace(placeholder, value);
     }
 
-    output.push_str(cursor);
-    output
+    result
+}
+
+pub fn parse_legacy_minecraft_arguments(
+    version_json: &Value,
+    context: &LaunchContext,
+) -> Vec<String> {
+    let raw = match version_json
+        .get("minecraftArguments")
+        .and_then(Value::as_str)
+    {
+        Some(s) if !s.trim().is_empty() => s,
+        _ => return Vec::new(),
+    };
+
+    raw.split_whitespace()
+        .map(|token| replace_launch_variables(token, context))
+        .filter(|token| !token.trim().is_empty())
+        .collect()
 }
 
 pub fn unresolved_variables_in_args<'a>(args: impl IntoIterator<Item = &'a String>) -> Vec<String> {
