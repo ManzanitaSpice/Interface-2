@@ -654,6 +654,28 @@ fn assets_dir_candidates(source_path: &Path, source_launcher: &str) -> Vec<PathB
     unique_paths(candidates)
 }
 
+fn find_minecraft_jar(
+    source_path: &Path,
+    version_id: &str,
+    source_launcher: &str,
+) -> Option<PathBuf> {
+    minecraft_jar_candidates(source_path, version_id, source_launcher)
+        .into_iter()
+        .find(|candidate| candidate.is_file())
+}
+
+fn find_libraries_dir(source_path: &Path, source_launcher: &str) -> Option<PathBuf> {
+    libraries_dir_candidates(source_path, source_launcher)
+        .into_iter()
+        .find(|candidate| candidate.is_dir())
+}
+
+fn find_assets_dir(source_path: &Path, source_launcher: &str) -> Option<PathBuf> {
+    assets_dir_candidates(source_path, source_launcher)
+        .into_iter()
+        .find(|candidate| candidate.is_dir())
+}
+
 pub fn resolve_redirect_launch_context(
     source_path: &Path,
     version_id: &str,
