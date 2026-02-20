@@ -52,7 +52,7 @@
 
 .cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 0.92fr));
+  grid-template-columns: repeat(auto-fill, minmax(190px, 0.82fr));
   grid-auto-rows: max-content;
   align-content: start;
   gap: 0.58rem;
@@ -104,7 +104,7 @@
 .instance-card-icon.hero {
   width: 100%;
   height: auto;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 4 / 3;
   border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   border-radius: 0.6rem;
   margin: 0 -0.62rem 0.3rem;
@@ -2035,7 +2035,8 @@
 .explorer-card-media-wrapper {
   position: relative;
   width: 100%;
-  aspect-ratio: 1 / 1;
+  aspect-ratio: 4 / 3;
+  min-height: 180px;
   overflow: hidden;
   border-radius: 12px 12px 0 0;
   background: #1a1a2e;
@@ -2073,7 +2074,7 @@
 
 .explorer-results.grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: .7rem;
   overflow: auto;
 }
@@ -2085,7 +2086,7 @@
 
 .explorer-results.list .explorer-card {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: 280px minmax(0, 1fr);
   align-items: stretch;
   column-gap: .9rem;
 }
