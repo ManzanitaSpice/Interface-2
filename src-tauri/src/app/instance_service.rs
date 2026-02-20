@@ -338,7 +338,8 @@ pub fn validate_and_prepare_launch(
     } else {
         let class_entry = format!("{}.class", resolved_main_class.replace('.', "/"));
 
-        let found_in = resolved_libraries
+        // First try to find the class inside a classpath JAR (works for Fabric, Quilt, legacy Forge).
+        let found_in_classpath = resolved_libraries
             .classpath_entries
             .iter()
             .find(|jar_path| {
@@ -349,31 +350,46 @@ pub fn validate_and_prepare_launch(
                     .unwrap_or(false)
             });
 
-        match found_in {
-            Some(jar_path) => {
-                logs.push(format!(
-                    "✔ mainClass {resolved_main_class} verificada en library: {}",
-                    Path::new(jar_path)
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                ));
-            }
-            None => {
-                let bootstraplauncher_present = resolved_libraries
-                    .classpath_entries
-                    .iter()
-                    .any(|path| path.to_ascii_lowercase().contains("bootstraplauncher"));
+        if let Some(jar_path) = found_in_classpath {
+            logs.push(format!(
+                "✔ mainClass {resolved_main_class} verificada en library: {}",
+                Path::new(jar_path)
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+            ));
+        } else {
+            // Modern Forge (≥1.36 approx) loads BootstrapLauncher via the JPMS module path
+            // (--module-path JVM arg produced by the installer), NOT via the standard classpath
+            // libraries array. The JAR lives in mc_root/libraries but is never added to
+            // classpath_entries. Scan the libraries directory on disk as a fallback.
+            let main_class_lower = resolved_main_class.to_ascii_lowercase();
+            let is_forge_or_neo = loader == "forge" || loader == "neoforge";
 
-                let diagnostic = if resolved_main_class
-                    .to_ascii_lowercase()
-                    .contains("bootstraplauncher")
-                    && !bootstraplauncher_present
-                {
-                    "El JAR bootstraplauncher no está en el classpath. \
-Las libraries de NeoForge pueden no haberse descargado \
-correctamente durante la instalación."
-                        .to_string()
+            let search_keyword = if main_class_lower.contains("bootstraplauncher") || main_class_lower.contains("cpw.mods") {
+                Some("bootstraplauncher")
+            } else if main_class_lower.contains("net.neoforged") {
+                Some("neoforged")
+            } else {
+                None
+            };
+
+            let found_in_libraries_dir = is_forge_or_neo
+                && search_keyword.map_or(false, |kw| {
+                    jar_exists_in_libraries_dir(&mc_root.join("libraries"), kw)
+                });
+
+            if found_in_libraries_dir {
+                logs.push(format!(
+                    "✔ mainClass {resolved_main_class} verificada en libraries dir (módulo JPMS de Forge)"
+                ));
+            } else {
+                let diagnostic = if is_forge_or_neo {
+                    format!(
+                        "El JAR del launcher ({}) no se encontró en el directorio libraries. \
+La instalación de Forge/NeoForge puede estar incompleta.",
+                        search_keyword.unwrap_or("bootstraplauncher")
+                    )
                 } else {
                     format!(
                         "Classpath contiene {} JARs pero ninguno tiene la clase. \
@@ -410,7 +426,10 @@ en ningún JAR del classpath del loader '{}'.\n{}",
         || resolved_libraries
             .classpath_entries
             .iter()
-            .any(|entry| entry.to_ascii_lowercase().contains("bootstraplauncher"));
+            .any(|entry| entry.to_ascii_lowercase().contains("bootstraplauncher"))
+        // Modern Forge puts BootstrapLauncher on --module-path, not on classpath.
+        // Fall back to checking the libraries directory on disk.
+        || jar_exists_in_libraries_dir(&mc_root.join("libraries"), "bootstraplauncher");
     logs.push(format!("BOOTSTRAP EN CP: {has_bootstrap}"));
 
     let loader_lower = metadata.loader.trim().to_ascii_lowercase();
@@ -450,7 +469,19 @@ en ningún JAR del classpath del loader '{}'.\n{}",
             ));
         }
     }
-    if (loader_lower == "forge" || loader_lower == "neoforge") && !has_bootstrap {
+    // Newer NeoForge (21.x+) uses net.neoforged.* instead of cpw.mods.bootstraplauncher
+    let has_neoforged_modern = resolved_main_class
+        .to_ascii_lowercase()
+        .contains("net.neoforged")
+        || resolved_libraries
+            .classpath_entries
+            .iter()
+            .any(|e| e.to_ascii_lowercase().contains("net.neoforged"))
+        || jar_exists_in_libraries_dir(&mc_root.join("libraries"), "neoforged");
+    if (loader_lower == "forge" || loader_lower == "neoforge")
+        && !has_bootstrap
+        && !has_neoforged_modern
+    {
         return Err(format!(
             "Regla de validación incumplida: loader={} requiere bootstraplauncher en classpath.",
             metadata.loader
@@ -633,6 +664,20 @@ en ningún JAR del classpath del loader '{}'.\n{}",
             .map(|arg| replace_launch_variables(arg, &launch_context)),
     );
     jvm_args.append(&mut resolved.jvm);
+
+    // Modern Forge (1.17+) needs system properties so its bootstrap can
+    // locate libraries and know which JARs to skip mod-scanning.
+    // If they are absent from the version.json JVM args, inject them now.
+    if loader_lower == "forge" {
+        if let Some(fixed_main) = forge_resolve_main_class(
+            &resolved.main_class,
+            &resolved_libraries.classpath_entries,
+            &mut logs,
+        ) {
+            resolved.main_class = fixed_main;
+        }
+        forge_inject_system_properties(&mut jvm_args, &mc_root, &mut logs);
+    }
 
     logs.push(format!(
         "DEBUG auth - profile_name: '{}'",
@@ -1862,6 +1907,28 @@ fn ensure_main_class_present_in_jar(jar_path: &Path, main_class: &str) -> Result
     })
 }
 
+/// Recursively scans `dir` for any `.jar` file whose path (lowercased) contains `keyword`.
+/// Used to detect Forge/NeoForge JARs that live in `libraries/` but are launched via
+/// --module-path rather than being listed in the version.json `libraries` array.
+fn jar_exists_in_libraries_dir(dir: &Path, keyword: &str) -> bool {
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if jar_exists_in_libraries_dir(&path, keyword) {
+                return true;
+            }
+        } else if path
+            .to_string_lossy()
+            .to_ascii_lowercase()
+            .contains(keyword)
+            && path.extension().and_then(|e| e.to_str()) == Some("jar")
+        {
+            return true;
+        }
+    }
+    false
+}
+
 fn build_maven_library_path(mc_root: &Path, library: &Value) -> Option<String> {
     let name = library.get("name")?.as_str()?;
     let mut parts = name.split(':');
@@ -2364,7 +2431,8 @@ fn expected_main_class_for_loader(loader: &str) -> Option<&'static str> {
     match loader.trim().to_ascii_lowercase().as_str() {
         "vanilla" | "" => Some("net.minecraft.client.main.Main"),
         "fabric" => Some("net.fabricmc.loader.impl.launch.knot.KnotClient"),
-        "forge" | "neoforge" => Some("cpw.mods.bootstraplauncher.BootstrapLauncher"),
+        // Forge and NeoForge mainClass varies by version and bootstrap generation.
+        // Do not enforce a specific class — let the installer's version.json decide.
         _ => None,
     }
 }

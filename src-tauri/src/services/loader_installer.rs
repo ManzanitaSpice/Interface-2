@@ -89,7 +89,7 @@ pub fn install_loader_if_needed(
                     loader_version,
                     java_exec,
                     "https://maven.minecraftforge.net/net/minecraftforge/forge/{minecraft_version}-{loader_version}/forge-{minecraft_version}-{loader_version}-installer.jar",
-                    &modern_installer_args(minecraft_version, true),
+                    &modern_installer_args(),
                     ensure_modern_forge_java(java_exec, "Forge")?,
                     "forge",
                     logs,
@@ -120,7 +120,10 @@ fn expected_main_class_for_loader(loader: &str) -> Option<&'static str> {
     match loader.trim().to_ascii_lowercase().as_str() {
         "vanilla" | "" => Some("net.minecraft.client.main.Main"),
         "fabric" => Some("net.fabricmc.loader.impl.launch.knot.KnotClient"),
-        "forge" | "neoforge" => Some("cpw.mods.bootstraplauncher.BootstrapLauncher"),
+        // Forge mainClass varies by version and bootstrap generation.
+        // Let the installer's version.json decide — do not force-override.
+        // NeoForge also varies (old: cpw.mods.bootstraplauncher.BootstrapLauncher,
+        //  new: net.neoforged.fml.startup.Client)
         _ => None,
     }
 }
@@ -295,10 +298,21 @@ fn install_forge_legacy(
     Ok(version_id)
 }
 
-fn build_neoforge_installer_url(neoforge_version: &str) -> String {
-    format!(
-        "https://maven.neoforged.net/releases/net/neoforged/neoforge/{neoforge_version}/neoforge-{neoforge_version}-installer.jar"
-    )
+fn build_neoforge_installer_url(mc_version: &str, neoforge_version: &str) -> String {
+    // MC 1.20.1 was shipped under the legacy artifact net.neoforged:forge
+    // (version format: 1.20.1-{neoforge_version}).
+    // From 1.20.2 onward it uses net.neoforged:neoforge
+    // (version format: {neoforge_version} without the MC prefix).
+    if mc_version == "1.20.1" {
+        let full_version = format!("{mc_version}-{neoforge_version}");
+        format!(
+            "https://maven.neoforged.net/releases/net/neoforged/forge/{full_version}/forge-{full_version}-installer.jar"
+        )
+    } else {
+        format!(
+            "https://maven.neoforged.net/releases/net/neoforged/neoforge/{neoforge_version}/neoforge-{neoforge_version}-installer.jar"
+        )
+    }
 }
 
 fn verify_neoforge_preconditions(mc_root: &Path, mc_version: &str) -> AppResult<()> {
@@ -521,7 +535,11 @@ fn parse_neoforge_candidate_json(
     let json = serde_json::from_str::<Value>(&raw).ok()?;
     let inherits = json.get("inheritsFrom").and_then(Value::as_str)?;
     let id = json.get("id").and_then(Value::as_str).unwrap_or(version_id);
-    if inherits != mc_version || !id.to_ascii_lowercase().contains("neoforge") {
+    let id_lower = id.to_ascii_lowercase();
+    // 1.20.1: NeoForge installs under "1.20.1-forge-X" (no "neoforge" in name)
+    let is_neoforge_id = id_lower.contains("neoforge")
+        || (mc_version == "1.20.1" && id_lower.contains("forge"));
+    if inherits != mc_version || !is_neoforge_id {
         return None;
     }
     let modified = fs::metadata(&json_path).and_then(|m| m.modified()).ok()?;
@@ -542,6 +560,15 @@ fn detect_installed_neoforge_version(
         .join(format!("{exact_modern}.json"));
     if modern_json.exists() {
         return Ok(exact_modern);
+    }
+
+    // 1.20.1 legacy: installer creates "1.20.1-forge-{neoforge_version}"
+    let legacy_forge = format!("{mc_version}-forge-{neoforge_version}");
+    let legacy_forge_json = versions_dir
+        .join(&legacy_forge)
+        .join(format!("{legacy_forge}.json"));
+    if legacy_forge_json.exists() {
+        return Ok(legacy_forge);
     }
 
     let legacy = format!("{mc_version}-neoforge-{neoforge_version}");
@@ -705,7 +732,10 @@ fn validate_neoforge_version_json(
         .and_then(Value::as_str)
         .ok_or_else(|| format!("Falta mainClass en {}", version_json_path.display()))?;
     let main_class_lower = main_class.to_ascii_lowercase();
-    if !main_class_lower.contains("bootstraplauncher") && !main_class_lower.contains("cpw.mods") {
+    let is_valid_neoforge_main = main_class_lower.contains("bootstraplauncher")
+        || main_class_lower.contains("cpw.mods")
+        || main_class_lower.contains("net.neoforged");
+    if !is_valid_neoforge_main {
         return Err(format!(
             "mainClass inválida en {}. valor={}",
             version_json_path.display(),
@@ -780,7 +810,7 @@ fn install_neoforge(
     prepare_minecraft_root_for_installer(mc_root, logs)?;
 
     logs.push("Construyendo URL del installer de NeoForge...".to_string());
-    let url = build_neoforge_installer_url(neoforge_version);
+    let url = build_neoforge_installer_url(mc_version, neoforge_version);
     logs.push(format!("URL installer: {url}"));
 
     if let Ok(version_id) =

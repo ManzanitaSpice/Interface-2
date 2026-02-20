@@ -1251,26 +1251,57 @@ function App() {
       }
 
       if (selectedLoader === 'neoforge') {
-        const metadataUrl = 'https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml'
-        const response = await fetch(metadataUrl)
-        if (!response.ok) {
-          throw new Error(`NeoForge maven metadata HTTP ${response.status}`)
+        // NeoForge 1.20.1 uses the legacy artifact (net.neoforged:forge).
+        // From 1.20.2 onward the artifact is net.neoforged:neoforge with a
+        // shortened version scheme (e.g. 20.2.x, 21.x.x).
+        const mcId = selectedMinecraftVersion.id
+        const isLegacyNeoForge = mcId === '1.20.1'
+
+        let items: LoaderVersionItem[]
+
+        if (isLegacyNeoForge) {
+          const metadataUrl = 'https://maven.neoforged.net/releases/net/neoforged/forge/maven-metadata.xml'
+          const response = await fetch(metadataUrl)
+          if (!response.ok) {
+            throw new Error(`NeoForge (legacy) maven metadata HTTP ${response.status}`)
+          }
+          const xmlText = await response.text()
+          const doc = new DOMParser().parseFromString(xmlText, 'application/xml')
+          const versions = Array.from(doc.querySelectorAll('version')).map((node) => node.textContent?.trim() ?? '')
+          const prefix = `${mcId}-`
+          items = sortLoaderVersions(versions
+            .filter((version) => version.startsWith(prefix))
+            .map((version) => {
+              const loaderPart = version.slice(prefix.length)
+              return {
+                version: loaderPart,
+                publishedAt: '-',
+                source: 'release',
+                downloadUrl: `https://maven.neoforged.net/releases/net/neoforged/forge/${version}/forge-${version}-installer.jar`,
+              }
+            }))
+        } else {
+          const metadataUrl = 'https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml'
+          const response = await fetch(metadataUrl)
+          if (!response.ok) {
+            throw new Error(`NeoForge maven metadata HTTP ${response.status}`)
+          }
+          const xmlText = await response.text()
+          const doc = new DOMParser().parseFromString(xmlText, 'application/xml')
+          const versions = Array.from(doc.querySelectorAll('version')).map((node) => node.textContent?.trim() ?? '')
+          const family = inferNeoForgeFamily(mcId)
+          items = sortLoaderVersions(versions
+            .filter((version) => {
+              if (!family) return true
+              return version === family || version.startsWith(`${family}.`)
+            })
+            .map((version) => ({
+              version,
+              publishedAt: '-',
+              source: 'release',
+              downloadUrl: `https://maven.neoforged.net/releases/net/neoforged/neoforge/${version}/neoforge-${version}-installer.jar`,
+            })))
         }
-        const xmlText = await response.text()
-        const doc = new DOMParser().parseFromString(xmlText, 'application/xml')
-        const versions = Array.from(doc.querySelectorAll('version')).map((node) => node.textContent?.trim() ?? '')
-        const family = inferNeoForgeFamily(selectedMinecraftVersion.id)
-        const items = sortLoaderVersions(versions
-          .filter((version) => {
-            if (!family) return true
-            return version === family || version.startsWith(`${family}.`)
-          })
-          .map((version) => ({
-            version,
-            publishedAt: '-',
-            source: 'release',
-            downloadUrl: `https://maven.neoforged.net/releases/net/neoforged/neoforge/${version}/neoforge-${version}-installer.jar`,
-          })))
 
         if (!cancelled) {
           setLoaderVersions(items)

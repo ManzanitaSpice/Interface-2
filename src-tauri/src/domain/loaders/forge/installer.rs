@@ -5,16 +5,10 @@ use crate::shared::result::AppResult;
 
 pub const MIN_JAVA_VERSION_MODERN_FORGE: u32 = 17;
 
-pub fn modern_installer_args(minecraft_version: &str, with_debug: bool) -> Vec<String> {
-    let mut args = vec![
-        "--installClient".to_string(),
-        "--mcversion".to_string(),
-        minecraft_version.to_string(),
-    ];
-    if with_debug {
-        args.push("--debug".to_string());
-    }
-    args
+pub fn modern_installer_args() -> Vec<String> {
+    // Modern Forge installers (1.13+) only accept --installClient.
+    // --mcversion and --debug are not recognized and cause UnrecognizedOptionException.
+    vec!["--installClient".to_string()]
 }
 
 pub fn ensure_modern_forge_java(java_exec: &Path, loader_name: &str) -> AppResult<u32> {
