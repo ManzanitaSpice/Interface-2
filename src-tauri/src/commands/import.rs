@@ -1123,22 +1123,21 @@ pub fn execute_import_action(
     }
 
     if action == "ejecutar" {
-        let cache_root = app
-            .path()
-            .app_cache_dir()
-            .map_err(|err| format!("No se pudo resolver cache dir para ejecución temporal: {err}"))?
-            .join("import-runtime-cache")
-            .join(Uuid::new_v4().to_string());
+        let source_path = PathBuf::from(&request.source_path);
+        if !source_path.exists() {
+            return Err(format!("La carpeta original de la instancia ya no existe en: {}. Es posible que el launcher externo haya movido o eliminado la instancia.", source_path.display()));
+        }
 
-        fs::create_dir_all(&cache_root)
-            .map_err(|err| format!("No se pudo crear cache temporal: {err}"))?;
-
-        copy_dir_recursive(Path::new(&request.source_path), &cache_root)?;
+        crate::app::redirect_launch::resolve_redirect_launch_context(
+            &source_path,
+            &request.minecraft_version,
+            &request.source_launcher,
+        )?;
 
         return Ok(ImportActionResult {
             success: true,
             target_name: request.target_name,
-            target_path: Some(cache_root.display().to_string()),
+            target_path: Some(request.source_path),
             error: None,
         });
     }
