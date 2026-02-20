@@ -14,6 +14,7 @@ pub struct CatalogSearchRequest {
     pub modrinth_sort: String,
     pub curseforge_sort_field: u32,
     pub limit: Option<u32>,
+    pub page: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -42,13 +43,15 @@ pub fn search_catalogs(request: CatalogSearchRequest) -> Result<Vec<CatalogItem>
         .map_err(|err| format!("No se pudo inicializar cliente HTTP: {err}"))?;
 
     let limit = request.limit.unwrap_or(30).clamp(1, 50);
+    let page = request.page.unwrap_or(1).max(1);
+    let offset = (page - 1) * limit;
     let mut output = Vec::new();
 
     if request.platform != "Curseforge" {
-        output.extend(fetch_modrinth(&client, &request, limit)?);
+        output.extend(fetch_modrinth(&client, &request, limit, offset)?);
     }
     if request.platform != "Modrinth" {
-        output.extend(fetch_curseforge(&client, &request, limit)?);
+        output.extend(fetch_curseforge(&client, &request, limit, offset)?);
     }
 
     Ok(output)
@@ -58,6 +61,7 @@ fn fetch_modrinth(
     client: &Client,
     request: &CatalogSearchRequest,
     limit: u32,
+    offset: u32,
 ) -> Result<Vec<CatalogItem>, String> {
     let mut facets: Vec<Vec<String>> = Vec::new();
     if let Some(project_type) = request.category.as_ref().filter(|v| !v.is_empty()) {
@@ -73,6 +77,7 @@ fn fetch_modrinth(
     let mut params = vec![
         ("query", request.search.clone()),
         ("limit", limit.to_string()),
+        ("offset", offset.to_string()),
         ("index", request.modrinth_sort.clone()),
     ];
     if !facets.is_empty() {
@@ -176,6 +181,7 @@ fn fetch_curseforge(
     client: &Client,
     request: &CatalogSearchRequest,
     limit: u32,
+    offset: u32,
 ) -> Result<Vec<CatalogItem>, String> {
     let api_key = std::env::var("CURSEFORGE_API_KEY").unwrap_or_else(|_| {
         "$2a$10$jK7YyZHdUNTDlcME9Egd6.Zt5RananLQKn/tpIhmRDezd2.wHGU9G".to_string()
@@ -184,6 +190,7 @@ fn fetch_curseforge(
     let mut params = vec![
         ("gameId", "432".to_string()),
         ("pageSize", limit.to_string()),
+        ("index", offset.to_string()),
         ("sortField", request.curseforge_sort_field.to_string()),
         ("sortOrder", "desc".to_string()),
     ];
