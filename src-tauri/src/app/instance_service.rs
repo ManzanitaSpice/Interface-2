@@ -232,6 +232,7 @@ pub fn validate_and_prepare_launch(
     let selected_version_id = resolve_effective_version_id(&mc_root, &metadata)?;
     logs.push(format!("VERSION JSON efectivo: {selected_version_id}"));
     let version_json = load_merged_version_json(&mc_root, &selected_version_id)?;
+    validate_merged_has_auth_args(&version_json)?;
 
     let executable_version_id = version_json
         .get("id")
@@ -555,7 +556,7 @@ en ningún JAR del classpath del loader '{}'.\n{}",
         launcher_name: "Interface-2".to_string(),
         launcher_version: env!("CARGO_PKG_VERSION").to_string(),
         auth_player_name: verified_auth.profile_name.clone(),
-        auth_uuid: verified_auth.profile_id.clone(),
+        auth_uuid: sanitize_uuid(&verified_auth.profile_id),
         auth_access_token: verified_auth.minecraft_access_token.clone(),
         user_type: "msa".to_string(),
         user_properties: "{}".to_string(),
@@ -597,6 +598,22 @@ en ningún JAR del classpath del loader '{}'.\n{}",
             .map(|arg| replace_launch_variables(arg, &launch_context)),
     );
     jvm_args.append(&mut resolved.jvm);
+
+    logs.push(format!(
+        "DEBUG auth - profile_name: '{}'",
+        verified_auth.profile_name
+    ));
+    logs.push(format!(
+        "DEBUG auth - profile_id: '{}'",
+        verified_auth.profile_id
+    ));
+    logs.push(format!(
+        "DEBUG auth - token vacío: {}",
+        verified_auth.minecraft_access_token.is_empty()
+    ));
+    logs.push(format!("DEBUG game_args count: {}", resolved.game.len()));
+    logs.push(format!("DEBUG game_args completos: {:?}", resolved.game));
+    logs.push(format!("DEBUG jvm_args count: {}", jvm_args.len()));
 
     if !contains_classpath_switch(&jvm_args) {
         jvm_args.push("-cp".to_string());
@@ -641,7 +658,7 @@ en ningún JAR del classpath del loader '{}'.\n{}",
         return Err("Cuenta sin licencia premium verificada. Lanzamiento bloqueado.".to_string());
     }
 
-    validate_required_online_launch_flags(&resolved.game).map_err(|err| {
+    validate_required_online_launch_flags(&resolved.game, &launch_context).map_err(|err| {
         format!(
             "Argumentos críticos de sesión incompletos o inválidos. {err}. Lanzamiento bloqueado para evitar Demo."
         )
@@ -676,10 +693,11 @@ en ningún JAR del classpath del loader '{}'.\n{}",
         ));
     }
 
-    if uuid != verified_auth.profile_id {
+    if uuid != sanitize_uuid(&verified_auth.profile_id) {
         return Err(format!(
             "--uuid no coincide byte a byte con profile.id validado. esperado={} recibido={}",
-            verified_auth.profile_id, uuid
+            sanitize_uuid(&verified_auth.profile_id),
+            uuid
         ));
     }
 
@@ -1259,33 +1277,113 @@ fn find_arg_value(args: &[String], flag: &str) -> Option<String> {
     })
 }
 
-fn validate_required_online_launch_flags(game_args: &[String]) -> Result<(), String> {
-    let username =
-        find_arg_value(game_args, "--username").ok_or_else(|| "Falta --username".to_string())?;
-    let uuid = find_arg_value(game_args, "--uuid").ok_or_else(|| "Falta --uuid".to_string())?;
-    let token = find_arg_value(game_args, "--accessToken")
-        .ok_or_else(|| "Falta --accessToken".to_string())?;
-    let user_type = find_arg_value(game_args, "--userType");
-    let version_type = find_arg_value(game_args, "--versionType");
+fn sanitize_uuid(uuid: &str) -> String {
+    uuid.replace('-', "")
+}
 
-    if username.trim().is_empty() {
-        return Err("--username vacío".to_string());
-    }
+fn validate_merged_has_auth_args(merged: &Value) -> Result<(), String> {
+    let has_username_placeholder = if merged.get("arguments").is_some() {
+        merged
+            .get("arguments")
+            .and_then(|a| a.get("game"))
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter().any(|entry| {
+                    if let Some(text) = entry.as_str() {
+                        return text.contains("auth_player_name");
+                    }
 
-    if uuid.trim().is_empty() {
-        return Err("--uuid vacío".to_string());
-    }
+                    entry
+                        .get("value")
+                        .map(|value| match value {
+                            Value::String(text) => text.contains("auth_player_name"),
+                            Value::Array(items) => items.iter().any(|item| {
+                                item.as_str()
+                                    .map(|text| text.contains("auth_player_name"))
+                                    .unwrap_or(false)
+                            }),
+                            _ => false,
+                        })
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false)
+    } else {
+        merged
+            .get("minecraftArguments")
+            .and_then(Value::as_str)
+            .map(|s| s.contains("auth_player_name"))
+            .unwrap_or(false)
+    };
 
-    if uuid.contains('-') {
+    if !has_username_placeholder {
         return Err(
-            "--uuid debe enviarse sin guiones para coincidir con profile.id oficial".to_string(),
+            "El version.json mergeado no contiene el placeholder auth_player_name en los game arguments. El merge puede haber perdido los arguments del parent (vanilla). Verifica la función load_merged_version_json().".to_string()
         );
     }
 
-    if token.trim().is_empty() {
-        return Err("--accessToken vacío".to_string());
+    Ok(())
+}
+
+fn validate_required_online_launch_flags(
+    game_args: &[String],
+    launch_context: &LaunchContext,
+) -> Result<(), String> {
+    if game_args.is_empty() {
+        return Err(format!(
+            "game_args está completamente vacío. El version.json no produjo argumentos de juego. Verifica que el version.json fue mergeado correctamente y que extract_game_args() no retornó Vec vacío. auth_player_name en contexto: '{}'",
+            launch_context.auth_player_name
+        ));
     }
 
+    let username = find_arg_value(game_args, "--username");
+    if username.is_none() {
+        let has_unresolved = game_args.iter().any(|a| a.contains("auth_player_name"));
+        let diagnostic = if has_unresolved {
+            "La variable ${auth_player_name} está presente pero NO fue sustituida. El LaunchContext.auth_player_name probablemente está vacío o replace_launch_variables() no reconoce esa variable."
+        } else {
+            "--username no está en game_args ni como variable. El merge del version.json perdió los arguments.game del parent vanilla."
+        };
+
+        return Err(format!(
+            "Falta --username en game_args. Diagnóstico: {} auth_player_name en contexto: '{}' Primeros 10 game_args: {:?}",
+            diagnostic,
+            launch_context.auth_player_name,
+            game_args.iter().take(10).collect::<Vec<_>>()
+        ));
+    }
+
+    let username = username.unwrap_or_default();
+    if username.trim().is_empty() {
+        return Err(
+            "--username está presente pero vacío. verified_auth.profile_name estaba vacío al construir LaunchContext. Verifica que validate_official_minecraft_auth() retornó un profile_name válido antes de construir LaunchContext.".to_string()
+        );
+    }
+
+    let uuid = find_arg_value(game_args, "--uuid")
+        .ok_or_else(|| "Falta --uuid en game_args".to_string())?;
+    if uuid.trim().is_empty() {
+        return Err(
+            "--uuid está presente pero vacío. verified_auth.profile_id estaba vacío.".to_string(),
+        );
+    }
+    if uuid.contains('-') {
+        return Err(format!(
+            "--uuid contiene guiones: '{}'. Debe enviarse sin guiones. Aplicar sanitize_uuid() al construir LaunchContext.",
+            uuid
+        ));
+    }
+
+    let token = find_arg_value(game_args, "--accessToken")
+        .ok_or_else(|| "Falta --accessToken en game_args".to_string())?;
+    if token.trim().is_empty() {
+        return Err(
+            "--accessToken está presente pero vacío. El minecraft_access_token estaba vacío."
+                .to_string(),
+        );
+    }
+
+    let user_type = find_arg_value(game_args, "--userType");
     if let Some(user_type) = user_type {
         if user_type != "msa" {
             return Err(format!(
@@ -1294,6 +1392,7 @@ fn validate_required_online_launch_flags(game_args: &[String]) -> Result<(), Str
         }
     }
 
+    let version_type = find_arg_value(game_args, "--versionType");
     if let Some(version_type) = version_type {
         if version_type != "release"
             && version_type != "old_alpha"
