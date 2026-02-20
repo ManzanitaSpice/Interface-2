@@ -6,6 +6,7 @@ use std::{
 use tauri::{AppHandle, Emitter};
 
 use crate::{
+    app::settings_service::resolve_instances_root,
     domain::{
         auth::{
             microsoft::refresh_microsoft_access_token,
@@ -107,8 +108,7 @@ pub fn list_instances(app: AppHandle) -> Result<Vec<InstanceSummary>, String> {
 
 #[tauri::command]
 pub fn delete_instance(app: AppHandle, instance_root: String) -> Result<(), String> {
-    let launcher_root = resolve_launcher_root(&app)?;
-    let instances_root = launcher_root.join("instances");
+    let instances_root = resolve_instances_root(&app)?;
     let target_path = std::path::PathBuf::from(&instance_root);
 
     if !target_path.exists() {
@@ -157,8 +157,7 @@ pub fn delete_instance(app: AppHandle, instance_root: String) -> Result<(), Stri
 }
 
 fn list_instances_impl(app: AppHandle) -> AppResult<Vec<InstanceSummary>> {
-    let launcher_root = resolve_launcher_root(&app)?;
-    let instances_root = launcher_root.join("instances");
+    let instances_root = resolve_instances_root(&app)?;
 
     if !instances_root.exists() {
         return Ok(Vec::new());
@@ -260,7 +259,14 @@ fn create_instance_impl(
     }
 
     let launcher_root = resolve_launcher_root(&app)?;
-    validate_instance_constraints(&launcher_root, &payload)?;
+    let instances_root = resolve_instances_root(&app)?;
+    fs::create_dir_all(&instances_root).map_err(|err| {
+        format!(
+            "No se pudo crear la carpeta de instancias {}: {err}",
+            instances_root.display()
+        )
+    })?;
+    validate_instance_constraints(&launcher_root, &instances_root, &payload)?;
     push_creation_log(
         &app,
         &request_id,
@@ -378,7 +384,7 @@ fn create_instance_impl(
 
     let sanitized_name =
         crate::infrastructure::filesystem::paths::sanitize_path_segment(&payload.name);
-    let instance_root = launcher_root.join("instances").join(&sanitized_name);
+    let instance_root = instances_root.join(&sanitized_name);
     let minecraft_root = instance_root.join("minecraft");
 
     push_creation_log(
@@ -537,11 +543,12 @@ fn current_timestamp_iso8601() -> String {
 
 fn validate_instance_constraints(
     launcher_root: &std::path::Path,
+    instances_root: &std::path::Path,
     payload: &CreateInstancePayload,
 ) -> AppResult<()> {
     let sanitized_name =
         crate::infrastructure::filesystem::paths::sanitize_path_segment(&payload.name);
-    let instance_root = launcher_root.join("instances").join(&sanitized_name);
+    let instance_root = instances_root.join(&sanitized_name);
 
     if instance_root.exists() {
         return Err(format!(
