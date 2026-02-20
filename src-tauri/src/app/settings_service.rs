@@ -20,6 +20,7 @@ pub struct PickedFolderResult {
 pub struct FolderRouteMigrationResult {
     pub moved_entries: usize,
     pub skipped_entries: usize,
+    pub copied_entries: usize,
     pub target_path: String,
 }
 
@@ -201,19 +202,12 @@ pub fn open_folder_path(path: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn migrate_instances_folder(
-    app: AppHandle,
+    _app: AppHandle,
+    source_path: String,
     target_path: String,
 ) -> Result<FolderRouteMigrationResult, String> {
-    let source = resolve_folder_route(&app, "instances", |launcher_root| launcher_root.join("instances"))?;
+    let source = PathBuf::from(normalize_path(&source_path));
     let target = PathBuf::from(normalize_path(&target_path));
-    let launcher_root = resolve_launcher_root(&app)?;
-
-    if !source.starts_with(&launcher_root) || !target.starts_with(&launcher_root) {
-        return Err(format!(
-            "La migración solo permite rutas dentro de la raíz del launcher: {}",
-            launcher_root.display()
-        ));
-    }
 
     fs::create_dir_all(&target).map_err(|err| {
         format!(
@@ -226,6 +220,7 @@ pub fn migrate_instances_folder(
         return Ok(FolderRouteMigrationResult {
             moved_entries: 0,
             skipped_entries: 0,
+            copied_entries: 0,
             target_path: target.display().to_string(),
         });
     }
@@ -234,12 +229,14 @@ pub fn migrate_instances_folder(
         return Ok(FolderRouteMigrationResult {
             moved_entries: 0,
             skipped_entries: 0,
+            copied_entries: 0,
             target_path: target.display().to_string(),
         });
     }
 
     let mut moved_entries = 0usize;
     let mut skipped_entries = 0usize;
+    let mut copied_entries = 0usize;
 
     for entry in fs::read_dir(&source).map_err(|err| {
         format!(
@@ -254,19 +251,61 @@ pub fn migrate_instances_folder(
             skipped_entries += 1;
             continue;
         }
-        fs::rename(&from, &to).map_err(|err| {
-            format!(
-                "No se pudo migrar {} -> {}: {err}",
-                from.display(),
-                to.display()
-            )
-        })?;
-        moved_entries += 1;
+        match fs::rename(&from, &to) {
+            Ok(_) => moved_entries += 1,
+            Err(_) => {
+                copy_path_recursive(&from, &to)?;
+                if from.is_dir() {
+                    fs::remove_dir_all(&from).map_err(|err| {
+                        format!("No se pudo limpiar carpeta original {}: {err}", from.display())
+                    })?;
+                } else {
+                    fs::remove_file(&from).map_err(|err| {
+                        format!("No se pudo limpiar archivo original {}: {err}", from.display())
+                    })?;
+                }
+                copied_entries += 1;
+            }
+        }
     }
 
     Ok(FolderRouteMigrationResult {
         moved_entries,
         skipped_entries,
+        copied_entries,
         target_path: target.display().to_string(),
     })
+}
+
+fn copy_path_recursive(from: &Path, to: &Path) -> Result<(), String> {
+    if from.is_dir() {
+        fs::create_dir_all(to)
+            .map_err(|err| format!("No se pudo crear carpeta de destino {}: {err}", to.display()))?;
+        for entry in fs::read_dir(from)
+            .map_err(|err| format!("No se pudo leer carpeta fuente {}: {err}", from.display()))?
+        {
+            let entry = entry.map_err(|err| format!("No se pudo leer entrada de carpeta: {err}"))?;
+            let child_from = entry.path();
+            let child_to = to.join(entry.file_name());
+            copy_path_recursive(&child_from, &child_to)?;
+        }
+        Ok(())
+    } else {
+        if let Some(parent) = to.parent() {
+            fs::create_dir_all(parent).map_err(|err| {
+                format!(
+                    "No se pudo crear carpeta padre de destino {}: {err}",
+                    parent.display()
+                )
+            })?;
+        }
+        fs::copy(from, to).map_err(|err| {
+            format!(
+                "No se pudo copiar {} -> {}: {err}",
+                from.display(),
+                to.display()
+            )
+        })?;
+        Ok(())
+    }
 }

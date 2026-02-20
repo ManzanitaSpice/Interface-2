@@ -11,7 +11,7 @@
 
 .huge-panel {
   min-height: 0;
-  height: calc(100vh - 185px);
+  height: min(100%, calc(100vh - 185px));
 }
 
 .panel-actions {
@@ -681,10 +681,11 @@
 .execution-log-console {
   background: color-mix(in srgb, var(--bg-main) 86%, #000000);
   border-bottom: 1px solid var(--border);
-  padding: 0.75rem;
+  padding: 0.6rem;
   overflow: auto;
-  height: calc(100vh - 320px);
-  min-height: 320px;
+  height: clamp(220px, 42vh, 520px);
+  min-height: 220px;
+  max-height: 52vh;
   font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.78rem;
 }
@@ -1016,7 +1017,7 @@
 
 .skins-manager-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 250px;
+  grid-template-columns: minmax(0, 1fr) 280px;
   gap: 0.8rem;
   min-height: calc(100vh - 150px);
 }
@@ -1035,6 +1036,9 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 0.6rem;
+  max-height: min(66vh, 760px);
+  overflow: auto;
+  padding-right: 0.2rem;
 }
 
 .skin-editor-page {
@@ -1105,7 +1109,7 @@
 
 .editor-left-sidebar,
 .editor-right-sidebar {
-  padding: 0.75rem;
+  padding: 0.65rem;
   background: linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 90%, #152033) 0%, color-mix(in srgb, var(--bg-surface-muted) 92%, #111a29) 100%);
   display: flex;
   flex-direction: column;
@@ -1129,7 +1133,7 @@
 .three-preview {
   width: 100%;
   height: 100%;
-  min-height: 440px;
+  min-height: 460px;
   border-radius: 0.7rem;
   border: 1px solid #2d4058;
   background: radial-gradient(circle at 30% 20%, color-mix(in srgb, var(--bg-hover) 72%, #1d3048) 0%, color-mix(in srgb, var(--bg-surface) 92%, #111926) 62%);
@@ -1306,19 +1310,24 @@
 .skin-card {
   min-height: 210px;
   gap: 0.4rem;
+  border-radius: 0.6rem;
 }
 
 .skin-card-preview {
-  border: 1px solid #3b465b;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, var(--accent));
   border-radius: 0.45rem;
-  min-height: 88px;
+  min-height: 116px;
   display: grid;
   place-items: center;
-  background: repeating-conic-gradient(#0f1724 0% 25%, #1f2a3d 0% 50%) 50% / 16px 16px;
+  overflow: hidden;
+  background: repeating-conic-gradient(color-mix(in srgb, var(--bg-main) 92%, black) 0% 25%, color-mix(in srgb, var(--bg-surface-muted) 90%, black) 0% 50%) 50% / 16px 16px;
 }
 
 .skin-card-preview-face {
-  font-size: 2rem;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.45));
 }
 
@@ -1339,7 +1348,7 @@
 
 .global-settings-panel {
   min-height: 0;
-  height: calc(100vh - 130px);
+  height: min(100%, calc(100vh - 130px));
   display: flex;
   flex-direction: column;
   gap: 0.8rem;
@@ -1465,7 +1474,7 @@
 }
 
 .professional-general-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
 }
 
 .folder-routes-card {
@@ -1498,6 +1507,11 @@
 .folder-route-row code {
   color: var(--text-muted);
   font-size: 0.75rem;
+  display: block;
+  max-width: min(100%, 840px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .folder-route-actions {
@@ -1615,4 +1629,42 @@
   width: 52px;
   height: 32px;
   padding: 0.15rem;
+}
+
+
+.instance-right-panel header small {
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.execution-view {
+  gap: 0;
+}
+
+.skin-card-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+}
+
+.skins-manager-sidebar {
+  gap: 0.6rem;
+}
+
+.skin-preview-meta {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.skin-editor-workspace.pro.compact {
+  min-height: 0;
+}
+
+.skin-editor-canvas {
+  min-height: 0;
+}
+
+.editor-right-sidebar {
+  min-height: 0;
+  overflow: auto;
 }

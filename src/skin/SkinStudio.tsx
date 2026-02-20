@@ -13,6 +13,11 @@ import { buildSelection } from './editor/tools/rectSelectTool'
 
 type SkinSummary = { id: string; name: string; updated_at: string }
 
+type SkinCardPreview = {
+  src: string
+  height: number
+}
+
 type ThreeCtx = {
   scene: THREE.Scene
   camera: THREE.PerspectiveCamera
@@ -55,6 +60,11 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
   const [selection, setSelection] = useState<SelectionRect>(null)
   const [texHeight, setTexHeight] = useState<64 | 128>(64)
   const [layerVisibility, setLayerVisibility] = useState<ModelLayersVisibility>(() => defaultLayerVisibility())
+  const [skinPreviews, setSkinPreviews] = useState<Record<string, SkinCardPreview>>({})
+  const [showGrid, setShowGrid] = useState(true)
+  const [ambientIntensity, setAmbientIntensity] = useState(0.7)
+  const [rimIntensity, setRimIntensity] = useState(0.35)
+  const [previewZoom, setPreviewZoom] = useState(100)
 
   const threeRef = useRef<ThreeCtx | null>(null)
   const renderRafRef = useRef<number | null>(null)
@@ -64,6 +74,8 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const editorCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const rectStartRef = useRef<{ x: number; y: number } | null>(null)
+  const ambientLightRef = useRef<THREE.AmbientLight | null>(null)
+  const rimLightRef = useRef<THREE.DirectionalLight | null>(null)
 
   const selectedSkin = useMemo(() => skins.find((item) => item.id === selectedSkinId), [skins, selectedSkinId])
   const activeSkin = useMemo(() => tabs.find((item) => item.id === activeTab), [tabs, activeTab])
@@ -123,6 +135,23 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
     setSelectedSkinId((prev) => prev || data[0]?.id || '')
   }, [selectedAccountId])
 
+  const loadSkinPreview = useCallback(async (skinId: string) => {
+    if (!selectedAccountId) return
+    try {
+      const bytes = await invoke<number[]>('load_skin_binary', { accountId: selectedAccountId, skinId })
+      const blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' })
+      const src = URL.createObjectURL(blob)
+      const bitmap = await createImageBitmap(blob)
+      setSkinPreviews((prev) => {
+        const old = prev[skinId]
+        if (old?.src && old.src !== src) URL.revokeObjectURL(old.src)
+        return { ...prev, [skinId]: { src, height: bitmap.height } }
+      })
+    } catch {
+      // ignore preview failures
+    }
+  }, [selectedAccountId])
+
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void loadSkins() }, [loadSkins])
 
@@ -166,13 +195,16 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
     mount.innerHTML = ''
     mount.appendChild(renderer.domElement)
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.7))
+    const ambient = new THREE.AmbientLight(0xffffff, ambientIntensity)
+    scene.add(ambient)
     const key = new THREE.DirectionalLight(0xffffff, 0.65)
     key.position.set(20, 28, 18)
     scene.add(key)
-    const rim = new THREE.DirectionalLight(0x9db8ff, 0.35)
+    const rim = new THREE.DirectionalLight(0x9db8ff, rimIntensity)
     rim.position.set(-16, 14, -20)
     scene.add(rim)
+    ambientLightRef.current = ambient
+    rimLightRef.current = rim
 
     const texture = new THREE.CanvasTexture(texCanvas)
     texture.magFilter = THREE.NearestFilter
@@ -224,7 +256,32 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
       if (renderRafRef.current) cancelAnimationFrame(renderRafRef.current)
       threeRef.current = null
     }
-  }, [activePage, scheduleRender, texHeight, variant, layerVisibility])
+  }, [activePage, scheduleRender, texHeight, variant, layerVisibility, ambientIntensity, rimIntensity])
+
+  useEffect(() => {
+    skins.forEach((item) => {
+      if (!skinPreviews[item.id]) void loadSkinPreview(item.id)
+    })
+  }, [skins, skinPreviews, loadSkinPreview])
+
+  useEffect(() => () => {
+    Object.values(skinPreviews).forEach((preview) => URL.revokeObjectURL(preview.src))
+  }, [skinPreviews])
+
+
+  useEffect(() => {
+    if (ambientLightRef.current) {
+      ambientLightRef.current.intensity = ambientIntensity
+      scheduleRender()
+    }
+  }, [ambientIntensity, scheduleRender])
+
+  useEffect(() => {
+    if (rimLightRef.current) {
+      rimLightRef.current.intensity = rimIntensity
+      scheduleRender()
+    }
+  }, [rimIntensity, scheduleRender])
 
   const paintContext = useCallback((): PaintContext | null => {
     const buffer = pixelBufferRef.current
@@ -308,6 +365,15 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
     onNavigateEditor()
   }
 
+  const resetView = () => {
+    const ctx = threeRef.current
+    if (!ctx) return
+    ctx.camera.position.set(26, 20, 26)
+    ctx.controls.target.set(0, 10, 0)
+    ctx.controls.update()
+    scheduleRender()
+  }
+
   const importSkinFile = async (file: File) => {
     if (!selectedAccountId) return
     try {
@@ -362,15 +428,20 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
               {skins.map((skin) => (
                 <article key={skin.id} className={`instance-card skin-card clickable ${selectedSkinId === skin.id ? 'active' : ''}`} onClick={() => setSelectedSkinId(skin.id)}>
                   <div className="skin-card-preview" aria-hidden="true">
-                    <div className="skin-card-preview-face">🙂</div>
+                    {skinPreviews[skin.id]?.src ? (
+                      <img className="skin-card-preview-face" src={skinPreviews[skin.id].src} alt={`Preview de ${skin.name}`} />
+                    ) : (
+                      <div className="skin-card-preview-face">🙂</div>
+                    )}
                   </div>
                   <strong title={skin.name}>{skin.name}</strong>
+                  <small className="skin-preview-meta">Formato: {skinPreviews[skin.id]?.height === 128 ? '128x128 HD' : '64x64 estándar'}</small>
                   <small>Actualizada: {skin.updated_at}</small>
                 </article>
               ))}
             </div>
           </section>
-          <aside className="account-manager-panel compact">
+          <aside className="account-manager-panel compact skins-manager-sidebar">
             <label className="button-like">Importar PNG
               <input
                 type="file"
@@ -384,15 +455,27 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
                 }}
               />
             </label>
-            <button disabled={!selectedSkin} onClick={() => {
-              if (!selectedSkin) return
-              void openSkinEditor(selectedSkin)
-            }}>Editar</button>
+            <div className="skin-card-actions">
+              <button disabled={!selectedSkin} onClick={() => {
+                if (!selectedSkin) return
+                void openSkinEditor(selectedSkin)
+              }}>Editar</button>
+              <button disabled={!selectedSkin} onClick={async () => {
+                if (!selectedSkin || !selectedAccountId) return
+                await invoke('delete_skin', { accountId: selectedAccountId, skinId: selectedSkin.id })
+                await loadSkins()
+              }}>Eliminar</button>
+            </div>
             <button disabled={!selectedSkin} onClick={async () => {
               if (!selectedSkin || !selectedAccountId) return
-              await invoke('delete_skin', { accountId: selectedAccountId, skinId: selectedSkin.id })
-              await loadSkins()
-            }}>Eliminar</button>
+              const bytes = await invoke<number[]>('load_skin_binary', { accountId: selectedAccountId, skinId: selectedSkin.id })
+              const blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' })
+              const link = document.createElement('a')
+              link.href = URL.createObjectURL(blob)
+              link.download = `${selectedSkin.name}.png`
+              link.click()
+              URL.revokeObjectURL(link.href)
+            }}>Exportar PNG</button>
           </aside>
         </section>
       </main>
@@ -418,11 +501,13 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
         <label>Dureza <input type="range" min={0.1} max={1} step={0.1} value={hardness} onChange={(e) => setHardness(Number(e.target.value))} /></label>
         <label>Opacidad <input type="range" min={0.1} max={1} step={0.05} value={opacity} onChange={(e) => setOpacity(Number(e.target.value))} /></label>
         <label><input type="checkbox" checked={symmetry} onChange={(e) => setSymmetry(e.target.checked)} /> Simetría</label>
+        <label><input type="checkbox" checked={showGrid} onChange={(e) => setShowGrid(e.target.checked)} /> Grid</label>
         <select value={variant} onChange={(e) => setVariant(e.target.value as ModelVariant)}>
           <option value="classic">Classic</option>
           <option value="slim">Slim</option>
         </select>
         <button className="primary" disabled={!activeSkin || !hasPendingChanges} onClick={() => void saveSkin()}>Guardar</button>
+        <button onClick={resetView}>Centrar vista</button>
       </header>
 
       <section className="skin-editor-workspace pro compact">
@@ -447,6 +532,7 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
               rectStartRef.current = null
               updatePreview()
             }}
+            style={{ backgroundSize: showGrid ? '16px 16px' : '0 0', imageRendering: 'pixelated', transform: `scale(${previewZoom / 100})`, transformOrigin: 'top left' }}
           />
         </aside>
 
@@ -458,6 +544,9 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
           <div className="right-panel-content">
             <h3>Paleta</h3>
             <label>HEX <input value={color} onChange={(e) => setActiveColor(e.target.value)} /></label>
+            <label>Zoom preview <input type="range" min={60} max={180} value={previewZoom} onChange={(e) => setPreviewZoom(Number(e.target.value))} /></label>
+            <label>Luz ambiente <input type="range" min={0.2} max={1.2} step={0.05} value={ambientIntensity} onChange={(e) => setAmbientIntensity(Number(e.target.value))} /></label>
+            <label>Luz borde <input type="range" min={0.1} max={1} step={0.05} value={rimIntensity} onChange={(e) => setRimIntensity(Number(e.target.value))} /></label>
             <div className="hsv-grid">
               <label>H <input type="range" min={0} max={360} value={hsv.h} onChange={(e) => { const next = { ...hsv, h: Number(e.target.value) }; setHsv(next); const rgb = hsvToRgb(next.h, next.s, next.v); setActiveColor(`#${[rgb.r, rgb.g, rgb.b].map((n) => n.toString(16).padStart(2, '0')).join('')}`) }} /></label>
               <label>S <input type="range" min={0} max={1} step={0.01} value={hsv.s} onChange={(e) => { const next = { ...hsv, s: Number(e.target.value) }; setHsv(next); const rgb = hsvToRgb(next.h, next.s, next.v); setActiveColor(`#${[rgb.r, rgb.g, rgb.b].map((n) => n.toString(16).padStart(2, '0')).join('')}`) }} /></label>

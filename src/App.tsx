@@ -271,6 +271,7 @@ type FolderRouteItem = {
 type FolderRouteMigrationResult = {
   movedEntries: number
   skippedEntries: number
+  copiedEntries?: number
   targetPath: string
 }
 
@@ -699,7 +700,19 @@ function App() {
         title: `Seleccionar ${route.label}`,
       })
       if (!result.path) return
-      const nextRoutes = folderRoutes.map((item) => item.key === route.key ? { ...item, value: result.path ?? item.value } : item)
+      let nextRoutes = folderRoutes.map((item) => item.key === route.key ? { ...item, value: result.path ?? item.value } : item)
+      if (route.key === 'launcher' && result.path) {
+        const normalizedOld = route.value.replace(/\\/g, '/').replace(/\/$/, '')
+        const normalizedNew = result.path.replace(/\\/g, '/').replace(/\/$/, '')
+        nextRoutes = nextRoutes.map((item) => {
+          if (item.key === 'launcher') return item
+          const current = item.value.replace(/\\/g, '/')
+          if (current.startsWith(normalizedOld)) {
+            return { ...item, value: `${normalizedNew}${current.slice(normalizedOld.length)}` }
+          }
+          return item
+        })
+      }
       await updateAndPersistFolderRoutes(nextRoutes)
       setUpdatesStatus(`Ruta actualizada: ${route.label}`)
     } catch (error) {
@@ -720,9 +733,12 @@ function App() {
 
   const migrateInstancesFolder = async (route: FolderRouteItem) => {
     try {
-      const result = await invoke<FolderRouteMigrationResult>('migrate_instances_folder', { targetPath: route.value })
-      await updateAndPersistFolderRoutes(folderRoutes)
-      setUpdatesStatus(`Migración completada. Movidos: ${result.movedEntries}, omitidos: ${result.skippedEntries}.`) 
+      const previousInstancesPath = folderRoutes.find((item) => item.key === 'instances')?.value ?? route.value
+      const result = await invoke<FolderRouteMigrationResult>('migrate_instances_folder', {
+        sourcePath: previousInstancesPath,
+        targetPath: route.value,
+      })
+      setUpdatesStatus(`Migración completada. Movidos: ${result.movedEntries}, copiados: ${result.copiedEntries ?? 0}, omitidos: ${result.skippedEntries}.`)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setUpdatesStatus(`Error de migración: ${message}`)
@@ -2209,6 +2225,7 @@ function App() {
                       <div className="instance-card-meta">
                         <small>Version: {cardVersion}</small>
                         <small>Loader: {cardLoader}</small>
+                        <small title={card.instanceRoot}>Ruta real: {card.instanceRoot ?? '-'}</small>
                       </div>
                       <div className="instance-card-hover-info">
                         {(() => {
@@ -2252,6 +2269,7 @@ function App() {
                   </div>
                   <header>
                     <h3>{selectedCard.name}</h3>
+                    <small title={selectedCard.instanceRoot}>Ruta: {selectedCard.instanceRoot ?? '-'}</small>
                   </header>
                   <div className="instance-right-actions">
                     {instanceActions.map((action) => (
@@ -2390,20 +2408,9 @@ function App() {
 
             {selectedGlobalSettingsTab === 'General' && (
               <div className="global-settings-list professional-general-grid">
-                <article className="global-setting-item">
-                  <h3>Interfaz de usuario</h3>
-                  <p>Animaciones premium, densidad visual, tipografías y consistencia de paneles.</p>
-                  <button className="primary" onClick={() => setSelectedGlobalSettingsTab('Apariencia')}>Ajustar apariencia</button>
-                </article>
-                <article className="global-setting-item">
-                  <h3>Updates</h3>
-                  <p>Canal de actualizaciones preparado para flujo con GitHub Releases + updater nativo Tauri.</p>
-                  <small>Interfaz de usuario: Próximamente integración avanzada en este mismo panel.</small>
-                  <button className="primary" onClick={() => navigateToPage('Updates')}>Abrir panel de updates</button>
-                </article>
                 <article className="global-setting-item folder-routes-card">
                   <h3>Carpetas del Launcher</h3>
-                  <p>Define rutas reales para launcher, instancias, iconos, Java, skins y descargas.</p>
+                  <p>Define rutas reales para launcher, instancias, iconos, Java, skins y descargas. Las instancias nuevas siempre se crearán en la ruta de instancias configurada.</p>
                   <div className="folder-route-list">
                     {folderRoutes.map((route) => (
                       <div key={route.key} className="folder-route-row">
@@ -2420,11 +2427,6 @@ function App() {
                       </div>
                     ))}
                   </div>
-                </article>
-                <article className="global-setting-item">
-                  <h3>Consola de ejecución</h3>
-                  <p>Conecta filtros, autoscroll y formato de salida para debugging técnico confiable.</p>
-                  <button onClick={() => setSelectedSettingsTab('Ajustes')}>Ir a ajustes de instancia</button>
                 </article>
               </div>
             )}
