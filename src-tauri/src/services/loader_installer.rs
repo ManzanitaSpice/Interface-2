@@ -938,8 +938,19 @@ fn install_forge_like_modern(
         minecraft_root.display(),
     ));
 
+    let java_home = java_exec.parent().and_then(Path::parent).ok_or_else(|| {
+        format!(
+            "No se pudo derivar JAVA_HOME desde java_exec {}",
+            java_exec.display()
+        )
+    })?;
+
     let mut command = Command::new(java_exec);
-    command.arg("-jar").arg(&installer_jar);
+    command
+        .env("JAVA_HOME", java_home)
+        .arg(format!("-Djava.home={}", java_home.display()))
+        .arg("-jar")
+        .arg(&installer_jar);
     for arg in installer_args {
         command.arg(arg);
     }

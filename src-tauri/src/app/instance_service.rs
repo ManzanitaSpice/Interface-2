@@ -207,6 +207,21 @@ pub fn validate_and_prepare_launch(
 
     let embedded_java = ensure_instance_embedded_java(instance_path, &metadata, &mut logs)?;
     let java_path = PathBuf::from(&embedded_java);
+    let java_home = java_path
+        .parent()
+        .and_then(Path::parent)
+        .ok_or_else(|| {
+            format!(
+                "No se pudo derivar java_home desde java_exec: {}",
+                embedded_java
+            )
+        })?
+        .to_path_buf();
+    logs.push(format!("✔ java_home derivado: {}", java_home.display()));
+    logs.push(format!(
+        "✔ lib/modules: {}",
+        java_home.join("lib").join("modules").exists()
+    ));
 
     let java_output = Command::new(&java_path)
         .arg("-version")
@@ -672,7 +687,7 @@ en ningún JAR del classpath del loader '{}'.\n{}",
 
     let forge_extra_jvm_args = if is_forge && forge_generation == ForgeGeneration::Modern {
         match load_forge_args_file(&mc_root, &selected_version_id, &launch_context, &mut logs)? {
-            Some(args) => args,
+            Some(args) => sanitize_forge_args_file_args(args, &java_home, &mut logs),
             None => {
                 return Err(format!(
                     "Forge moderno detectado pero no se encontró win_args.txt/unix_args.txt en versions/{}/. El instalador de Forge debe haber fallado o la instancia debe recrearse.",
@@ -701,6 +716,7 @@ en ningún JAR del classpath del loader '{}'.\n{}",
             .iter()
             .map(|arg| replace_launch_variables(arg, &launch_context)),
     );
+    resolved.jvm = sanitize_resolved_jvm_java_home_args(resolved.jvm, &java_home, &mut logs);
     jvm_args.append(&mut resolved.jvm);
 
     // Modern Forge (1.17+) needs system properties so its bootstrap can
@@ -780,6 +796,8 @@ en ningún JAR del classpath del loader '{}'.\n{}",
             unresolved_vars.join(", ")
         ));
     }
+
+    validate_jvm_java_home_modules(&jvm_args, &java_home, &mut logs)?;
 
     logs.push("✔ argumentos JVM y GAME resueltos".to_string());
     logs.push("🔹 3. Integración de loader (si aplica)".to_string());
@@ -1686,6 +1704,102 @@ fn load_forge_args_file(
     }
 
     Ok(Some(args))
+}
+
+fn sanitize_forge_args_file_args(
+    args: Vec<String>,
+    correct_java_home: &Path,
+    logs: &mut Vec<String>,
+) -> Vec<String> {
+    let mut result = Vec::with_capacity(args.len());
+    let mut iter = args.into_iter();
+
+    while let Some(arg) = iter.next() {
+        if arg.starts_with("-Djava.home=") {
+            let fixed = format!("-Djava.home={}", correct_java_home.display());
+            logs.push(format!(
+                "⚠ -Djava.home en args file reemplazado:\n  antes:  {}\n  después: {}",
+                arg, fixed
+            ));
+            result.push(fixed);
+            continue;
+        }
+
+        if arg == "-Djava.home" {
+            let _ = iter.next();
+            result.push(arg);
+            result.push(correct_java_home.display().to_string());
+            logs.push(format!(
+                "⚠ -Djava.home separado en args file reemplazado con: {}",
+                correct_java_home.display()
+            ));
+            continue;
+        }
+
+        result.push(arg);
+    }
+
+    result
+}
+
+fn sanitize_resolved_jvm_java_home_args(
+    args: Vec<String>,
+    correct_java_home: &Path,
+    logs: &mut Vec<String>,
+) -> Vec<String> {
+    let mut result = Vec::with_capacity(args.len());
+    let mut iter = args.into_iter();
+
+    while let Some(arg) = iter.next() {
+        if arg.starts_with("-Djava.home=") {
+            logs.push(format!(
+                "⚠ -Djava.home en version.json jvm args reemplazado: {}",
+                arg
+            ));
+            result.push(format!("-Djava.home={}", correct_java_home.display()));
+            continue;
+        }
+
+        if arg == "-Djava.home" {
+            let _ = iter.next();
+            result.push(arg);
+            result.push(correct_java_home.display().to_string());
+            logs.push(format!(
+                "⚠ -Djava.home separado en version.json jvm args reemplazado con: {}",
+                correct_java_home.display()
+            ));
+            continue;
+        }
+
+        result.push(arg);
+    }
+
+    result
+}
+
+fn validate_jvm_java_home_modules(
+    jvm_args: &[String],
+    correct_java_home: &Path,
+    logs: &mut Vec<String>,
+) -> Result<(), String> {
+    for arg in jvm_args {
+        if let Some(home_str) = arg.strip_prefix("-Djava.home=") {
+            let modules_file = Path::new(home_str).join("lib").join("modules");
+            if !modules_file.exists() {
+                return Err(format!(
+                    "BLOQUEADO: -Djava.home={} no contiene lib/modules.\n\nEsto causaría ExceptionInInitializerError al arrancar Forge.\n\njava_home correcto debería ser: {}",
+                    home_str,
+                    correct_java_home.display()
+                ));
+            }
+            logs.push(format!(
+                "✔ java.home validado: lib/modules existe en {}",
+                home_str
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 fn validate_required_online_launch_flags(
