@@ -3059,7 +3059,7 @@ function PrincipalTopBar({
   canNavigateForward,
   hideSecondaryNav,
 }: PrincipalTopBarProps) {
-  const principalSections: MainPage[] = ['Mis Modpacks', 'Importar Instancias', 'Novedades', 'Explorador', 'Servers', 'Configuración Global']
+  const principalSections: MainPage[] = ['Mis Modpacks', 'Novedades', 'Explorador', 'Servers', 'Configuración Global']
 
   return (
     <header className="top-launcher-shell">

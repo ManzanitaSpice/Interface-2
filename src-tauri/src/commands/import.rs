@@ -1,10 +1,12 @@
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, OnceLock,
     },
+    time::SystemTime,
 };
 
 use tauri::{AppHandle, Emitter};
@@ -52,64 +54,279 @@ struct ScanProgressEvent {
     current_path: String,
 }
 
+#[derive(Default)]
+struct DetectionMeta {
+    minecraft_version: Option<String>,
+    loader: Option<String>,
+    loader_version: Option<String>,
+    format: Option<String>,
+    importable: bool,
+}
+
 static CANCEL_IMPORT: OnceLock<Arc<AtomicBool>> = OnceLock::new();
 
 fn known_paths() -> Vec<(String, PathBuf)> {
     let mut out = Vec::new();
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        out.push((
-            "CurseForge".to_string(),
-            PathBuf::from(&appdata).join("CurseForge/Minecraft/Instances"),
-        ));
-        out.push((
-            "Modrinth".to_string(),
-            PathBuf::from(&appdata).join("com.modrinth.theseus/profiles"),
-        ));
-        out.push((
-            "Prism".to_string(),
-            PathBuf::from(&appdata).join("PrismLauncher/instances"),
-        ));
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            out.push((
+                "CurseForge".to_string(),
+                PathBuf::from(&appdata).join("CurseForge/Minecraft/Instances"),
+            ));
+            out.push((
+                "Modrinth".to_string(),
+                PathBuf::from(&appdata).join("com.modrinth.theseus/profiles"),
+            ));
+            out.push((
+                "Prism".to_string(),
+                PathBuf::from(&appdata).join("PrismLauncher/instances"),
+            ));
+            out.push((
+                "MultiMC".to_string(),
+                PathBuf::from(&appdata).join("MultiMC/instances"),
+            ));
+            out.push((
+                "Mojang Official".to_string(),
+                PathBuf::from(&appdata).join(".minecraft"),
+            ));
+        }
     }
-    if let Ok(home) = std::env::var("HOME") {
-        out.push((
-            "Prism".to_string(),
-            PathBuf::from(&home).join(".local/share/PrismLauncher/instances"),
-        ));
-        out.push((
-            "Mojang Official".to_string(),
-            PathBuf::from(&home).join(".minecraft"),
-        ));
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            out.push((
+                "Prism".to_string(),
+                PathBuf::from(&home).join("Library/Application Support/PrismLauncher/instances"),
+            ));
+            out.push((
+                "Modrinth".to_string(),
+                PathBuf::from(&home)
+                    .join("Library/Application Support/com.modrinth.theseus/profiles"),
+            ));
+            out.push((
+                "Mojang Official".to_string(),
+                PathBuf::from(&home).join("Library/Application Support/minecraft"),
+            ));
+        }
     }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            out.push((
+                "Prism".to_string(),
+                PathBuf::from(&home).join(".local/share/PrismLauncher/instances"),
+            ));
+            out.push((
+                "Modrinth".to_string(),
+                PathBuf::from(&home).join(".config/com.modrinth.theseus/profiles"),
+            ));
+            out.push((
+                "MultiMC".to_string(),
+                PathBuf::from(&home).join(".local/share/MultiMC/instances"),
+            ));
+            out.push((
+                "Mojang Official".to_string(),
+                PathBuf::from(&home).join(".minecraft"),
+            ));
+        }
+    }
+
     out
+}
+
+fn read_json(path: &Path) -> Option<serde_json::Value> {
+    let raw = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+fn detect_from_manifest(path: &Path) -> DetectionMeta {
+    let mut meta = DetectionMeta::default();
+
+    let prism_manifest = path.join("minecraftinstance.json");
+    if let Some(json) = read_json(&prism_manifest) {
+        meta.importable = true;
+        meta.format = Some("prism".to_string());
+        meta.minecraft_version =
+            json.get("components")
+                .and_then(|c| c.as_array())
+                .and_then(|components| {
+                    components.iter().find_map(|component| {
+                        let uid = component.get("uid")?.as_str()?;
+                        if uid == "net.minecraft" {
+                            component
+                                .get("version")
+                                .and_then(|v| v.as_str())
+                                .map(ToOwned::to_owned)
+                        } else {
+                            None
+                        }
+                    })
+                });
+
+        if let Some((loader, version)) =
+            json.get("components")
+                .and_then(|c| c.as_array())
+                .and_then(|components| {
+                    components.iter().find_map(|component| {
+                        let uid = component.get("uid")?.as_str()?.to_lowercase();
+                        let version = component
+                            .get("version")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("-")
+                            .to_string();
+                        if uid.contains("fabric") {
+                            Some(("fabric".to_string(), version))
+                        } else if uid.contains("forge") && !uid.contains("neoforge") {
+                            Some(("forge".to_string(), version))
+                        } else if uid.contains("neoforge") {
+                            Some(("neoforge".to_string(), version))
+                        } else if uid.contains("quilt") {
+                            Some(("quilt".to_string(), version))
+                        } else {
+                            None
+                        }
+                    })
+                })
+        {
+            meta.loader = Some(loader);
+            meta.loader_version = Some(version);
+        }
+
+        return meta;
+    }
+
+    let multimc_manifest = path.join("mmc-pack.json");
+    if let Some(json) = read_json(&multimc_manifest) {
+        meta.importable = true;
+        meta.format = Some("multimc".to_string());
+        meta.minecraft_version =
+            json.get("components")
+                .and_then(|c| c.as_array())
+                .and_then(|components| {
+                    components.iter().find_map(|component| {
+                        let uid = component.get("uid")?.as_str()?;
+                        if uid == "net.minecraft" {
+                            component
+                                .get("version")
+                                .and_then(|v| v.as_str())
+                                .map(ToOwned::to_owned)
+                        } else {
+                            None
+                        }
+                    })
+                });
+        return meta;
+    }
+
+    let modrinth_manifest = path.join("profile.json");
+    if let Some(json) = read_json(&modrinth_manifest) {
+        meta.importable = true;
+        meta.format = Some("modrinth".to_string());
+        meta.minecraft_version = json
+            .get("game_version")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned);
+        meta.loader = json
+            .get("loader")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned);
+        meta.loader_version = json
+            .get("loader_version")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned);
+        return meta;
+    }
+
+    if path.join("instance.cfg").exists() {
+        meta.importable = true;
+        meta.format = Some("instance.cfg".to_string());
+        return meta;
+    }
+
+    if path.join(".minecraft").is_dir() || path.join("versions").is_dir() {
+        meta.importable = true;
+        meta.format = Some("minecraft-directory".to_string());
+    }
+
+    meta
+}
+
+fn dir_size(path: &Path) -> u64 {
+    if path.is_file() {
+        return fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
+    }
+
+    fs::read_dir(path)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .map(|entry| dir_size(&entry.path()))
+        .sum()
 }
 
 fn detect_dir(path: &Path, launcher: &str) -> Option<DetectedInstance> {
     if !path.is_dir() {
         return None;
     }
-    let name = path.file_name()?.to_string_lossy().to_string();
-    let importable = path.join("minecraftinstance.json").exists()
-        || path.join("profile.json").exists()
-        || path.join("mmc-pack.json").exists()
-        || path.join("instance.cfg").exists()
-        || path.join(".minecraft").exists();
 
+    let meta = detect_from_manifest(path);
+    let name = path
+        .file_name()
+        .map(|v| v.to_string_lossy().to_string())
+        .unwrap_or_else(|| launcher.to_string());
+
+    let icon_candidates = ["icon.png", "instance.png", ".minecraft/icon.png"];
+    let icon_path = icon_candidates
+        .iter()
+        .map(|candidate| path.join(candidate))
+        .find(|candidate| candidate.exists())
+        .map(|candidate| candidate.display().to_string());
+
+    let mods_count = [path.join("mods"), path.join(".minecraft/mods")]
+        .into_iter()
+        .find(|mods_path| mods_path.is_dir())
+        .and_then(|mods_path| fs::read_dir(mods_path).ok())
+        .map(|entries| entries.filter_map(Result::ok).count() as u32);
+
+    let size_mb = {
+        let size_bytes = dir_size(path);
+        if size_bytes == 0 {
+            None
+        } else {
+            Some(size_bytes / 1_048_576)
+        }
+    };
+
+    let last_played = fs::metadata(path)
+        .ok()
+        .and_then(|metadata| metadata.modified().ok())
+        .and_then(|modified| modified.duration_since(SystemTime::UNIX_EPOCH).ok())
+        .and_then(|value| chrono::DateTime::from_timestamp(value.as_secs() as i64, 0))
+        .map(|date| date.to_rfc3339());
+
+    let importable = meta.importable;
     Some(DetectedInstance {
         id: Uuid::new_v4().to_string(),
         name,
         source_launcher: launcher.to_string(),
         source_path: path.display().to_string(),
-        minecraft_version: "desconocida".to_string(),
-        loader: "desconocido".to_string(),
-        loader_version: "-".to_string(),
-        format: "directory".to_string(),
-        icon_path: None,
-        mods_count: None,
-        size_mb: None,
-        last_played: None,
+        minecraft_version: meta
+            .minecraft_version
+            .unwrap_or_else(|| "desconocida".to_string()),
+        loader: meta.loader.unwrap_or_else(|| "vanilla".to_string()),
+        loader_version: meta.loader_version.unwrap_or_else(|| "-".to_string()),
+        format: meta.format.unwrap_or_else(|| "directory".to_string()),
+        icon_path,
+        mods_count,
+        size_mb,
+        last_played,
         importable,
         import_warnings: if importable {
-            vec![]
+            Vec::new()
         } else {
             vec!["No se detectaron archivos de formato conocido".to_string()]
         },
@@ -121,7 +338,9 @@ pub fn detect_external_instances(app: AppHandle) -> Result<Vec<DetectedInstance>
     CANCEL_IMPORT
         .get_or_init(|| Arc::new(AtomicBool::new(false)))
         .store(false, Ordering::Relaxed);
+
     let mut found = Vec::new();
+    let mut seen_paths = HashSet::new();
 
     for (launcher, root) in known_paths() {
         let _ = app.emit(
@@ -134,11 +353,24 @@ pub fn detect_external_instances(app: AppHandle) -> Result<Vec<DetectedInstance>
             },
         );
 
-        if !root.exists() {
+        if !root.exists() || !root.is_dir() {
             continue;
         }
+
+        if launcher == "Mojang Official" {
+            let canonical = fs::canonicalize(&root).unwrap_or(root.clone());
+            if seen_paths.insert(canonical) {
+                if let Some(instance) = detect_dir(&root, &launcher) {
+                    let _ = app.emit("import_scan_result", instance.clone());
+                    found.push(instance);
+                }
+            }
+            continue;
+        }
+
         let entries =
             fs::read_dir(&root).map_err(|e| format!("No se pudo leer {}: {e}", root.display()))?;
+
         for entry in entries {
             if CANCEL_IMPORT
                 .get()
@@ -146,8 +378,19 @@ pub fn detect_external_instances(app: AppHandle) -> Result<Vec<DetectedInstance>
             {
                 return Ok(found);
             }
+
             let entry = entry.map_err(|e| format!("No se pudo leer entrada: {e}"))?;
-            if let Some(instance) = detect_dir(&entry.path(), &launcher) {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+
+            let canonical = fs::canonicalize(&path).unwrap_or(path.clone());
+            if !seen_paths.insert(canonical) {
+                continue;
+            }
+
+            if let Some(instance) = detect_dir(&path, &launcher) {
                 let _ = app.emit("import_scan_result", instance.clone());
                 found.push(instance);
             }
@@ -187,6 +430,12 @@ pub fn import_specific(path: String) -> Result<Vec<DetectedInstance>, String> {
     }
 
     if p.is_dir() {
+        if let Some(main) = detect_dir(&p, "Manual") {
+            if main.importable {
+                return Ok(vec![main]);
+            }
+        }
+
         let mut out = Vec::new();
         for entry in
             fs::read_dir(&p).map_err(|e| format!("No se pudo leer {}: {e}", p.display()))?
