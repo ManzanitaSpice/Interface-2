@@ -504,7 +504,9 @@ en ningún JAR del classpath del loader '{}'.\n{}",
     ));
 
     let natives_dir = mc_root.join("natives");
-    extract_natives(&resolved_libraries.native_jars, &natives_dir)?;
+    prepare_natives_dir(&natives_dir)?;
+    extract_natives(&resolved_libraries.native_jars, &natives_dir, &mut logs)?;
+    log_natives_dir_contents(&natives_dir, &mut logs);
     logs.push(format!(
         "✔ natives extraídos: {} archivos fuente en {}",
         resolved_libraries.native_jars.len(),
@@ -1896,6 +1898,9 @@ fn resolve_libraries(
 
         if let Some(path) = artifact_path {
             if Path::new(&path).exists() {
+                if is_native_jar(&lib, &path) {
+                    native_jars.push(NativeJarEntry { path: path.clone() });
+                }
                 classpath_entries.push(path);
             } else {
                 let artifact = lib.get("downloads").and_then(|v| v.get("artifact"));
@@ -1969,6 +1974,19 @@ fn resolve_libraries(
     }
 }
 
+fn is_native_jar(lib: &Value, lib_path: &str) -> bool {
+    if lib.get("natives").is_some() {
+        return true;
+    }
+
+    let filename = Path::new(lib_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+
+    filename.contains("-natives-")
+}
+
 fn verify_no_duplicate_classpath_entries(
     classpath_entries: &[String],
     logs: &mut Vec<String>,
@@ -2031,7 +2049,65 @@ fn validate_jars_as_zip(jars: &[PathBuf]) -> Result<(), String> {
     Ok(())
 }
 
-fn extract_natives(native_jars: &[NativeJarEntry], natives_dir: &Path) -> Result<(), String> {
+fn should_extract_for_current_arch(filename: &str) -> bool {
+    let arch = std::env::consts::ARCH;
+
+    if filename.contains("arm64") && arch != "aarch64" {
+        return false;
+    }
+
+    if filename.contains("natives-windows-x86") && !filename.contains("x86_64") && arch == "x86_64"
+    {
+        return false;
+    }
+
+    if filename.contains("natives-linux") && cfg!(target_os = "windows") {
+        return false;
+    }
+
+    if filename.contains("natives-macos") && !cfg!(target_os = "macos") {
+        return false;
+    }
+
+    true
+}
+
+fn prepare_natives_dir(natives_dir: &Path) -> Result<(), String> {
+    if natives_dir.exists() {
+        let entries = fs::read_dir(natives_dir)
+            .map_err(|err| format!("No se pudo leer natives dir: {err}"))?;
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+
+            let ext = path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .unwrap_or("");
+            let filename = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("");
+
+            if matches!(ext, "dll" | "so" | "dylib" | "jnilib") || filename.contains(".so.") {
+                fs::remove_file(&path).map_err(|err| {
+                    format!("No se pudo limpiar native {}: {err}", path.display())
+                })?;
+            }
+        }
+    }
+
+    fs::create_dir_all(natives_dir).map_err(|err| format!("No se pudo crear natives dir: {err}"))
+}
+
+fn extract_natives(
+    native_jars: &[NativeJarEntry],
+    natives_dir: &Path,
+    logs: &mut Vec<String>,
+) -> Result<(), String> {
     fs::create_dir_all(natives_dir).map_err(|err| {
         format!(
             "No se pudo crear carpeta natives {}: {err}",
@@ -2039,36 +2115,168 @@ fn extract_natives(native_jars: &[NativeJarEntry], natives_dir: &Path) -> Result
         )
     })?;
 
+    if native_jars.is_empty() {
+        logs.push(
+            "⚠ native_jars está vacío. Si el juego usa LWJGL, los .dll no serán extraídos."
+                .to_string(),
+        );
+        return Ok(());
+    }
+
+    logs.push(format!(
+        "Extrayendo natives de {} JARs en {}...",
+        native_jars.len(),
+        natives_dir.display()
+    ));
+
+    let mut total_extracted = 0_u32;
+    let mut total_skipped = 0_u32;
+
     for native in native_jars {
-        let file = fs::File::open(&native.path)
-            .map_err(|err| format!("No se pudo abrir native jar {}: {err}", native.path))?;
+        let jar_path = Path::new(&native.path);
+        let jar_filename = jar_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("unknown");
+
+        if !should_extract_for_current_arch(jar_filename) {
+            logs.push(format!(
+                "↪ native omitido por arquitectura/OS: {jar_filename}"
+            ));
+            continue;
+        }
+
+        if !jar_path.exists() {
+            logs.push(format!(
+                "⚠ JAR nativo no encontrado en disco, skip: {jar_filename}"
+            ));
+            continue;
+        }
+
+        let file = fs::File::open(jar_path)
+            .map_err(|err| format!("No se pudo abrir JAR nativo {}: {err}", native.path))?;
         let mut archive = ZipArchive::new(file)
-            .map_err(|err| format!("Native jar inválido {}: {err}", native.path))?;
+            .map_err(|err| format!("JAR nativo inválido {}: {err}", native.path))?;
+
         for i in 0..archive.len() {
             let mut entry = archive
                 .by_index(i)
-                .map_err(|err| format!("No se pudo leer entrada zip en {}: {err}", native.path))?;
-            let name = entry.name().to_string();
-            if entry.is_dir() || name.starts_with("META-INF/") {
+                .map_err(|err| format!("Error leyendo entrada {i} en {}: {err}", native.path))?;
+
+            let entry_name = entry.name().to_string();
+            if entry.is_dir() || entry_name.starts_with("META-INF/") {
                 continue;
             }
-            let out_path = natives_dir.join(&name);
-            if let Some(parent) = out_path.parent() {
-                fs::create_dir_all(parent).map_err(|err| {
-                    format!(
-                        "No se pudo crear directorio de natives {}: {err}",
-                        parent.display()
-                    )
-                })?;
+
+            let is_native_lib = entry_name.ends_with(".dll")
+                || entry_name.ends_with(".so")
+                || entry_name.ends_with(".dylib")
+                || entry_name.ends_with(".jnilib")
+                || entry_name.contains(".so.");
+            if !is_native_lib {
+                continue;
             }
+
+            let file_name = Path::new(&entry_name)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("")
+                .to_string();
+            if file_name.is_empty() {
+                continue;
+            }
+
+            let out_path = natives_dir.join(&file_name);
+            if out_path.exists() {
+                total_skipped += 1;
+                continue;
+            }
+
             let mut out = fs::File::create(&out_path)
                 .map_err(|err| format!("No se pudo crear native {}: {err}", out_path.display()))?;
             std::io::copy(&mut entry, &mut out).map_err(|err| {
-                format!("No se pudo extraer native {}: {err}", out_path.display())
+                format!(
+                    "No se pudo extraer native {} de {}: {err}",
+                    file_name, native.path
+                )
             })?;
+
+            total_extracted += 1;
         }
     }
+
+    logs.push(format!(
+        "✔ Natives extraídos: {total_extracted} nuevos, {total_skipped} ya existían en {}",
+        natives_dir.display()
+    ));
+
+    #[cfg(target_os = "windows")]
+    {
+        let lwjgl_dll = natives_dir.join("lwjgl.dll");
+        if !lwjgl_dll.exists() && total_extracted == 0 && total_skipped == 0 {
+            let processed_jars = native_jars
+                .iter()
+                .map(|native| {
+                    Path::new(&native.path)
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("unknown")
+                        .to_string()
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            return Err(format!(
+                "Extracción de natives completada pero lwjgl.dll no está en {}.\n\n\
+                 Verifica que los JARs natives-windows están en native_jars.\n\n\
+                 JARs procesados: {}",
+                natives_dir.display(),
+                processed_jars
+            ));
+        }
+    }
+
     Ok(())
+}
+
+fn log_natives_dir_contents(natives_dir: &Path, logs: &mut Vec<String>) {
+    match fs::read_dir(natives_dir) {
+        Ok(entries) => {
+            let files: Vec<String> = entries
+                .flatten()
+                .filter_map(|entry| entry.file_name().into_string().ok())
+                .filter(|name| {
+                    name.ends_with(".dll")
+                        || name.ends_with(".so")
+                        || name.ends_with(".dylib")
+                        || name.ends_with(".jnilib")
+                        || name.contains(".so.")
+                })
+                .collect();
+
+            if files.is_empty() {
+                logs.push(format!(
+                    "⚠ natives/ está vacío en {}. LWJGL no encontrará sus DLLs.",
+                    natives_dir.display()
+                ));
+            } else {
+                let preview = files.iter().take(5).cloned().collect::<Vec<_>>().join(", ");
+                let suffix = if files.len() > 5 {
+                    format!(" (+{} más)", files.len() - 5)
+                } else {
+                    String::new()
+                };
+                logs.push(format!(
+                    "✔ natives/ contiene {} bibliotecas: {preview}{suffix}",
+                    files.len()
+                ));
+            }
+        }
+        Err(err) => logs.push(format!(
+            "⚠ No se pudo leer natives dir {}: {err}",
+            natives_dir.display()
+        )),
+    }
 }
 
 fn expected_main_class_for_loader(loader: &str) -> Option<&'static str> {
