@@ -6,7 +6,9 @@ use std::{
 
 use tauri::AppHandle;
 
-use crate::infrastructure::filesystem::paths::resolve_launcher_root;
+use crate::infrastructure::filesystem::paths::{
+    default_launcher_root, folder_routes_settings_file, resolve_launcher_root,
+};
 
 #[derive(serde::Serialize)]
 pub struct PickedFolderResult {
@@ -21,31 +23,37 @@ pub struct FolderRouteMigrationResult {
     pub target_path: String,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct FolderRouteInput {
     key: String,
     value: String,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct FolderRouteFile {
     routes: Vec<FolderRouteInput>,
 }
 
 fn folder_routes_file(app: &AppHandle) -> Result<PathBuf, String> {
-    let launcher_root = resolve_launcher_root(app)?;
-    Ok(launcher_root.join("config").join("folder_routes.json"))
+    folder_routes_settings_file(app)
 }
 
 fn normalize_path(path: &str) -> String {
     path.trim().replace('\\', "/")
 }
 
-pub fn resolve_instances_root(app: &AppHandle) -> Result<PathBuf, String> {
+pub fn resolve_folder_route<F>(
+    app: &AppHandle,
+    key: &str,
+    default_builder: F,
+) -> Result<PathBuf, String>
+where
+    F: FnOnce(&Path) -> PathBuf,
+{
     let launcher_root = resolve_launcher_root(app)?;
-    let default = launcher_root.join("instances");
+    let default = default_builder(&launcher_root);
     let path = folder_routes_file(app)?;
     if !path.exists() {
         return Ok(default);
@@ -66,11 +74,15 @@ pub fn resolve_instances_root(app: &AppHandle) -> Result<PathBuf, String> {
     let route = parsed
         .routes
         .into_iter()
-        .find(|route| route.key == "instances")
+        .find(|route| route.key == key)
         .map(|route| route.value)
         .unwrap_or_else(|| default.display().to_string());
 
     Ok(PathBuf::from(normalize_path(&route)))
+}
+
+pub fn resolve_instances_root(app: &AppHandle) -> Result<PathBuf, String> {
+    resolve_folder_route(app, "instances", |launcher_root| launcher_root.join("instances"))
 }
 
 #[tauri::command]
@@ -100,6 +112,24 @@ pub fn pick_folder(
     })
 }
 
+fn normalize_routes_payload(app: &AppHandle, routes: serde_json::Value) -> Result<serde_json::Value, String> {
+    let launcher_root = default_launcher_root(app)?;
+    let mut parsed: FolderRouteFile = serde_json::from_value(routes)
+        .map_err(|err| format!("Formato inválido en rutas de carpetas: {err}"))?;
+
+    for route in &mut parsed.routes {
+        let cleaned = normalize_path(&route.value);
+        route.value = if route.key == "launcher" || Path::new(&cleaned).is_absolute() {
+            cleaned
+        } else {
+            launcher_root.join(cleaned).display().to_string()
+        };
+    }
+
+    serde_json::to_value(parsed)
+        .map_err(|err| format!("No se pudo normalizar rutas de carpetas: {err}"))
+}
+
 #[tauri::command]
 pub fn save_folder_routes(app: AppHandle, routes: serde_json::Value) -> Result<(), String> {
     let target = folder_routes_file(&app)?;
@@ -111,7 +141,8 @@ pub fn save_folder_routes(app: AppHandle, routes: serde_json::Value) -> Result<(
             )
         })?;
     }
-    let pretty = serde_json::to_string_pretty(&routes)
+    let normalized = normalize_routes_payload(&app, routes)?;
+    let pretty = serde_json::to_string_pretty(&normalized)
         .map_err(|err| format!("No se pudo serializar configuración de carpetas: {err}"))?;
     fs::write(&target, pretty).map_err(|err| {
         format!(
@@ -123,15 +154,28 @@ pub fn save_folder_routes(app: AppHandle, routes: serde_json::Value) -> Result<(
 
 #[tauri::command]
 pub fn open_folder_path(path: String) -> Result<(), String> {
-    let target = Path::new(path.trim());
+    let target = PathBuf::from(normalize_path(&path));
+    if target.as_os_str().is_empty() {
+        return Err("Ruta de carpeta vacía".to_string());
+    }
+
     if !target.exists() {
-        return Err(format!("La carpeta no existe: {}", target.display()));
+        fs::create_dir_all(&target).map_err(|err| {
+            format!(
+                "La carpeta no existe y no se pudo crear {}: {err}",
+                target.display()
+            )
+        })?;
+    }
+
+    if !target.is_dir() {
+        return Err(format!("La ruta no es una carpeta: {}", target.display()));
     }
 
     #[cfg(target_os = "windows")]
     {
         Command::new("explorer")
-            .arg(target)
+            .arg(&target)
             .status()
             .map_err(|err| format!("No se pudo abrir el explorador de Windows: {err}"))?;
     }
@@ -139,7 +183,7 @@ pub fn open_folder_path(path: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         Command::new("open")
-            .arg(target)
+            .arg(&target)
             .status()
             .map_err(|err| format!("No se pudo abrir Finder: {err}"))?;
     }
@@ -147,7 +191,7 @@ pub fn open_folder_path(path: String) -> Result<(), String> {
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         Command::new("xdg-open")
-            .arg(target)
+            .arg(&target)
             .status()
             .map_err(|err| format!("No se pudo abrir el explorador de archivos: {err}"))?;
     }
@@ -160,8 +204,16 @@ pub fn migrate_instances_folder(
     app: AppHandle,
     target_path: String,
 ) -> Result<FolderRouteMigrationResult, String> {
-    let source = resolve_instances_root(&app)?;
+    let source = resolve_folder_route(&app, "instances", |launcher_root| launcher_root.join("instances"))?;
     let target = PathBuf::from(normalize_path(&target_path));
+    let launcher_root = resolve_launcher_root(&app)?;
+
+    if !source.starts_with(&launcher_root) || !target.starts_with(&launcher_root) {
+        return Err(format!(
+            "La migración solo permite rutas dentro de la raíz del launcher: {}",
+            launcher_root.display()
+        ));
+    }
 
     fs::create_dir_all(&target).map_err(|err| {
         format!(

@@ -686,12 +686,10 @@ function App() {
     localStorage.setItem(folderRoutesKey, JSON.stringify(routes))
   }
 
-  const updateFolderRouteValue = (key: FolderRouteKey, value: string) => {
-    setFolderRoutes((prev) => {
-      const next = prev.map((route) => route.key === key ? { ...route, value } : route)
-      persistFolderRoutes(next)
-      return next
-    })
+  const updateAndPersistFolderRoutes = async (nextRoutes: FolderRouteItem[]) => {
+    setFolderRoutes(nextRoutes)
+    persistFolderRoutes(nextRoutes)
+    await invoke('save_folder_routes', { routes: { routes: nextRoutes } })
   }
 
   const pickFolderRoute = async (route: FolderRouteItem) => {
@@ -701,9 +699,8 @@ function App() {
         title: `Seleccionar ${route.label}`,
       })
       if (!result.path) return
-      updateFolderRouteValue(route.key, result.path)
       const nextRoutes = folderRoutes.map((item) => item.key === route.key ? { ...item, value: result.path ?? item.value } : item)
-      await invoke('save_folder_routes', { routes: { routes: nextRoutes } })
+      await updateAndPersistFolderRoutes(nextRoutes)
       setUpdatesStatus(`Ruta actualizada: ${route.label}`)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -724,7 +721,7 @@ function App() {
   const migrateInstancesFolder = async (route: FolderRouteItem) => {
     try {
       const result = await invoke<FolderRouteMigrationResult>('migrate_instances_folder', { targetPath: route.value })
-      await invoke('save_folder_routes', { routes: { routes: folderRoutes } })
+      await updateAndPersistFolderRoutes(folderRoutes)
       setUpdatesStatus(`Migración completada. Movidos: ${result.movedEntries}, omitidos: ${result.skippedEntries}.`) 
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
