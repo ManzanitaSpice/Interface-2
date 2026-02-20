@@ -13,6 +13,9 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::Serialize;
 use serde_json::Value;
@@ -1114,35 +1117,28 @@ pub async fn start_instance(
 ) -> Result<StartInstanceResult, String> {
     let metadata = get_instance_metadata(instance_root.clone())?;
     if metadata.state.eq_ignore_ascii_case("redirect") {
-        return crate::app::redirect_launch::launch_redirect_instance(
+        register_runtime_start(instance_root.clone())?;
+        let result = crate::app::redirect_launch::launch_redirect_instance(
             app,
-            instance_root,
+            instance_root.clone(),
             auth_session,
-        );
-    }
-
-    {
-        let mut registry = runtime_registry()
-            .lock()
-            .map_err(|_| "No se pudo bloquear el registro de runtime.".to_string())?;
-        if let Some(state) = registry.get(&instance_root) {
-            if state.running {
-                return Err(
-                    "La instancia ya está ejecutándose; no se permite doble ejecución.".to_string(),
-                );
+        )
+        .await;
+        match result {
+            Ok(started) => {
+                register_runtime_pid(&instance_root, started.pid);
+                return Ok(started);
+            }
+            Err(err) => {
+                if let Ok(mut registry) = runtime_registry().lock() {
+                    registry.remove(&instance_root);
+                }
+                return Err(err);
             }
         }
-        registry.insert(
-            instance_root.clone(),
-            RuntimeState {
-                pid: None,
-                running: true,
-                exit_code: None,
-                stderr_tail: VecDeque::new(),
-                started_at: Instant::now(),
-            },
-        );
     }
+
+    register_runtime_start(instance_root.clone())?;
 
     let runtime_instance_root = match prepare_runtime_instance_root(&app, &instance_root) {
         Ok(value) => value,
@@ -1180,6 +1176,11 @@ pub async fn start_instance(
         .stdin(Stdio::null())
         .current_dir(Path::new(&runtime_instance_root).join("minecraft"));
 
+    #[cfg(unix)]
+    {
+        command.process_group(0);
+    }
+
     let mut child = match command
         .spawn()
         .map_err(|err| format!("No se pudo iniciar java para la instancia: {err}"))
@@ -1194,11 +1195,7 @@ pub async fn start_instance(
     };
 
     let pid = child.id();
-    if let Ok(mut registry) = runtime_registry().lock() {
-        if let Some(state) = registry.get_mut(&instance_root) {
-            state.pid = Some(pid);
-        }
-    }
+    register_runtime_pid(&instance_root, pid);
 
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
@@ -1388,10 +1385,90 @@ fn terminate_process(pid: u32) {
 
     #[cfg(not(target_os = "windows"))]
     {
+        let group_id = format!("-{pid}");
+        let _ = Command::new("kill").args(["-TERM", &group_id]).status();
+        thread::sleep(Duration::from_millis(450));
+        let _ = Command::new("kill").args(["-KILL", &group_id]).status();
         let _ = Command::new("kill")
             .args(["-TERM", &pid.to_string()])
             .status();
+        let _ = Command::new("kill")
+            .args(["-KILL", &pid.to_string()])
+            .status();
     }
+}
+
+pub fn register_runtime_start(instance_root: String) -> Result<(), String> {
+    let mut registry = runtime_registry()
+        .lock()
+        .map_err(|_| "No se pudo bloquear el registro de runtime.".to_string())?;
+    if let Some(state) = registry.get(&instance_root) {
+        if state.running {
+            return Err(
+                "La instancia ya está ejecutándose; no se permite doble ejecución.".to_string(),
+            );
+        }
+    }
+    registry.insert(
+        instance_root,
+        RuntimeState {
+            pid: None,
+            running: true,
+            exit_code: None,
+            stderr_tail: VecDeque::new(),
+            started_at: Instant::now(),
+        },
+    );
+    Ok(())
+}
+
+pub fn register_runtime_pid(instance_root: &str, pid: u32) {
+    if let Ok(mut registry) = runtime_registry().lock() {
+        if let Some(state) = registry.get_mut(instance_root) {
+            state.pid = Some(pid);
+        }
+    }
+}
+
+pub fn register_runtime_exit(instance_root: &str, pid: u32, exit_code: Option<i32>) {
+    if let Ok(mut registry) = runtime_registry().lock() {
+        registry.insert(
+            instance_root.to_string(),
+            RuntimeState {
+                pid: Some(pid),
+                running: false,
+                exit_code,
+                stderr_tail: VecDeque::new(),
+                started_at: Instant::now(),
+            },
+        );
+    }
+}
+
+#[tauri::command]
+pub fn force_close_instance(instance_root: String) -> Result<String, String> {
+    let pid = {
+        let mut registry = runtime_registry()
+            .lock()
+            .map_err(|_| "No se pudo bloquear el registro de runtime.".to_string())?;
+        let Some(state) = registry.get_mut(&instance_root) else {
+            return Err("No existe estado de ejecución para esta instancia.".to_string());
+        };
+        if !state.running {
+            return Err("La instancia no está en ejecución.".to_string());
+        }
+        let Some(pid) = state.pid else {
+            return Err("La instancia está iniciando y aún no tiene PID asignado.".to_string());
+        };
+        state.running = false;
+        state.exit_code = Some(-9);
+        pid
+    };
+
+    terminate_process(pid);
+    Ok(format!(
+        "Se forzó el cierre completo del proceso (PID {pid})."
+    ))
 }
 
 fn monitor_latest_log_for_auth(

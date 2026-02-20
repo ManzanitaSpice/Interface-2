@@ -32,6 +32,7 @@ pub fn run() {
             app::instance_service::validate_and_prepare_launch,
             app::instance_service::start_instance,
             app::instance_service::get_runtime_status,
+            app::instance_service::force_close_instance,
             app::redirect_launch::validate_redirect_instance,
             app::redirect_launch::get_redirect_cache_info,
             app::redirect_launch::force_cleanup_redirect_cache,
