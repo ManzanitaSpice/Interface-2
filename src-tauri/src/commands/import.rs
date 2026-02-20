@@ -9,7 +9,7 @@ use std::{
     time::SystemTime,
 };
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use uuid::Uuid;
 
 #[derive(Clone, serde::Serialize)]
@@ -59,6 +59,7 @@ pub struct ImportActionRequest {
     minecraft_version: String,
     loader: String,
     loader_version: String,
+    source_launcher: String,
     action: String,
 }
 
@@ -99,6 +100,13 @@ struct ScanProgressEvent {
     current_path: String,
     progress_percent: u8,
     total_targets: usize,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ShortcutRedirect {
+    source_path: String,
+    source_launcher: String,
 }
 
 #[derive(Default)]
@@ -1045,6 +1053,69 @@ pub fn execute_import_action(
         });
     }
 
+    if action == "crear_atajo" {
+        let instances_root = crate::app::settings_service::resolve_instances_root(&app)?;
+        let mut sanitized_name = sanitize_path_segment(&request.target_name);
+        if sanitized_name.trim().is_empty() {
+            sanitized_name = "instancia-atajo".to_string();
+        }
+
+        let mut instance_root = instances_root.join(&sanitized_name);
+        let mut suffix = 1u32;
+        while instance_root.exists() {
+            instance_root = instances_root.join(format!("{}-atajo-{}", sanitized_name, suffix));
+            suffix += 1;
+        }
+
+        fs::create_dir_all(&instance_root)
+            .map_err(|err| format!("No se pudo crear carpeta del atajo: {err}"))?;
+
+        let metadata = InstanceMetadata {
+            name: request.target_name.clone(),
+            group: "Atajos".to_string(),
+            minecraft_version: request.minecraft_version.clone(),
+            version_id: request.minecraft_version.clone(),
+            loader: request.loader.clone(),
+            loader_version: format!(
+                "{} · {} · Re Direccion",
+                request.loader_version, request.source_launcher
+            ),
+            ram_mb: 4096,
+            java_args: vec!["-XX:+UnlockExperimentalVMOptions".to_string()],
+            java_path: "".to_string(),
+            java_runtime: "shortcut".to_string(),
+            java_version: "".to_string(),
+            required_java_major: 0,
+            created_at: chrono::Utc::now().to_rfc3339(),
+            state: "REDIRECT".to_string(),
+            last_used: None,
+            internal_uuid: uuid::Uuid::new_v4().to_string(),
+        };
+
+        let metadata_path = instance_root.join(".instance.json");
+        let metadata_raw = serde_json::to_string_pretty(&metadata)
+            .map_err(|err| format!("No se pudo serializar metadata de atajo: {err}"))?;
+        fs::write(&metadata_path, metadata_raw)
+            .map_err(|err| format!("No se pudo guardar metadata de atajo: {err}"))?;
+
+        let redirect = ShortcutRedirect {
+            source_path: request.source_path.clone(),
+            source_launcher: request.source_launcher.clone(),
+        };
+        let redirect_path = instance_root.join(".redirect.json");
+        let redirect_raw = serde_json::to_string_pretty(&redirect)
+            .map_err(|err| format!("No se pudo serializar redirección de atajo: {err}"))?;
+        fs::write(&redirect_path, redirect_raw)
+            .map_err(|err| format!("No se pudo guardar redirección de atajo: {err}"))?;
+
+        return Ok(ImportActionResult {
+            success: true,
+            target_name: request.target_name,
+            target_path: Some(instance_root.display().to_string()),
+            error: None,
+        });
+    }
+
     let import_request = ImportRequest {
         detected_instance_id: request.detected_instance_id,
         source_path: request.source_path.clone(),
@@ -1130,20 +1201,32 @@ pub fn execute_import_action_batch(
     })
 }
 
-
 fn copy_dir_recursive(source: &Path, destination: &Path) -> Result<(), String> {
     if !source.exists() {
-        return Err(format!("La instancia origen no existe: {}", source.display()));
+        return Err(format!(
+            "La instancia origen no existe: {}",
+            source.display()
+        ));
     }
-    for entry in fs::read_dir(source).map_err(|err| format!("No se pudo leer {}: {err}", source.display()))? {
-        let entry = entry.map_err(|err| format!("No se pudo leer entrada de {}: {err}", source.display()))?;
+    for entry in fs::read_dir(source)
+        .map_err(|err| format!("No se pudo leer {}: {err}", source.display()))?
+    {
+        let entry = entry
+            .map_err(|err| format!("No se pudo leer entrada de {}: {err}", source.display()))?;
         let from = entry.path();
         let to = destination.join(entry.file_name());
         if from.is_dir() {
-            fs::create_dir_all(&to).map_err(|err| format!("No se pudo crear {}: {err}", to.display()))?;
+            fs::create_dir_all(&to)
+                .map_err(|err| format!("No se pudo crear {}: {err}", to.display()))?;
             copy_dir_recursive(&from, &to)?;
         } else {
-            fs::copy(&from, &to).map_err(|err| format!("No se pudo copiar {} -> {}: {err}", from.display(), to.display()))?;
+            fs::copy(&from, &to).map_err(|err| {
+                format!(
+                    "No se pudo copiar {} -> {}: {err}",
+                    from.display(),
+                    to.display()
+                )
+            })?;
         }
     }
     Ok(())
