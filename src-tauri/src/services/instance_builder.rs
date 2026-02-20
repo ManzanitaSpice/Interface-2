@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{
     collections::VecDeque,
     fs,
@@ -6,8 +8,6 @@ use std::{
     thread,
     time::{Duration, SystemTime},
 };
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::{
     domain::{
@@ -560,7 +560,13 @@ fn prepare_loader(
     logs: &mut Vec<String>,
 ) -> AppResult<String> {
     let normalized_loader = loader.trim().to_ascii_lowercase();
-    if normalized_loader.is_empty() || normalized_loader == "vanilla" {
+    let effective_loader = if normalized_loader == "quilit" {
+        logs.push("Loader 'quilit' detectado; se normaliza automáticamente a 'quilt'.".to_string());
+        "quilt"
+    } else {
+        normalized_loader.as_str()
+    };
+    if effective_loader.is_empty() || effective_loader == "vanilla" {
         logs.push("Loader VANILLA seleccionado: sin instalación adicional.".to_string());
         return Ok(minecraft_version.to_string());
     }
@@ -568,7 +574,7 @@ fn prepare_loader(
     let effective = install_loader_if_needed(
         minecraft_root,
         minecraft_version,
-        loader,
+        effective_loader,
         loader_version,
         java_exec,
         logs,
