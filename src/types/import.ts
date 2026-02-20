@@ -17,8 +17,12 @@ export type DetectedInstance = {
 
 export type ImportRequest = {
   detectedInstanceId: string
+  sourcePath: string
   targetName: string
   targetGroup: string
+  minecraftVersion: string
+  loader: string
+  loaderVersion: string
   ramMb: number
   copyMods: boolean
   copyWorlds: boolean

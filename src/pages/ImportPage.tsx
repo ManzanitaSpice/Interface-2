@@ -16,8 +16,15 @@ export function ImportPage() {
 
   return (
     <main className="content content-padded">
-      <section className="instances-panel huge-panel">
-        <ImportToolbar status={status} onScan={() => void scan()} onClear={clear} />
+      <section className="instances-panel huge-panel import-page">
+        <ImportToolbar
+          status={status}
+          detectedCount={instances.length}
+          selectedCount={selectedItems.length}
+          isScanning={isScanning}
+          onScan={() => void scan()}
+          onClear={() => { clear(); setSelected([]) }}
+        />
         <ScanStatusBar status={status} progressPercent={progressPercent} scanLogs={scanLogs} isScanning={isScanning} />
         <div className="instances-workspace with-right-panel">
           <div className="cards-grid instances-grid-area">
@@ -33,10 +40,15 @@ export function ImportPage() {
           </div>
           <ImportSidePanel
             selectedCount={selected.length}
-            onImport={() => void execute(selectedItems.map((item) => ({
+            canImport={selectedItems.some((item) => item.importable)}
+            onImport={() => void execute(selectedItems.filter((item) => item.importable).map((item) => ({
               detectedInstanceId: item.id,
+              sourcePath: item.sourcePath,
               targetName: item.name,
-              targetGroup: 'Sin grupo',
+              targetGroup: 'Importadas',
+              minecraftVersion: item.minecraftVersion,
+              loader: item.loader,
+              loaderVersion: item.loaderVersion,
               ramMb: 4096,
               copyMods: true,
               copyWorlds: true,

@@ -35,8 +35,12 @@ pub struct DetectedInstance {
 #[serde(rename_all = "camelCase")]
 pub struct ImportRequest {
     detected_instance_id: String,
+    source_path: String,
     target_name: String,
     target_group: String,
+    minecraft_version: String,
+    loader: String,
+    loader_version: String,
     ram_mb: u32,
     copy_mods: bool,
     copy_worlds: bool,
@@ -542,6 +546,37 @@ fn detect_dir(path: &Path, launcher: &str) -> Option<DetectedInstance> {
     })
 }
 
+fn dedupe_instances(instances: Vec<DetectedInstance>) -> Vec<DetectedInstance> {
+    let mut by_path = HashSet::new();
+    let mut by_signature = HashSet::new();
+    let mut out = Vec::new();
+
+    for instance in instances {
+        let canonical_key = fs::canonicalize(&instance.source_path)
+            .unwrap_or_else(|_| PathBuf::from(&instance.source_path))
+            .to_string_lossy()
+            .to_string();
+        if !by_path.insert(canonical_key) {
+            continue;
+        }
+
+        let signature = format!(
+            "{}::{}::{}",
+            instance.name.trim().to_ascii_lowercase(),
+            instance.minecraft_version.trim().to_ascii_lowercase(),
+            instance.loader.trim().to_ascii_lowercase()
+        );
+
+        if !by_signature.insert(signature) {
+            continue;
+        }
+
+        out.push(instance);
+    }
+
+    out
+}
+
 #[tauri::command]
 pub fn detect_external_instances(app: AppHandle) -> Result<Vec<DetectedInstance>, String> {
     CANCEL_IMPORT
@@ -638,6 +673,8 @@ pub fn detect_external_instances(app: AppHandle) -> Result<Vec<DetectedInstance>
         },
     );
 
+    let found = dedupe_instances(found);
+
     Ok(found)
 }
 
@@ -686,7 +723,7 @@ pub fn import_specific(path: String) -> Result<Vec<DetectedInstance>, String> {
                 out.push(instance);
             }
         }
-        return Ok(out);
+        return Ok(dedupe_instances(out));
     }
 
     Ok(Vec::new())
@@ -694,7 +731,87 @@ pub fn import_specific(path: String) -> Result<Vec<DetectedInstance>, String> {
 
 #[tauri::command]
 pub fn execute_import(app: AppHandle, requests: Vec<ImportRequest>) -> Result<(), String> {
+    use crate::{
+        app::settings_service::resolve_instances_root, domain::models::instance::InstanceMetadata,
+        infrastructure::filesystem::paths::sanitize_path_segment,
+    };
+
+    fn copy_recursive_limited(
+        src: &Path,
+        dst: &Path,
+        copied: &mut usize,
+        max_files: usize,
+    ) -> Result<(), String> {
+        if *copied >= max_files || !src.exists() {
+            return Ok(());
+        }
+
+        fs::create_dir_all(dst).map_err(|err| {
+            format!(
+                "No se pudo crear carpeta de destino {}: {err}",
+                dst.display()
+            )
+        })?;
+
+        let entries =
+            fs::read_dir(src).map_err(|err| format!("No se pudo leer {}: {err}", src.display()))?;
+
+        for entry in entries.flatten() {
+            if *copied >= max_files {
+                break;
+            }
+
+            let path = entry.path();
+            let target = dst.join(entry.file_name());
+
+            if path.is_dir() {
+                copy_recursive_limited(&path, &target, copied, max_files)?;
+                continue;
+            }
+
+            fs::copy(&path, &target).map_err(|err| {
+                format!(
+                    "No se pudo copiar {} -> {}: {err}",
+                    path.display(),
+                    target.display()
+                )
+            })?;
+            *copied += 1;
+        }
+
+        Ok(())
+    }
+
+    let instances_root = resolve_instances_root(&app)?;
+    fs::create_dir_all(&instances_root)
+        .map_err(|err| format!("No se pudo preparar el directorio de instancias: {err}"))?;
+
     for (index, req) in requests.iter().enumerate() {
+        let source_root = PathBuf::from(&req.source_path);
+        if !source_root.exists() || !source_root.is_dir() {
+            let _ = app.emit(
+                "import_instance_completed",
+                serde_json::json!({
+                    "success": false,
+                    "instanceId": req.detected_instance_id,
+                    "error": format!("Ruta inválida: {}", source_root.display())
+                }),
+            );
+            continue;
+        }
+
+        let mut sanitized_name = sanitize_path_segment(&req.target_name);
+        if sanitized_name.trim().is_empty() {
+            sanitized_name = format!("imported-{}", index + 1);
+        }
+
+        let mut instance_root = instances_root.join(&sanitized_name);
+        if instance_root.exists() {
+            let suffix = uuid::Uuid::new_v4().simple().to_string();
+            instance_root = instances_root.join(format!("{}-{}", sanitized_name, &suffix[..8]));
+        }
+
+        let minecraft_root = instance_root.join("minecraft");
         let _ = app.emit(
             "import_execution_progress",
             serde_json::json!({
@@ -702,20 +819,120 @@ pub fn execute_import(app: AppHandle, requests: Vec<ImportRequest>) -> Result<()
                 "instanceName": req.target_name,
                 "step": "creating_instance",
                 "stepIndex": 1,
-                "totalSteps": 1,
-                "completed": index + 1,
+                "totalSteps": 3,
+                "completed": index,
                 "total": requests.len(),
-                "message": format!("Preparando importación de {}", req.target_name)
+                "message": format!("Creando {}", req.target_name)
             }),
         );
-        let _ = app.emit(
-            "import_instance_completed",
-            serde_json::json!({
-                "success": true,
-                "instanceId": req.detected_instance_id,
-                "error": serde_json::Value::Null
-            }),
-        );
+
+        let result = (|| -> Result<(), String> {
+            fs::create_dir_all(&minecraft_root).map_err(|err| {
+                format!(
+                    "No se pudo crear la instancia {}: {err}",
+                    instance_root.display()
+                )
+            })?;
+
+            let source_minecraft_root = if source_root.join(".minecraft").is_dir() {
+                source_root.join(".minecraft")
+            } else {
+                source_root.clone()
+            };
+
+            let mut copied_files = 0usize;
+            if req.copy_mods {
+                copy_recursive_limited(
+                    &source_minecraft_root.join("mods"),
+                    &minecraft_root.join("mods"),
+                    &mut copied_files,
+                    15_000,
+                )?;
+            }
+            if req.copy_worlds {
+                copy_recursive_limited(
+                    &source_minecraft_root.join("saves"),
+                    &minecraft_root.join("saves"),
+                    &mut copied_files,
+                    15_000,
+                )?;
+            }
+            if req.copy_resourcepacks {
+                copy_recursive_limited(
+                    &source_minecraft_root.join("resourcepacks"),
+                    &minecraft_root.join("resourcepacks"),
+                    &mut copied_files,
+                    15_000,
+                )?;
+            }
+            if req.copy_screenshots {
+                copy_recursive_limited(
+                    &source_minecraft_root.join("screenshots"),
+                    &minecraft_root.join("screenshots"),
+                    &mut copied_files,
+                    15_000,
+                )?;
+            }
+            if req.copy_logs {
+                copy_recursive_limited(
+                    &source_minecraft_root.join("logs"),
+                    &minecraft_root.join("logs"),
+                    &mut copied_files,
+                    15_000,
+                )?;
+            }
+
+            let internal_uuid = uuid::Uuid::new_v4().to_string();
+            let metadata = InstanceMetadata {
+                name: req.target_name.clone(),
+                group: req.target_group.clone(),
+                minecraft_version: req.minecraft_version.clone(),
+                version_id: req.minecraft_version.clone(),
+                loader: req.loader.clone(),
+                loader_version: req.loader_version.clone(),
+                ram_mb: req.ram_mb,
+                java_args: vec!["-XX:+UnlockExperimentalVMOptions".to_string()],
+                java_path: "".to_string(),
+                java_runtime: "imported".to_string(),
+                java_version: "".to_string(),
+                required_java_major: 0,
+                created_at: chrono::Utc::now().to_rfc3339(),
+                state: "IMPORTED".to_string(),
+                last_used: None,
+                internal_uuid,
+            };
+
+            let metadata_path = instance_root.join(".instance.json");
+            let metadata_raw = serde_json::to_string_pretty(&metadata)
+                .map_err(|err| format!("No se pudo serializar metadata: {err}"))?;
+            fs::write(&metadata_path, metadata_raw)
+                .map_err(|err| format!("No se pudo guardar metadata: {err}"))?;
+
+            Ok(())
+        })();
+
+        match result {
+            Ok(()) => {
+                let _ = app.emit(
+                    "import_instance_completed",
+                    serde_json::json!({
+                        "success": true,
+                        "instanceId": req.detected_instance_id,
+                        "error": serde_json::Value::Null
+                    }),
+                );
+            }
+            Err(error) => {
+                let _ = app.emit(
+                    "import_instance_completed",
+                    serde_json::json!({
+                        "success": false,
+                        "instanceId": req.detected_instance_id,
+                        "error": error
+                    }),
+                );
+            }
+        }
     }
     Ok(())
 }
