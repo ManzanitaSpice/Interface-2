@@ -14,7 +14,7 @@ type Props = {
 }
 
 export function ImportPage({ onInstancesChanged }: Props) {
-  const { instances, status, progressPercent, scanLogs, isScanning, keepDetected, setKeepDetected, scan, clear } = useImportScanner()
+  const { instances, status, progressPercent, isScanning, keepDetected, setKeepDetected, scan, clear } = useImportScanner()
   const { running, message, progressPercent: executionProgressPercent, execute, executeActionBatch } = useImportExecution()
   const [selected, setSelected] = useState<string[]>([])
   const [search, setSearch] = useState('')
@@ -100,7 +100,7 @@ export function ImportPage({ onInstancesChanged }: Props) {
           onScan={() => void scan()}
           onClear={() => { clear(); setSelected([]) }}
         />
-        <ScanStatusBar status={status} progressPercent={progressPercent} scanLogs={scanLogs} isScanning={isScanning} />
+        <ScanStatusBar status={status} progressPercent={progressPercent} isScanning={isScanning} />
         <div className="instance-search-row">
           <input
             className="instance-search-compact"

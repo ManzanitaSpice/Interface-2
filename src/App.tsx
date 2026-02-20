@@ -191,7 +191,7 @@ type LoaderVersionItem = {
 type LoaderChannelFilter = 'Todos' | 'Stable' | 'Latest' | 'Releases'
 
 type InstanceSettingsTab = 'General' | 'Java' | 'Ajustes' | 'Comandos Personalizados' | 'Variables de Entorno'
-type GlobalSettingsTab = 'General' | 'Idioma' | 'Apariencia' | 'Escala UI' | 'Java' | 'Servicios' | 'Herramientas' | 'Network'
+type GlobalSettingsTab = 'General' | 'Idioma' | 'Apariencia' | 'Java' | 'Servicios' | 'Herramientas' | 'Network'
 
 type MicrosoftAuthStart = {
   authorizeUrl: string
@@ -311,7 +311,7 @@ const creatorSections: CreatorSection[] = ['Personalizado', 'CurseForge', 'Modri
 
 const editSections: EditSection[] = ['Ejecución', 'Version', 'Mods', 'Resource Packs', 'Shader Packs', 'Notas', 'Mundos', 'Servidores', 'Capturas de Pantalla', 'Configuración', 'Otros registros']
 
-const globalSettingsTabs: GlobalSettingsTab[] = ['General', 'Idioma', 'Apariencia', 'Escala UI', 'Java', 'Servicios', 'Herramientas', 'Network']
+const globalSettingsTabs: GlobalSettingsTab[] = ['General', 'Idioma', 'Apariencia', 'Java', 'Servicios', 'Herramientas', 'Network']
 
 const languageCatalog: LanguageEntry[] = [
   { name: 'Español (España)', installedByDefault: false },
@@ -2081,6 +2081,18 @@ function App() {
   }, [])
 
   useEffect(() => {
+    if (selectedAppearancePreset === 'custom') return
+    const preset = appearancePresets.find((item) => item.id === selectedAppearancePreset)
+    const userPreset = userAppearanceThemes.find((item) => item.id === selectedAppearancePreset)
+    const nextVars = userPreset?.vars ?? preset?.vars
+    if (!nextVars) return
+    setCustomAppearanceVars((prev) => {
+      const hasChanges = (Object.keys(nextVars) as AppearanceColorKey[]).some((key) => prev[key] !== nextVars[key])
+      return hasChanges ? { ...prev, ...nextVars } : prev
+    })
+  }, [selectedAppearancePreset, userAppearanceThemes])
+
+  useEffect(() => {
     const preset = appearancePresets.find((item) => item.id === selectedAppearancePreset)
     const userPreset = userAppearanceThemes.find((item) => item.id === selectedAppearancePreset)
     const vars = selectedAppearancePreset === 'custom' ? customAppearanceVars : (userPreset?.vars ?? preset?.vars ?? appearancePresets[0].vars)
@@ -2181,7 +2193,7 @@ function App() {
               {cards.map((card) => (
                 <article
                   key={card.id}
-                  className={`instance-card clickable modpack-card-layout ${selectedCard?.id === card.id ? 'active' : ''}`}
+                  className={`instance-card clickable ${selectedCard?.id === card.id ? 'active' : ''}`}
                   onClick={() => setSelectedCard(card)}
                 >
                   <strong>{card.name}</strong>
@@ -2317,7 +2329,7 @@ function App() {
                   return (
                     <motion.article
                       key={card.id}
-                      className={`instance-card clickable modpack-card-layout ${selectedCard?.id === card.id ? 'active' : ''}`}
+                      className={`instance-card clickable ${selectedCard?.id === card.id ? 'active' : ''}`}
                       onClick={() => setSelectedCard(card)}
                       whileHover={{ y: -2, scale: 1.01 }}
                       transition={{ duration: 0.14 }}
@@ -2565,12 +2577,23 @@ function App() {
               <section className="appearance-workspace">
                 <div className="appearance-presets">
                   <h3>Apariencia</h3>
-                  <p>Temas dentro de menú para ocupar menos espacio.</p>
                   <label className="appearance-control-field">
-                    <span>Preset activo</span>
-                    <select value={selectedAppearancePreset} onChange={(event) => setSelectedAppearancePreset(event.target.value)}>
+                    <span>Tema predeterminado</span>
+                    <select
+                      value={appearancePresets.some((preset) => preset.id === selectedAppearancePreset) ? selectedAppearancePreset : 'custom'}
+                      onChange={(event) => setSelectedAppearancePreset(event.target.value)}
+                    >
                       {appearancePresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
                       <option value="custom">Personalizado manual</option>
+                    </select>
+                  </label>
+                  <label className="appearance-control-field">
+                    <span>Temas personalizados guardados</span>
+                    <select
+                      value={selectedAppearancePreset.startsWith('user-') ? selectedAppearancePreset : ''}
+                      onChange={(event) => { if (event.target.value) setSelectedAppearancePreset(event.target.value) }}
+                    >
+                      <option value="">Seleccionar tema guardado</option>
                       {userAppearanceThemes.map((theme) => <option key={theme.id} value={theme.id}>🧩 {theme.name}</option>)}
                     </select>
                   </label>
@@ -2615,7 +2638,7 @@ function App() {
                     <span>Tamaño base de texto</span>
                     <input type="range" min={85} max={125} defaultValue={100} />
                   </label>
-                  <h3>Temas personalizados</h3>
+                  <h3>Guardar tema actual</h3>
                   <label className="appearance-control-field">
                     <span>Nombre del ajuste</span>
                     <input value={newThemeName} onChange={(event) => setNewThemeName(event.target.value)} placeholder="Ej: Noche azul" />
@@ -2636,40 +2659,37 @@ function App() {
                     }} disabled={!selectedAppearancePreset.startsWith('user-')}>Eliminar ajuste</button>
                   </div>
                 </div>
-              </section>
-            )}
 
-            {selectedGlobalSettingsTab === 'Escala UI' && (
-              <section className="section-placeholder">
-                <h2>Escala UI</h2>
-                <p>Solo escalado global, elementos individuales y modo editor.</p>
-                <label className="appearance-control-field appearance-scale-field">
-                  <span>Escala UI global</span>
-                  <div className="appearance-scale-row">
-                    <input
-                      type="range"
-                      min={85}
-                      max={120}
-                      value={uiScalePercent}
-                      onChange={(event) => setUiScalePercent(Number(event.target.value))}
-                    />
-                    <strong>{uiScalePercent}%</strong>
-                  </div>
-                </label>
-                <label className="appearance-control-field appearance-scale-field">
-                  <span>Escala de elementos individuales</span>
-                  <div className="appearance-scale-row">
-                    <input
-                      type="range"
-                      min={85}
-                      max={120}
-                      value={uiElementScalePercent}
-                      onChange={(event) => setUiElementScalePercent(Number(event.target.value))}
-                    />
-                    <strong>{uiElementScalePercent}%</strong>
-                  </div>
-                </label>
-                <button>Modo Editor</button>
+                <div className="appearance-preview detailed">
+                  <h3>Escala UI</h3>
+                  <label className="appearance-control-field appearance-scale-field">
+                    <span>Escala UI global</span>
+                    <div className="appearance-scale-row">
+                      <input
+                        type="range"
+                        min={85}
+                        max={120}
+                        value={uiScalePercent}
+                        onChange={(event) => setUiScalePercent(Number(event.target.value))}
+                      />
+                      <strong>{uiScalePercent}%</strong>
+                    </div>
+                  </label>
+                  <label className="appearance-control-field appearance-scale-field">
+                    <span>Escala de elementos individuales</span>
+                    <div className="appearance-scale-row">
+                      <input
+                        type="range"
+                        min={85}
+                        max={120}
+                        value={uiElementScalePercent}
+                        onChange={(event) => setUiElementScalePercent(Number(event.target.value))}
+                      />
+                      <strong>{uiElementScalePercent}%</strong>
+                    </div>
+                  </label>
+                  <button>Modo Editor</button>
+                </div>
               </section>
             )}
 
@@ -2761,7 +2781,11 @@ function App() {
         <div className="floating-modal-overlay" role="dialog" aria-modal="true" aria-label="Confirmar eliminación de instancia">
           <div className="floating-modal">
             <h3>¿Eliminar instancia?</h3>
-            <p>Se eliminará completamente la instancia <strong>{selectedCard.name}</strong> y todos sus archivos.</p>
+            <p>
+              {instanceMetaByRoot[selectedCard.instanceRoot ?? '']?.state?.toUpperCase() === 'REDIRECT'
+                ? <>Se eliminará solo el atajo <strong>{selectedCard.name}</strong>. La instancia original no será modificada.</>
+                : <>Se eliminará completamente la instancia <strong>{selectedCard.name}</strong> y todos sus archivos.</>}
+            </p>
             <div className="floating-modal-actions">
               <button onClick={() => setShowDeleteInstanceConfirm(false)} disabled={isDeletingInstance}>Cancelar</button>
               <button className="danger" onClick={deleteSelectedInstance} disabled={isDeletingInstance}>
