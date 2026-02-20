@@ -1024,6 +1024,27 @@ pub fn execute_import_action(
         });
     }
 
+    if action == "ejecutar" {
+        let cache_root = app
+            .path()
+            .app_cache_dir()
+            .map_err(|err| format!("No se pudo resolver cache dir para ejecución temporal: {err}"))?
+            .join("import-runtime-cache")
+            .join(Uuid::new_v4().to_string());
+
+        fs::create_dir_all(&cache_root)
+            .map_err(|err| format!("No se pudo crear cache temporal: {err}"))?;
+
+        copy_dir_recursive(Path::new(&request.source_path), &cache_root)?;
+
+        return Ok(ImportActionResult {
+            success: true,
+            target_name: request.target_name,
+            target_path: Some(cache_root.display().to_string()),
+            error: None,
+        });
+    }
+
     let import_request = ImportRequest {
         detected_instance_id: request.detected_instance_id,
         source_path: request.source_path.clone(),
@@ -1107,6 +1128,25 @@ pub fn execute_import_action_batch(
         failure_count: failures.len(),
         failures,
     })
+}
+
+
+fn copy_dir_recursive(source: &Path, destination: &Path) -> Result<(), String> {
+    if !source.exists() {
+        return Err(format!("La instancia origen no existe: {}", source.display()));
+    }
+    for entry in fs::read_dir(source).map_err(|err| format!("No se pudo leer {}: {err}", source.display()))? {
+        let entry = entry.map_err(|err| format!("No se pudo leer entrada de {}: {err}", source.display()))?;
+        let from = entry.path();
+        let to = destination.join(entry.file_name());
+        if from.is_dir() {
+            fs::create_dir_all(&to).map_err(|err| format!("No se pudo crear {}: {err}", to.display()))?;
+            copy_dir_recursive(&from, &to)?;
+        } else {
+            fs::copy(&from, &to).map_err(|err| format!("No se pudo copiar {} -> {}: {err}", from.display(), to.display()))?;
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]

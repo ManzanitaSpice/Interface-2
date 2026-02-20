@@ -13,7 +13,7 @@ export function ImportToolbar({ status, detectedCount, selectedCount, isScanning
   return (
     <header className="panel-actions import-toolbar">
       <div className="import-toolbar-summary">
-        <strong>Importador de instancias</strong>
+        <strong>Importador</strong>
         <small>{status}</small>
       </div>
       <div className="import-toolbar-badges">
@@ -22,9 +22,7 @@ export function ImportToolbar({ status, detectedCount, selectedCount, isScanning
       </div>
       <button onClick={onScan} disabled={isScanning}>{isScanning ? '⏳ Escaneando...' : '🔍 Detectar'}</button>
       <button onClick={onClear}>🗑 Limpiar panel</button>
-      <button className={keepDetected ? 'primary' : ''} onClick={onToggleKeepDetected}>
-        {keepDetected ? '✅' : '⬜'} Mantener instancias detectadas
-      </button>
+      <button className={keepDetected ? 'primary' : ''} onClick={onToggleKeepDetected}>{keepDetected ? '✅ Mantener' : '⬜ Mantener'}</button>
     </header>
   )
 }
