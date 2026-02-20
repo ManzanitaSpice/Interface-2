@@ -403,9 +403,20 @@ fn find_version_json(
     version_id: &str,
     source_launcher: &str,
 ) -> Option<PathBuf> {
-    version_json_candidates(source_path, version_id, source_launcher)
-        .into_iter()
-        .find(|p| p.exists())
+    for candidate in version_json_candidates(source_path, version_id, source_launcher) {
+        log::info!(
+            "[REDIRECT] Buscando version.json en: {}",
+            candidate.display()
+        );
+        if candidate.exists() {
+            log::info!(
+                "[REDIRECT] version.json encontrado en: {}",
+                candidate.display()
+            );
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 fn find_minecraft_jar(
@@ -553,6 +564,13 @@ pub fn resolve_redirect_launch_context(
     version_id: &str,
     source_launcher: &str,
 ) -> Result<RedirectLaunchContext, String> {
+    log::info!(
+        "[REDIRECT] Iniciando resolución para version_id: {}",
+        version_id
+    );
+    log::info!("[REDIRECT] source_path: {}", source_path.display());
+    log::info!("[REDIRECT] source_launcher: {}", source_launcher);
+
     if !source_path.exists() {
         return Err(format!("La carpeta original de la instancia ya no existe en: {}. Es posible que el launcher externo haya movido o eliminado la instancia.", source_path.display()));
     }
@@ -619,6 +637,10 @@ Asegúrate de que la versión esté completamente instalada en el launcher de or
 
     let libraries_dir = find_libraries_dir(source_path, source_launcher)
         .ok_or_else(|| "No se encontró carpeta libraries para instancia REDIRECT.".to_string())?;
+    log::info!(
+        "[REDIRECT] libraries_dir resuelto: {}",
+        libraries_dir.display()
+    );
 
     let assets_dir = find_assets_dir(source_path, source_launcher)
         .ok_or_else(|| "No se encontró carpeta assets para instancia REDIRECT.".to_string())?;
@@ -781,212 +803,504 @@ pub fn build_classpath(
     Ok(normalized.join(sep))
 }
 
-fn native_classifier(lib: &Value) -> Option<String> {
-    let map = lib.get("natives")?.as_object()?;
-    let key = if cfg!(target_os = "windows") {
+fn current_os_name() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
         "windows"
-    } else if cfg!(target_os = "macos") {
-        "osx"
-    } else {
-        "linux"
-    };
-    let raw = map.get(key)?.as_str()?.to_string();
-    let arch = if std::env::consts::ARCH.contains("64") {
-        "64"
-    } else {
-        "32"
-    };
-    Some(raw.replace("${arch}", arch))
-}
-
-fn current_native_os() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "windows"
-    } else if cfg!(target_os = "macos") {
-        "osx"
-    } else {
+    }
+    #[cfg(target_os = "macos")]
+    {
+        "macos"
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
         "linux"
     }
 }
 
-fn library_applies_to_current_os(library: &Value, current_os: &str) -> bool {
-    let os_name = match current_os {
-        "windows" => OsName::Windows,
-        "linux" => OsName::Linux,
-        "osx" | "macos" => OsName::Macos,
-        _ => OsName::Unknown,
-    };
+fn current_arch_name() -> &'static str {
+    #[cfg(target_arch = "x86_64")]
+    {
+        "x86_64"
+    }
+    #[cfg(target_arch = "aarch64")]
+    {
+        "aarch64"
+    }
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    {
+        "x86"
+    }
+}
 
-    let rules = library
-        .get("rules")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    if rules.is_empty() {
+fn library_rules_allow(library: &Value, current_os: &str, _current_arch: &str) -> bool {
+    let Some(rules) = library.get("rules").and_then(Value::as_array) else {
         return true;
+    };
+
+    let mut allowed = false;
+    for rule in rules {
+        let action = rule
+            .get("action")
+            .and_then(Value::as_str)
+            .unwrap_or("allow");
+        let os_matches = if let Some(os) = rule.get("os") {
+            let os_name = os.get("name").and_then(Value::as_str).unwrap_or_default();
+            let normalized_current = if current_os == "macos" {
+                "osx"
+            } else {
+                current_os
+            };
+            os_name.is_empty() || os_name == normalized_current
+        } else {
+            true
+        };
+
+        if os_matches {
+            allowed = action == "allow";
+        }
     }
 
-    evaluate_rules(
-        &rules,
-        &RuleContext {
-            os_name,
-            arch: std::env::consts::ARCH.to_string(),
-            features: RuleFeatures::default(),
-        },
-    )
+    allowed
 }
 
-fn extract_native_jar(
+async fn verify_sha1(path: &Path, expected_sha1: &str) -> Result<bool, String> {
+    if expected_sha1.is_empty() {
+        return Ok(true);
+    }
+    let actual = crate::infrastructure::checksum::sha1::compute_file_sha1(path)?;
+    Ok(actual.eq_ignore_ascii_case(expected_sha1))
+}
+
+async fn extract_zip_excluding(
     jar_path: &Path,
-    natives_dir: &Path,
-    library: &Value,
+    dest_dir: &Path,
+    excludes: Vec<String>,
 ) -> Result<usize, String> {
-    let file = fs::File::open(jar_path)
-        .map_err(|err| format!("No se pudo abrir native {}: {err}", jar_path.display()))?;
-    let mut zip = ZipArchive::new(file)
-        .map_err(|err| format!("Native ZIP inválido {}: {err}", jar_path.display()))?;
-    let mut extracted_count = 0usize;
-    let excludes = library
-        .get("extract")
-        .and_then(|v| v.get("exclude"))
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|v| v.as_str().map(str::to_string))
-        .collect::<Vec<_>>();
+    let jar_path = jar_path.to_path_buf();
+    let dest_dir = dest_dir.to_path_buf();
+    tokio::task::spawn_blocking(move || -> Result<usize, String> {
+        let file = fs::File::open(&jar_path)
+            .map_err(|e| format!("No se pudo abrir JAR {}: {e}", jar_path.display()))?;
+        let mut archive = ZipArchive::new(file)
+            .map_err(|e| format!("No se pudo leer ZIP {}: {e}", jar_path.display()))?;
+        let mut extracted = 0usize;
 
-    for i in 0..zip.len() {
-        let mut entry = zip
-            .by_index(i)
-            .map_err(|err| format!("No se pudo leer entrada native: {err}"))?;
-        let name = entry.name().to_string();
-        if name.contains("META-INF") || name.ends_with('/') {
-            continue;
-        }
-        if excludes.iter().any(|prefix| name.starts_with(prefix)) {
-            continue;
+        for i in 0..archive.len() {
+            let mut entry = archive
+                .by_index(i)
+                .map_err(|e| format!("Error leyendo entrada ZIP: {e}"))?;
+            let name = entry.name().to_string();
+
+            if excludes.iter().any(|ex| name.starts_with(ex)) || name.ends_with('/') {
+                continue;
+            }
+
+            let dest_path = dest_dir.join(&name);
+            if let Some(parent) = dest_path.parent() {
+                fs::create_dir_all(parent).map_err(|e| {
+                    format!("No se pudo crear directorio {}: {e}", parent.display())
+                })?;
+            }
+            let mut dest_file = fs::File::create(&dest_path)
+                .map_err(|e| format!("No se pudo crear archivo {}: {e}", dest_path.display()))?;
+            std::io::copy(&mut entry, &mut dest_file)
+                .map_err(|e| format!("No se pudo copiar {name}: {e}"))?;
+            extracted = extracted.saturating_add(1);
         }
 
-        let out = natives_dir.join(Path::new(&name).file_name().unwrap_or_default());
-        let mut out_file = fs::File::create(&out)
-            .map_err(|err| format!("No se pudo crear archivo native {}: {err}", out.display()))?;
-        std::io::copy(&mut entry, &mut out_file)
-            .map_err(|err| format!("No se pudo extraer native {}: {err}", out.display()))?;
-        extracted_count = extracted_count.saturating_add(1);
-    }
-    Ok(extracted_count)
+        Ok(extracted)
+    })
+    .await
+    .map_err(|e| format!("Error en spawn_blocking al extraer ZIP: {e}"))?
 }
 
-fn find_native_jar(
-    source_path: &Path,
-    libraries_dir: &Path,
+async fn find_or_download_artifact(
     relative_path: &str,
+    url: Option<&str>,
+    sha1: Option<&str>,
+    libraries_dir: &Path,
+    cache_dir: &Path,
     source_launcher: &str,
-) -> Option<PathBuf> {
+) -> Result<PathBuf, String> {
     let normalized = relative_path.replace('/', std::path::MAIN_SEPARATOR_STR);
-    let mut candidates = vec![libraries_dir.join(&normalized)];
-    for candidate in libraries_dir_candidates(source_path, source_launcher) {
-        candidates.push(candidate.join(&normalized));
+    let mut search_paths = vec![libraries_dir.join(&normalized)];
+
+    if let Some(system_root) = system_minecraft_root() {
+        search_paths.push(system_root.join("libraries").join(&normalized));
     }
-    unique_paths(candidates)
-        .into_iter()
-        .find(|path| path.exists())
+
+    for root in launcher_roots_for_source(source_launcher) {
+        search_paths.push(root.join("libraries").join(&normalized));
+    }
+    search_paths.push(cache_dir.join("libraries").join(&normalized));
+
+    for candidate in unique_paths(search_paths) {
+        log::info!(
+            "[REDIRECT]   candidato: {} — existe: {}",
+            candidate.display(),
+            candidate.exists()
+        );
+        if !candidate.exists() {
+            continue;
+        }
+
+        if let Some(expected_sha1) = sha1 {
+            if verify_sha1(&candidate, expected_sha1).await? {
+                log::info!(
+                    "[REDIRECT] Library encontrada y verificada: {}",
+                    candidate.display()
+                );
+                return Ok(candidate);
+            }
+            log::warn!(
+                "[REDIRECT] Library encontrada pero sha1 no coincide: {}",
+                candidate.display()
+            );
+            continue;
+        }
+
+        log::info!("[REDIRECT] Library encontrada: {}", candidate.display());
+        return Ok(candidate);
+    }
+
+    let download_url = url.ok_or_else(|| {
+        format!("Library no encontrada y sin URL para descargar: {relative_path}")
+    })?;
+    let dest = cache_dir.join("libraries").join(&normalized);
+    if let Some(parent) = dest.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| format!("No se pudo crear directorio para library: {e}"))?;
+    }
+
+    log::info!("[REDIRECT] Descargando native desde: {download_url}");
+    log::info!("[REDIRECT] Destino descarga: {}", dest.display());
+    let client = build_async_official_client()?;
+    let _ = download_async_with_retry(
+        &client,
+        download_url,
+        &dest,
+        sha1.unwrap_or_default(),
+        false,
+    )
+    .await?;
+    Ok(dest)
 }
 
-pub async fn extract_natives(
-    version_json: &serde_json::Value,
-    source_path: &Path,
-    source_launcher: &str,
+async fn find_or_download_library(
+    library: &Value,
+    classifier_key: &str,
     libraries_dir: &Path,
-    fallback_libraries_dir: &Path,
+    cache_dir: &Path,
+    source_launcher: &str,
+) -> Result<PathBuf, String> {
+    let classifier = library
+        .get("downloads")
+        .and_then(|d| d.get("classifiers"))
+        .and_then(|c| c.get(classifier_key))
+        .ok_or_else(|| format!("No hay datos de classifier '{classifier_key}'"))?;
+    let relative_path = classifier
+        .get("path")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("No hay 'path' para classifier '{classifier_key}'"))?;
+    let url = classifier.get("url").and_then(Value::as_str);
+    let sha1 = classifier.get("sha1").and_then(Value::as_str);
+
+    log::info!("[REDIRECT] Buscando JAR nativo: {}", relative_path);
+    find_or_download_artifact(
+        relative_path,
+        url,
+        sha1,
+        libraries_dir,
+        cache_dir,
+        source_launcher,
+    )
+    .await
+}
+
+async fn extract_single_native(
+    library: &Value,
+    libraries_dir: &Path,
+    cache_dir: &Path,
     natives_dir: &Path,
+    current_os: &str,
+    current_arch: &str,
+    source_launcher: &str,
 ) -> Result<usize, String> {
-    fs::create_dir_all(natives_dir)
-        .map_err(|err| format!("No se pudo crear carpeta natives temporal: {err}"))?;
+    if let Some(natives_map) = library.get("natives") {
+        let os_key = if current_os == "macos" {
+            "osx"
+        } else {
+            current_os
+        };
+        let classifier_raw = natives_map
+            .get(os_key)
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("No hay native para OS {os_key}"))?;
+        let classifier_key = classifier_raw.replace(
+            "${arch}",
+            if current_arch == "x86_64" { "64" } else { "32" },
+        );
 
-    let current_os = current_native_os();
-    let client = build_async_official_client()?;
-    let mut extracted_count = 0usize;
-    log::info!(
-        "[REDIRECT] Extrayendo natives para OS={current_os} en {}",
-        natives_dir.display()
-    );
+        let jar_path = find_or_download_library(
+            library,
+            &classifier_key,
+            libraries_dir,
+            cache_dir,
+            source_launcher,
+        )
+        .await?;
 
-    for library in version_json
+        let excludes = library
+            .get("extract")
+            .and_then(|e| e.get("exclude"))
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(Value::as_str)
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_else(|| vec!["META-INF/".to_string()]);
+
+        return extract_zip_excluding(&jar_path, natives_dir, excludes).await;
+    }
+
+    if let Some(artifact) = library
+        .get("downloads")
+        .and_then(|d| d.get("artifact"))
+        .and_then(Value::as_object)
+    {
+        let name = library
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let os_alias = if current_os == "macos" {
+            "osx"
+        } else {
+            current_os
+        };
+        let is_native = name.contains("natives")
+            || name.contains(&format!("natives-{current_os}"))
+            || name.contains(&format!("natives-{os_alias}"));
+
+        if is_native {
+            if let Some(relative_path) = artifact.get("path").and_then(Value::as_str) {
+                log::info!("[REDIRECT] Buscando JAR nativo: {}", relative_path);
+                let jar_path = find_or_download_artifact(
+                    relative_path,
+                    artifact.get("url").and_then(Value::as_str),
+                    artifact.get("sha1").and_then(Value::as_str),
+                    libraries_dir,
+                    cache_dir,
+                    source_launcher,
+                )
+                .await?;
+                return extract_zip_excluding(
+                    &jar_path,
+                    natives_dir,
+                    vec!["META-INF/".to_string()],
+                )
+                .await;
+            }
+        }
+    }
+
+    Ok(0)
+}
+
+fn is_modern_natives_format(version_json: &Value) -> bool {
+    version_json
         .get("libraries")
         .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
-    {
-        if !library_applies_to_current_os(&library, current_os) {
+        .map(|libraries| libraries.iter().all(|lib| lib.get("natives").is_none()))
+        .unwrap_or(false)
+}
+
+async fn download_natives_from_mojang_manifest(
+    version_id: &str,
+    cache_dir: &Path,
+    natives_dir: &Path,
+    current_os: &str,
+    current_arch: &str,
+) -> Result<usize, String> {
+    log::info!("[REDIRECT] Descargando manifest de Mojang...");
+    let client = build_async_official_client()?;
+    let manifest: Value = client
+        .get(MOJANG_MANIFEST_URL)
+        .send()
+        .await
+        .and_then(|res| res.error_for_status())
+        .map_err(|e| format!("No se pudo descargar manifest de Mojang: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("No se pudo parsear manifest de Mojang: {e}"))?;
+
+    let version_entry = manifest
+        .get("versions")
+        .and_then(Value::as_array)
+        .and_then(|entries| {
+            entries
+                .iter()
+                .find(|v| v.get("id").and_then(Value::as_str) == Some(version_id))
+        })
+        .ok_or_else(|| format!("Versión {version_id} no encontrada en manifest de Mojang"))?;
+    let version_url = version_entry
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "URL de versión no encontrada en manifest".to_string())?;
+
+    log::info!(
+        "[REDIRECT] Descargando version.json oficial para {}...",
+        version_id
+    );
+    let version_json: Value = client
+        .get(version_url)
+        .send()
+        .await
+        .and_then(|res| res.error_for_status())
+        .map_err(|e| format!("No se pudo descargar version.json oficial: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("No se pudo parsear version.json oficial: {e}"))?;
+
+    let version_json_cache = cache_dir
+        .join("versions")
+        .join(version_id)
+        .join(format!("{version_id}.json"));
+    if let Some(parent) = version_json_cache.parent() {
+        let _ = tokio::fs::create_dir_all(parent).await;
+    }
+    let _ = tokio::fs::write(&version_json_cache, version_json.to_string()).await;
+
+    let libraries = version_json
+        .get("libraries")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "version.json oficial no tiene libraries".to_string())?;
+    let mut extracted = 0usize;
+
+    for library in libraries {
+        if !library_rules_allow(library, current_os, current_arch) {
             continue;
         }
-        let Some(name) = library.get("name").and_then(Value::as_str) else {
-            continue;
-        };
-        let Some(classifier) = native_classifier(&library) else {
-            continue;
-        };
-
-        let relative_path = library
-            .get("downloads")
-            .and_then(|v| v.get("classifiers"))
-            .and_then(|v| v.get(&classifier))
-            .and_then(|v| v.get("path"))
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .or_else(|| {
-                maven_library_path(&format!("{name}:{classifier}"))
-                    .map(|path| path.to_string_lossy().replace('\\', "/"))
-            });
-        let Some(relative_path) = relative_path else {
-            continue;
-        };
-
-        let native_jar = if let Some(found) =
-            find_native_jar(source_path, libraries_dir, &relative_path, source_launcher)
+        match extract_single_native(
+            library,
+            &cache_dir.join("libraries"),
+            cache_dir,
+            natives_dir,
+            current_os,
+            current_arch,
+            "Auto detectado",
+        )
+        .await
         {
-            found
-        } else {
-            let Some(classifier_info) = library
-                .get("downloads")
-                .and_then(|v| v.get("classifiers"))
-                .and_then(|v| v.get(&classifier))
-            else {
-                log::warn!(
-                    "[REDIRECT] Native no encontrado y sin classifier download para {}",
-                    relative_path
-                );
-                continue;
-            };
-
-            let Some(url) = classifier_info.get("url").and_then(Value::as_str) else {
-                log::warn!(
-                    "[REDIRECT] Native no encontrado y sin URL para {}",
-                    relative_path
-                );
-                continue;
-            };
-            let sha1 = classifier_info
-                .get("sha1")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            let cache_jar = fallback_libraries_dir
-                .join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
-            log::warn!(
-                "[REDIRECT] Native faltante: {}. Descargando...",
-                relative_path
-            );
-            let _ = download_async_with_retry(&client, url, &cache_jar, sha1, false).await?;
-            cache_jar
-        };
-
-        extracted_count =
-            extracted_count.saturating_add(extract_native_jar(&native_jar, natives_dir, &library)?);
+            Ok(count) => extracted = extracted.saturating_add(count),
+            Err(err) => log::warn!("[REDIRECT] Native fallido desde manifest oficial: {err}"),
+        }
     }
 
-    Ok(extracted_count)
+    Ok(extracted)
+}
+
+pub async fn prepare_redirect_natives(
+    app: &AppHandle,
+    version_json: &Value,
+    version_id: &str,
+    libraries_dir: &Path,
+    redirect_cache_dir: &Path,
+    natives_dir: &Path,
+    source_launcher: &str,
+) -> Result<(), String> {
+    tokio::fs::create_dir_all(natives_dir).await.map_err(|e| {
+        format!(
+            "No se pudo crear natives_dir {}: {e}",
+            natives_dir.display()
+        )
+    })?;
+
+    let current_os = current_os_name();
+    let current_arch = current_arch_name();
+    log::info!("[REDIRECT] OS: {}, Arch: {}", current_os, current_arch);
+
+    let libraries = version_json
+        .get("libraries")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "version.json no tiene campo 'libraries'".to_string())?;
+
+    log::info!(
+        "[REDIRECT] Libraries totales en version.json: {}",
+        libraries.len()
+    );
+    let native_libs = libraries
+        .iter()
+        .filter(|lib| lib.get("natives").is_some())
+        .collect::<Vec<_>>();
+    log::info!(
+        "[REDIRECT] Libraries nativas identificadas: {}",
+        native_libs.len()
+    );
+    for lib in &native_libs {
+        if let Some(name) = lib.get("name").and_then(Value::as_str) {
+            log::info!("[REDIRECT]   native: {}", name);
+        }
+    }
+
+    let mut extracted = 0usize;
+    let mut failed = Vec::new();
+
+    for library in libraries {
+        if !library_rules_allow(library, current_os, current_arch) {
+            continue;
+        }
+
+        match extract_single_native(
+            library,
+            libraries_dir,
+            redirect_cache_dir,
+            natives_dir,
+            current_os,
+            current_arch,
+            source_launcher,
+        )
+        .await
+        {
+            Ok(count) => extracted = extracted.saturating_add(count),
+            Err(err) => {
+                log::warn!("[REDIRECT] Native fallido (no fatal): {err}");
+                failed.push(err);
+            }
+        }
+    }
+
+    log::info!("[REDIRECT] Natives extraídos: {} archivos", extracted);
+
+    if extracted == 0 {
+        log::warn!("[REDIRECT] Cero natives extraídos, intentando desde manifest de Mojang...");
+        extracted = download_natives_from_mojang_manifest(
+            version_id,
+            redirect_cache_dir,
+            natives_dir,
+            current_os,
+            current_arch,
+        )
+        .await?;
+    }
+
+    if extracted == 0 {
+        if is_modern_natives_format(version_json) {
+            log::info!(
+                "[REDIRECT] Versión moderna detectada — natives incluidos en JARs, no requiere extracción separada"
+            );
+            return Ok(());
+        }
+        return Err(format!(
+            "No se pudieron preparar los natives para {version_id} en {source_launcher}. Fallos: {}",
+            failed.join(", ")
+        ));
+    }
+
+    Ok(())
 }
 
 fn has_any_file(root: &Path) -> bool {
@@ -1738,35 +2052,22 @@ pub async fn launch_redirect_instance(
             "error": Value::Null
         }),
     );
-    let redirect_cache_libraries = redirect_cache_root(&app)?
-        .join(&metadata.internal_uuid)
-        .join("libraries");
-    let extracted_count = extract_natives(
+    let redirect_cache_dir = redirect_cache_root(&app)?.join(&metadata.internal_uuid);
+    prepare_redirect_natives(
+        &app,
         &ctx.version_json,
-        &source_path,
-        &redirect.source_launcher,
+        &metadata.version_id,
         &ctx.libraries_dir,
-        &redirect_cache_libraries,
+        &redirect_cache_dir,
         &natives_dir,
+        &redirect.source_launcher,
     )
     .await?;
-    if extracted_count == 0 || !has_any_file(&natives_dir) {
-        log::warn!("[REDIRECT] No se extrajeron natives localmente, reintentando desde caché...");
-        let downloaded = extract_natives(
-            &ctx.version_json,
-            &source_path,
-            &redirect.source_launcher,
-            &redirect_cache_libraries,
-            &redirect_cache_libraries,
-            &natives_dir,
-        )
-        .await?;
-        if downloaded == 0 || !has_any_file(&natives_dir) {
-            return Err(format!(
-                "No se encontraron ni pudieron descargarse los natives para {} en {}. Verifica que la versión esté instalada en el launcher de origen.",
-                metadata.version_id, redirect.source_launcher
-            ));
-        }
+    if !has_any_file(&natives_dir) {
+        return Err(format!(
+            "No se encontraron ni pudieron descargarse los natives para {} en {}. Verifica que la versión esté instalada en el launcher de origen.",
+            metadata.version_id, redirect.source_launcher
+        ));
     }
 
     let asset_index = ctx
