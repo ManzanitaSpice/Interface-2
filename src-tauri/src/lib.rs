@@ -33,6 +33,8 @@ pub fn run() {
             app::instance_service::start_instance,
             app::instance_service::get_runtime_status,
             app::redirect_launch::validate_redirect_instance,
+            app::redirect_launch::get_redirect_cache_info,
+            app::redirect_launch::force_cleanup_redirect_cache,
             app::settings_service::pick_folder,
             app::settings_service::load_folder_routes,
             app::settings_service::save_folder_routes,
@@ -57,6 +59,10 @@ pub fn run() {
             commands::file_manager::load_skin_binary,
             commands::file_manager::save_skin_binary
         ])
+        .setup(|app| {
+            let _ = app::redirect_launch::cleanup_redirect_cache_on_startup(app.handle());
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
