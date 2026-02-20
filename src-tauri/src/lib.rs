@@ -49,6 +49,7 @@ pub fn run() {
             commands::import::execute_import_action,
             commands::import::execute_import_action_batch,
             commands::import::cancel_import,
+            commands::catalog::search_catalogs,
             commands::skin_processor::optimize_skin_png,
             commands::file_manager::list_skins,
             commands::file_manager::import_skin,

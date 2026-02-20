@@ -2323,7 +2323,17 @@ function App() {
                   const visual = instanceVisualMeta[card.id]
                   const metadata = card.instanceRoot ? instanceMetaByRoot[card.instanceRoot] : undefined
                   const cardVersion = metadata?.minecraftVersion ?? visual?.minecraftVersion ?? '-'
-                  const cardLoader = metadata ? `${metadata.loader} ${metadata.loaderVersion}`.trim() : (visual?.loader ?? '-')
+                  const rawLoader = (metadata?.loader ?? visual?.loader ?? 'vanilla').toLowerCase()
+                  const cardLoader = rawLoader.includes('fabric')
+                    ? '🧵 Fabric'
+                    : rawLoader.includes('neoforge')
+                      ? '🔶 NeoForge'
+                      : rawLoader.includes('forge')
+                        ? '⚒️ Forge'
+                        : rawLoader.includes('quilt') || rawLoader.includes('quilit')
+                          ? '🧶 Quilt'
+                          : '🟩 Vanilla'
+                  const cardLoaderVersion = metadata?.loaderVersion ?? ''
                   const icon = visual?.icon
 
                   return (
@@ -2337,11 +2347,11 @@ function App() {
                       <div className="instance-card-icon hero" style={icon ? { backgroundImage: `url(${icon})` } : undefined} aria-hidden="true">
                         {!icon ? '🧱' : ''}
                       </div>
+                      {metadata?.state?.toUpperCase() === 'REDIRECT' && <span className="instance-tag atajo">Atajo</span>}
                       <strong className="instance-card-title">{card.name}</strong>
                       <div className="instance-card-meta">
                         <small>Version: {cardVersion}</small>
-                        <small>Loader: {cardLoader}</small>
-                        {metadata?.state?.toUpperCase() === 'REDIRECT' && <small>Target: Re Direccion</small>}
+                        <small>Loader: {cardLoader} {cardLoaderVersion}</small>
                       </div>
                       <div className="instance-card-hover-info">
                         {(() => {

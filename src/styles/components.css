@@ -1467,7 +1467,7 @@
 
 .appearance-workspace {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  grid-template-columns: minmax(260px, 360px) minmax(240px, 1fr) minmax(240px, 1fr);
   gap: 1rem;
   min-height: 0;
   overflow: auto;
@@ -1822,14 +1822,22 @@
   padding-right: 248px;
 }
 .import-selection-panel .import-action {
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--bg-surface-muted);
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 68%, var(--accent));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-surface-muted) 96%, #0a1322), color-mix(in srgb, var(--bg-surface) 88%, #101828));
+  font-weight: 600;
+  transition: transform .16s ease, box-shadow .2s ease, border-color .2s ease;
+}
+
+.import-selection-panel .import-action:hover:enabled {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 66%, white);
+  box-shadow: 0 10px 24px rgba(5, 8, 20, 0.35);
 }
 
 .import-selection-panel .import-action.primary {
-  background: var(--accent);
-  color: #10131a;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 84%, white), var(--accent));
+  color: #08131f;
   border-color: var(--accent-hover);
 }
 
@@ -1868,9 +1876,18 @@
 
 
 .explorer-actions-compact {
+  display: flex;
+  flex-wrap: wrap;
   gap: .45rem;
   align-items: end;
   margin-bottom: .55rem;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: .5rem;
+  border-radius: .55rem;
+  background: color-mix(in srgb, var(--bg-surface) 94%, #0d1422);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
 
 .explorer-actions-compact label {
@@ -1882,6 +1899,7 @@
 
 .advanced-filter-menu {
   position: relative;
+  margin-left: auto;
 }
 
 .advanced-filter-menu summary {
@@ -1906,9 +1924,34 @@
   z-index: 20;
 }
 
+.instance-card {
+  position: relative;
+}
+
+.instance-tag.atajo {
+  position: absolute;
+  right: .55rem;
+  top: .55rem;
+  background: color-mix(in srgb, var(--accent) 28%, #2d3f59);
+  border: 1px solid color-mix(in srgb, var(--accent-hover) 48%, var(--border));
+  color: var(--text-main);
+  border-radius: 999px;
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .01em;
+  padding: .16rem .48rem;
+}
+
+.explorer-page {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: .6rem;
+  min-height: calc(100vh - 220px);
+}
+
 .catalog-panel-header {
   display: grid;
-  margin-bottom: .55rem;
+  margin-bottom: .1rem;
 }
 
 .explorer-toolbar {
