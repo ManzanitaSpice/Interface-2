@@ -210,6 +210,9 @@ fn install_forge_legacy(
     loader_version: &str,
     logs: &mut Vec<String>,
 ) -> AppResult<String> {
+    logs.push("Preparando minecraft root para instalación Forge legacy...".to_string());
+    prepare_minecraft_root_for_installer(minecraft_root, logs)?;
+
     let universal_url = format!(
         "https://maven.minecraftforge.net/net/minecraftforge/forge/{minecraft_version}-{loader_version}/forge-{minecraft_version}-{loader_version}-universal.jar"
     );
@@ -773,6 +776,9 @@ fn install_neoforge(
     logs.push("Verificando precondiciones para NeoForge...".to_string());
     verify_neoforge_preconditions(mc_root, mc_version)?;
 
+    logs.push("Preparando minecraft root para installer oficial...".to_string());
+    prepare_minecraft_root_for_installer(mc_root, logs)?;
+
     logs.push("Construyendo URL del installer de NeoForge...".to_string());
     let url = build_neoforge_installer_url(neoforge_version);
     logs.push(format!("URL installer: {url}"));
@@ -852,6 +858,11 @@ fn install_forge_like_modern(
         ));
         return Ok(existing_version_id);
     }
+
+    logs.push(format!(
+        "Preparando minecraft root para installer oficial de {loader_name}..."
+    ));
+    prepare_minecraft_root_for_installer(minecraft_root, logs)?;
 
     let installer_url = installer_url_template
         .replace("{minecraft_version}", minecraft_version)
@@ -1008,6 +1019,115 @@ fn ensure_minecraft_layout(minecraft_root: &Path) -> AppResult<()> {
                 dir.display()
             )
         })?;
+    }
+
+    Ok(())
+}
+
+pub fn ensure_launcher_profiles(mc_root: &Path) -> AppResult<()> {
+    let profiles_path = mc_root.join("launcher_profiles.json");
+    if profiles_path.exists() {
+        return Ok(());
+    }
+
+    fs::create_dir_all(mc_root)
+        .map_err(|err| format!("No se pudo crear mc_root {}: {err}", mc_root.display()))?;
+
+    let content = serde_json::json!({
+        "clientToken": "00000000-0000-0000-0000-000000000000",
+        "authenticationDatabase": {},
+        "selectedProfile": "(Default)",
+        "profiles": {
+            "(Default)": {
+                "name": "(Default)",
+                "type": "latest-release",
+                "lastVersionId": "latest-release",
+                "gameDir": "",
+                "javaDir": "",
+                "javaArgs": "",
+                "created": "1970-01-01T00:00:00.000Z",
+                "lastUsed": "1970-01-01T00:00:00.000Z"
+            }
+        },
+        "settings": {
+            "enableAdvanced": false,
+            "profileSorting": "ByLastPlayed",
+            "showGameLog": false,
+            "showMenu": false,
+            "soundOn": false
+        },
+        "analyticsToken": "",
+        "analyticsFailcount": 0,
+        "launcherVersion": {
+            "name": "2.13.1",
+            "format": 21,
+            "profilesFormat": 2
+        }
+    });
+
+    let pretty = serde_json::to_string_pretty(&content)
+        .map_err(|err| format!("No se pudo serializar launcher_profiles.json: {err}"))?;
+
+    fs::write(&profiles_path, pretty).map_err(|err| {
+        format!(
+            "No se pudo crear launcher_profiles.json en {}: {err}",
+            profiles_path.display()
+        )
+    })?;
+
+    Ok(())
+}
+
+pub fn prepare_minecraft_root_for_installer(
+    mc_root: &Path,
+    logs: &mut Vec<String>,
+) -> AppResult<()> {
+    logs.push(format!(
+        "Asegurando directorio minecraft para installer: {}",
+        mc_root.display()
+    ));
+    fs::create_dir_all(mc_root).map_err(|err| {
+        format!(
+            "No se pudo crear directorio minecraft {}: {err}",
+            mc_root.display()
+        )
+    })?;
+
+    let profiles_path = mc_root.join("launcher_profiles.json");
+    if profiles_path.exists() {
+        logs.push(format!(
+            "launcher_profiles.json ya existe en {} (no se sobreescribe).",
+            profiles_path.display()
+        ));
+    } else {
+        logs.push(format!(
+            "Creando launcher_profiles.json requerido por installer en {}...",
+            profiles_path.display()
+        ));
+    }
+    ensure_launcher_profiles(mc_root)?;
+    logs.push(
+        "✔ launcher_profiles.json presente (requerido por installers oficiales).".to_string(),
+    );
+
+    let ms_profiles = mc_root.join("launcher_profiles_microsoft_store.json");
+    if ms_profiles.exists() {
+        logs.push(format!(
+            "launcher_profiles_microsoft_store.json ya existe en {} (no se sobreescribe).",
+            ms_profiles.display()
+        ));
+    } else {
+        logs.push(format!(
+            "Creando launcher_profiles_microsoft_store.json en {}...",
+            ms_profiles.display()
+        ));
+        fs::write(&ms_profiles, "{\"profiles\":{}}").map_err(|err| {
+            format!(
+                "No se pudo crear launcher_profiles_microsoft_store.json en {}: {err}",
+                ms_profiles.display()
+            )
+        })?;
+        logs.push("✔ launcher_profiles_microsoft_store.json creado.".to_string());
     }
 
     Ok(())
