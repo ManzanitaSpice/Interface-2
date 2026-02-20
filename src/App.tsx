@@ -4,6 +4,10 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import './App.css'
 import { SkinStudio } from './skin/SkinStudio'
+import { FolderRow } from './components/FolderRow'
+import { MigrationModal } from './components/MigrationModal'
+import { useMigration } from './hooks/useMigration'
+import { ImportPage } from './pages/ImportPage'
 
 type MainPage =
   | 'Inicio'
@@ -18,6 +22,7 @@ type MainPage =
   | 'Editor de skins'
   | 'Creador de Instancias'
   | 'Editar Instancia'
+  | 'Importar Instancias'
 
 type InstanceCard = {
   id: string
@@ -261,6 +266,10 @@ type FontOption = {
 
 type FolderRouteKey = 'launcher' | 'instances' | 'icons' | 'java' | 'skins' | 'downloads'
 
+type PickedFolderResult = {
+  path: string | null
+}
+
 type FolderRouteItem = {
   key: FolderRouteKey
   label: string
@@ -268,11 +277,11 @@ type FolderRouteItem = {
   value: string
 }
 
-type FolderRouteMigrationResult = {
-  movedEntries: number
-  skippedEntries: number
-  copiedEntries?: number
-  targetPath: string
+type LauncherFolders = {
+  launcherRoot: string
+  instancesDir: string
+  runtimeDir: string
+  assetsDir: string
 }
 
 type FolderRoutesPayload = {
@@ -638,6 +647,10 @@ function App() {
   const [updatesAutoCheck, setUpdatesAutoCheck] = useState(true)
   const [updatesChannel, setUpdatesChannel] = useState<'Stable' | 'Preview'>('Stable')
   const [updatesStatus, setUpdatesStatus] = useState('Listo para buscar updates.')
+  const { progress: migrationProgress, isMigrating, migrateLauncherRoot, changeInstancesFolder } = useMigration()
+  const [launcherFolders, setLauncherFolders] = useState<LauncherFolders | null>(null)
+  const [launcherMigrationPath, setLauncherMigrationPath] = useState<string | null>(null)
+  const [instancesMigrationPath, setInstancesMigrationPath] = useState<string | null>(null)
   const [isStartingInstance, setIsStartingInstance] = useState(false)
   const [isInstanceRunning, setIsInstanceRunning] = useState(false)
   const [lastRuntimeExitKey, setLastRuntimeExitKey] = useState('')
@@ -766,32 +779,33 @@ function App() {
   }
 
 
-  const openRouteFolder = async (route: FolderRouteItem) => {
+  const refreshLauncherFolders = async () => {
     try {
-      await invoke('open_folder_path', { path: route.value })
+      const folders = await invoke<LauncherFolders>('get_launcher_folders')
+      setLauncherFolders(folders)
     } catch {
-      try {
-        await invoke('open_folder_route', { key: route.key })
-      } catch (fallbackError) {
-        const message = fallbackError instanceof Error ? fallbackError.message : String(fallbackError)
-        setUpdatesStatus(`No se pudo abrir carpeta: ${message}`)
-      }
+      setLauncherFolders(null)
     }
   }
 
-  const migrateInstancesFolder = async (route: FolderRouteItem) => {
-    try {
-      const previousInstancesPath = folderRoutes.find((item) => item.key === 'instances')?.value ?? route.value
-      const result = await invoke<FolderRouteMigrationResult>('migrate_instances_folder', {
-        sourcePath: previousInstancesPath,
-        targetPath: route.value,
-      })
-      setUpdatesStatus(`Migración completada. Movidos: ${result.movedEntries}, copiados: ${result.copiedEntries ?? 0}, omitidos: ${result.skippedEntries}.`)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      setUpdatesStatus(`Error de migración: ${message}`)
-    }
+  const pickNewLauncherRoot = async () => {
+    const result = await invoke<PickedFolderResult>('pick_folder', {
+      initialPath: launcherFolders?.launcherRoot,
+      title: 'Selecciona carpeta raíz del launcher',
+    })
+    if (!result.path) return
+    setLauncherMigrationPath(result.path)
   }
+
+  const pickNewInstancesFolder = async () => {
+    const result = await invoke<PickedFolderResult>('pick_folder', {
+      initialPath: launcherFolders?.instancesDir,
+      title: 'Selecciona carpeta de instancias',
+    })
+    if (!result.path) return
+    setInstancesMigrationPath(result.path)
+  }
+
 
   const checkLauncherUpdates = async () => {
     setUpdatesStatus('Consultando endpoint de versiones del launcher...')
@@ -895,6 +909,10 @@ function App() {
       setIsAuthenticating(false)
     }
   }
+
+  useEffect(() => {
+    void refreshLauncherFolders()
+  }, [])
 
   const authRetrySeconds = Math.max(0, Math.ceil((authRetryAt - nowTick) / 1000))
   const isAuthCooldown = authRetrySeconds > 0
@@ -2244,13 +2262,14 @@ function App() {
                 Crear instancia
               </button>
               <input
+                className="instance-search-compact"
                 type="search"
                 value={instanceSearch}
                 onChange={(event) => setInstanceSearch(event.target.value)}
                 placeholder="Buscar instancia"
                 aria-label="Buscar instancia"
               />
-              <button>Más</button>
+              <button className="primary" onClick={() => navigateToPage('Importar Instancias')}>Importar</button>
               <button>Vista</button>
             </header>
 
@@ -2339,12 +2358,7 @@ function App() {
                     ))}
                   </div>
                   </>
-                ) : (
-                  <div className="instance-right-panel-empty">
-                    <h3>Panel de instancia</h3>
-                    <p>Selecciona una instancia para ver acciones sin que cambie el layout.</p>
-                  </div>
-                )}
+                ) : null}
               </aside>
             </div>
           </section>
@@ -2362,6 +2376,10 @@ function App() {
         </main>
       )}
 
+
+      {authSession && activePage === 'Importar Instancias' && (
+        <ImportPage />
+      )}
 
       {authSession && activePage === 'Updates' && (
         <main className="content content-padded updates-page">
@@ -2468,23 +2486,16 @@ function App() {
             {selectedGlobalSettingsTab === 'General' && (
               <div className="global-settings-list professional-general-grid">
                 <article className="global-setting-item folder-routes-card">
-                  <h3>Carpetas del Launcher</h3>
-                  <p>Define rutas reales para launcher, instancias, iconos, Java, skins y descargas. Las instancias nuevas siempre se crearán en la ruta de instancias configurada.</p>
+                  <h3>Ubicaciones de carpetas</h3>
                   <div className="folder-route-list">
-                    {folderRoutes.map((route) => (
-                      <div key={route.key} className="folder-route-row">
-                        <div>
-                          <strong>{route.label}</strong>
-                          <p>{route.description}</p>
-                          <code>{route.value}</code>
-                        </div>
-                        <div className="folder-route-actions">
-                          <button onClick={() => void pickFolderRoute(route)}>Setear</button>
-                          <button onClick={() => void openRouteFolder(route)}>Abrir</button>
-                          {route.key === 'instances' && <button className="primary" onClick={() => void migrateInstancesFolder(route)}>Migrar</button>}
-                        </div>
-                      </div>
-                    ))}
+                    <FolderRow label="📁 Carpeta raíz del launcher" path={launcherFolders?.launcherRoot ?? '-'} />
+                    <FolderRow label="📁 Instancias" path={launcherFolders?.instancesDir ?? '-'} />
+                    <FolderRow label="📁 Java embebido" path={launcherFolders?.runtimeDir ?? '-'} />
+                    <FolderRow label="📁 Skins / Assets" path={launcherFolders?.assetsDir ?? '-'} />
+                  </div>
+                  <div className="folder-route-actions" style={{ marginTop: '0.7rem' }}>
+                    <button className="primary" onClick={() => void pickNewLauncherRoot()}>🔁 Cambiar carpeta raíz</button>
+                    <button onClick={() => void pickNewInstancesFolder()}>🔁 Cambiar carpeta de instancias</button>
                   </div>
                 </article>
               </div>
@@ -2629,6 +2640,49 @@ function App() {
           </section>
         </main>
       )}
+
+      <MigrationModal
+        title="Cambiar carpeta raíz del launcher"
+        description="¿Deseas migrar también todos tus datos (instancias, Java embebido, assets) a la nueva ubicación?"
+        open={launcherMigrationPath !== null}
+        pendingPath={launcherMigrationPath ?? ''}
+        progress={isMigrating ? migrationProgress : null}
+        onClose={() => setLauncherMigrationPath(null)}
+        onMigrate={() => void (async () => {
+          if (!launcherMigrationPath) return
+          await migrateLauncherRoot(launcherMigrationPath, true)
+          setLauncherMigrationPath(null)
+          await refreshLauncherFolders()
+        })()}
+        onOnlyPath={() => void (async () => {
+          if (!launcherMigrationPath) return
+          await migrateLauncherRoot(launcherMigrationPath, false)
+          setLauncherMigrationPath(null)
+          await refreshLauncherFolders()
+        })()}
+      />
+
+      <MigrationModal
+        title="Cambiar carpeta de instancias"
+        description="¿Deseas mover tus instancias a la nueva carpeta?"
+        open={instancesMigrationPath !== null}
+        pendingPath={instancesMigrationPath ?? ''}
+        progress={isMigrating ? migrationProgress : null}
+        onClose={() => setInstancesMigrationPath(null)}
+        onMigrate={() => void (async () => {
+          if (!instancesMigrationPath) return
+          await changeInstancesFolder(instancesMigrationPath, true)
+          setInstancesMigrationPath(null)
+          await refreshLauncherFolders()
+          await refreshInstances()
+        })()}
+        onOnlyPath={() => void (async () => {
+          if (!instancesMigrationPath) return
+          await changeInstancesFolder(instancesMigrationPath, false)
+          setInstancesMigrationPath(null)
+          await refreshLauncherFolders()
+        })()}
+      />
 
       {showDeleteInstanceConfirm && selectedCard && (
         <div className="floating-modal-overlay" role="dialog" aria-modal="true" aria-label="Confirmar eliminación de instancia">
@@ -3005,7 +3059,7 @@ function PrincipalTopBar({
   canNavigateForward,
   hideSecondaryNav,
 }: PrincipalTopBarProps) {
-  const principalSections: MainPage[] = ['Mis Modpacks', 'Novedades', 'Explorador', 'Servers', 'Configuración Global']
+  const principalSections: MainPage[] = ['Mis Modpacks', 'Importar Instancias', 'Novedades', 'Explorador', 'Servers', 'Configuración Global']
 
   return (
     <header className="top-launcher-shell">

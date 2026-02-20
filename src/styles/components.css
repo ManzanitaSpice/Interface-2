@@ -28,6 +28,12 @@
   flex: 1;
 }
 
+.instance-search-compact {
+  max-width: 220px;
+  min-width: 180px !important;
+  flex: 0 0 220px !important;
+}
+
 .instances-workspace {
   margin-top: 0.5rem;
   display: grid;
@@ -44,7 +50,7 @@
 
 .cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(156px, 1fr));
   gap: 0.58rem;
   overflow: auto;
   padding-right: 0.2rem;
@@ -55,7 +61,7 @@
 }
 
 .instance-card {
-  min-height: 172px;
+  min-height: 138px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--bg-surface-muted) 95%, black), color-mix(in srgb, var(--bg-surface) 96%, black));
   border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
   border-radius: 0;
@@ -91,10 +97,10 @@
 
 .instance-card-icon.hero {
   width: calc(100% + 1.2rem);
-  height: 92px;
+  height: 70px;
   border: 0;
   margin: 0 -0.6rem 0.25rem;
-  font-size: 2rem;
+  font-size: 1.4rem;
   background-size: cover;
   background-repeat: no-repeat;
   background-position: center top;
@@ -1693,3 +1699,6 @@
   min-height: 0;
   overflow: auto;
 }
+
+.instance-card.is-dim { opacity: 0.58; }
+.modal-actions { display:flex; gap:0.5rem; margin-top:0.7rem; }
