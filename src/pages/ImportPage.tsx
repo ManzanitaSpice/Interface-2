@@ -108,8 +108,8 @@ export function ImportPage({ onInstancesChanged }: Props) {
             aria-label="Buscar entre instancias detectadas"
           />
         </div>
-        <div className="instances-workspace with-right-panel">
-          <div className="cards-grid instances-grid-area">
+        <div className="instances-workspace">
+          <div className="cards-grid instances-grid-area import-cards-grid">
             {filteredInstances.map((item) => (
               <DetectedInstanceCard
                 key={item.id}
@@ -120,7 +120,9 @@ export function ImportPage({ onInstancesChanged }: Props) {
             ))}
             {filteredInstances.length === 0 && <article className="instance-card placeholder">Ninguna instancia detectada</article>}
           </div>
-          {selected.length > 0 && (
+        </div>
+        {selected.length > 0 && (
+          <div className="import-selection-floating">
             <ImportSidePanel
               selectedCount={selected.length}
               canImport={selectedItems.some((item) => item.importable)}
@@ -131,8 +133,8 @@ export function ImportPage({ onInstancesChanged }: Props) {
               onOpenFolder={() => void openSelectedFolder()}
               onClear={() => setSelected([])}
             />
-          )}
-        </div>
+          </div>
+        )}
       </section>
       <ImportProgressModal open={running} message={message} progressPercent={executionProgressPercent} />
     </main>

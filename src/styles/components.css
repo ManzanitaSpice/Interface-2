@@ -52,7 +52,7 @@
 
 .cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 0.92fr));
   grid-auto-rows: max-content;
   align-content: start;
   gap: 0.58rem;
@@ -66,11 +66,11 @@
 
 .instance-card {
   min-height: 0;
-  max-height: 252px;
+  max-height: 320px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--bg-surface-muted) 95%, black), color-mix(in srgb, var(--bg-surface) 96%, black));
   border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
   border-radius: 0;
-  padding: 0 0.68rem 0.72rem;
+  padding: 0 0.62rem 0.8rem;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
@@ -102,7 +102,7 @@
 
 .instance-card-icon.hero {
   width: calc(100% + 1.2rem);
-  height: 124px;
+  height: 168px;
   border: 0;
   margin: 0 -0.68rem 0.32rem;
   font-size: 1.2rem;
@@ -376,7 +376,7 @@
 .edit-left-sidebar {
   background: color-mix(in srgb, var(--bg-surface) 94%, #121923);
   border-right: 1px solid var(--border);
-  padding: 0.65rem;
+  padding: 0.5rem 0.6rem;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -1015,7 +1015,10 @@
 
 .instance-state-chip {
   display: inline-block;
-  margin-top: 0.25rem;
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  margin-top: 0;
   padding: 0.12rem 0.42rem;
   border-radius: 999px;
   border: 1px solid var(--border);
@@ -1023,7 +1026,11 @@
 }
 
 .instance-run-progress {
-  margin-top: 0.35rem;
+  position: absolute;
+  left: 0.62rem;
+  right: 0.62rem;
+  bottom: 0.5rem;
+  margin-top: 0;
   height: 6px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--bg-soft) 80%, black 20%);
@@ -1145,7 +1152,7 @@
 
 .editor-left-sidebar,
 .editor-right-sidebar {
-  padding: 0.65rem;
+  padding: 0.5rem 0.6rem;
   background: linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 90%, #152033) 0%, color-mix(in srgb, var(--bg-surface-muted) 92%, #111a29) 100%);
   display: flex;
   flex-direction: column;
@@ -1237,7 +1244,7 @@
 .swatches button { height: 24px; border-radius: 0.35rem; border: 1px solid #fff2; }
 
 .pose-placeholder {
-  padding: 0.65rem;
+  padding: 0.5rem 0.6rem;
   border: 1px dashed var(--border);
   border-radius: 0.55rem;
   color: var(--text-muted);
@@ -1531,7 +1538,7 @@
   border: 1px solid color-mix(in srgb, var(--border) 80%, #32445f);
   border-radius: 0.6rem;
   background: color-mix(in srgb, var(--bg-surface-muted) 88%, #101c2e);
-  padding: 0.65rem;
+  padding: 0.5rem 0.6rem;
 }
 
 .folder-route-row p,
@@ -1758,9 +1765,10 @@
 
 .import-toolbar {
   justify-content: flex-start;
+  gap: 0.45rem;
   border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   border-radius: 0.6rem;
-  padding: 0.65rem;
+  padding: 0.5rem 0.6rem;
   background: color-mix(in srgb, var(--bg-surface-muted) 90%, black);
 }
 
@@ -1797,6 +1805,22 @@
   align-items: flex-start;
 }
 
+
+.import-selection-floating {
+  position: absolute;
+  top: 145px;
+  right: 14px;
+  width: 228px;
+  z-index: 12;
+}
+
+.import-page {
+  position: relative;
+}
+
+.import-cards-grid {
+  padding-right: 248px;
+}
 .import-selection-panel .import-action {
   border-radius: 10px;
   border: 1px solid var(--border);
@@ -1859,11 +1883,52 @@
 }
 
 
-.explorer-toolbar {
+.explorer-actions-compact {
+  gap: .45rem;
+  align-items: end;
+  margin-bottom: .55rem;
+}
+
+.explorer-actions-compact label {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: .6rem;
-  margin-bottom: .8rem;
+  gap: .2rem;
+  font-size: .74rem;
+  min-width: 120px;
+}
+
+.advanced-filter-menu {
+  position: relative;
+}
+
+.advanced-filter-menu summary {
+  list-style: none;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  padding: .42rem .58rem;
+  border-radius: .45rem;
+  background: var(--bg-surface-muted);
+}
+
+.advanced-filter-body {
+  position: absolute;
+  right: 0;
+  top: calc(100% + .4rem);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  padding: .55rem;
+  display: grid;
+  gap: .4rem;
+  min-width: 220px;
+  z-index: 20;
+}
+
+.catalog-panel-header {
+  display: grid;
+  margin-bottom: .55rem;
+}
+
+.explorer-toolbar {
+  display: none;
 }
 
 .explorer-toolbar label {
@@ -1879,7 +1944,7 @@
 
 .explorer-results.tablero {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 0.92fr));
   gap: .7rem;
 }
 
@@ -1902,3 +1967,6 @@
 .explorer-card .instance-card-meta {
   margin-top: .3rem;
 }
+
+
+button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); transform-origin: left center; }

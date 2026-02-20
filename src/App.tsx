@@ -190,7 +190,7 @@ type LoaderVersionItem = {
 type LoaderChannelFilter = 'Todos' | 'Stable' | 'Latest' | 'Releases'
 
 type InstanceSettingsTab = 'General' | 'Java' | 'Ajustes' | 'Comandos Personalizados' | 'Variables de Entorno'
-type GlobalSettingsTab = 'General' | 'Idioma' | 'Apariencia' | 'Java' | 'Servicios' | 'Herramientas' | 'Network'
+type GlobalSettingsTab = 'General' | 'Idioma' | 'Apariencia' | 'Escala UI' | 'Java' | 'Servicios' | 'Herramientas' | 'Network'
 
 type MicrosoftAuthStart = {
   authorizeUrl: string
@@ -245,6 +245,12 @@ type AppearancePreset = {
   name: string
   description: string
   vars: Record<string, string>
+}
+
+type UserAppearanceTheme = {
+  id: string
+  name: string
+  vars: Record<AppearanceColorKey, string>
 }
 
 type AppearanceColorKey =
@@ -304,7 +310,7 @@ const creatorSections: CreatorSection[] = ['Personalizado', 'CurseForge', 'Modri
 
 const editSections: EditSection[] = ['Ejecución', 'Version', 'Mods', 'Resource Packs', 'Shader Packs', 'Notas', 'Mundos', 'Servidores', 'Capturas de Pantalla', 'Configuración', 'Otros registros']
 
-const globalSettingsTabs: GlobalSettingsTab[] = ['General', 'Idioma', 'Apariencia', 'Java', 'Servicios', 'Herramientas', 'Network']
+const globalSettingsTabs: GlobalSettingsTab[] = ['General', 'Idioma', 'Apariencia', 'Escala UI', 'Java', 'Servicios', 'Herramientas', 'Network']
 
 const languageCatalog: LanguageEntry[] = [
   { name: 'Español (España)', installedByDefault: false },
@@ -461,7 +467,7 @@ const authSessionKey = 'launcher_microsoft_auth_session_v1'
 const managedAccountsKey = 'launcher_managed_accounts_v1'
 const instanceVisualMetaKey = 'launcher_instance_visual_meta_v1'
 const folderRoutesKey = 'launcher_folder_routes_v1'
-const appearanceSettingsKey = 'launcher_appearance_settings_v1'
+const appearanceSettingsKey = 'launcher_appearance_settings_v2'
 const languageSettingsKey = 'launcher_language_settings_v1'
 const authCodeRegenerateCooldownMs = 10_000
 
@@ -616,8 +622,10 @@ function App() {
   const [installedLanguages, setInstalledLanguages] = useState<string[]>(languageCatalog.filter((item) => item.installedByDefault).map((item) => item.name))
   const [languageSearch, setLanguageSearch] = useState('')
   const [selectedAppearancePreset, setSelectedAppearancePreset] = useState(appearancePresets[0].id)
+  const [userAppearanceThemes, setUserAppearanceThemes] = useState<UserAppearanceTheme[]>([])
   const [selectedFontFamily, setSelectedFontFamily] = useState(fontOptions[0].family)
   const [uiScalePercent, setUiScalePercent] = useState(100)
+  const [uiElementScalePercent, setUiElementScalePercent] = useState(100)
   const [appearanceLoaded, setAppearanceLoaded] = useState(false)
   const [customAppearanceVars, setCustomAppearanceVars] = useState<Record<AppearanceColorKey, string>>({
     '--bg-main': appearancePresets[0].vars['--bg-main'],
@@ -630,6 +638,7 @@ function App() {
     '--accent': appearancePresets[0].vars['--accent'],
     '--accent-hover': appearancePresets[0].vars['--accent-hover'],
   })
+  const [newThemeName, setNewThemeName] = useState('')
   const [launchProgressPercent, setLaunchProgressPercent] = useState(0)
   const [folderRoutes, setFolderRoutes] = useState<FolderRouteItem[]>(defaultFolderRoutes)
   const [updatesAutoCheck, setUpdatesAutoCheck] = useState(true)
@@ -2041,9 +2050,11 @@ function App() {
         preset?: string
         fontFamily?: string
         uiScalePercent?: number
+        uiElementScalePercent?: number
         customVars?: Partial<Record<AppearanceColorKey, string>>
+        customThemes?: UserAppearanceTheme[]
       }
-      if (parsed.preset && (appearancePresets.some((item) => item.id === parsed.preset) || parsed.preset === 'custom')) {
+      if (parsed.preset && (appearancePresets.some((item) => item.id === parsed.preset) || parsed.preset === 'custom' || parsed.preset.startsWith('user-'))) {
         setSelectedAppearancePreset(parsed.preset)
       }
       if (parsed.fontFamily) {
@@ -2052,8 +2063,14 @@ function App() {
       if (typeof parsed.uiScalePercent === 'number') {
         setUiScalePercent(Math.min(120, Math.max(85, Math.round(parsed.uiScalePercent))))
       }
+      if (typeof parsed.uiElementScalePercent === 'number') {
+        setUiElementScalePercent(Math.min(120, Math.max(85, Math.round(parsed.uiElementScalePercent))))
+      }
       if (parsed.customVars) {
         setCustomAppearanceVars((prev) => ({ ...prev, ...parsed.customVars }))
+      }
+      if (Array.isArray(parsed.customThemes)) {
+        setUserAppearanceThemes(parsed.customThemes.filter((item) => item && typeof item.id === 'string' && typeof item.name === 'string'))
       }
     } catch {
       localStorage.removeItem(appearanceSettingsKey)
@@ -2063,8 +2080,9 @@ function App() {
   }, [])
 
   useEffect(() => {
-    const preset = appearancePresets.find((item) => item.id === selectedAppearancePreset) ?? appearancePresets[0]
-    const vars = selectedAppearancePreset === 'custom' ? customAppearanceVars : preset.vars
+    const preset = appearancePresets.find((item) => item.id === selectedAppearancePreset)
+    const userPreset = userAppearanceThemes.find((item) => item.id === selectedAppearancePreset)
+    const vars = selectedAppearancePreset === 'custom' ? customAppearanceVars : (userPreset?.vars ?? preset?.vars ?? appearancePresets[0].vars)
     Object.entries(vars).forEach(([key, value]) => {
       document.documentElement.style.setProperty(key, value)
     })
@@ -2077,15 +2095,18 @@ function App() {
     document.documentElement.style.setProperty('--text-color', vars['--text-main'])
     document.documentElement.style.setProperty('--font-ui', selectedFontFamily)
     document.documentElement.style.setProperty('--ui-scale', `${uiScalePercent / 100}`)
+    document.documentElement.style.setProperty('--ui-element-scale', `${uiElementScalePercent / 100}`)
 
     if (!appearanceLoaded) return
     localStorage.setItem(appearanceSettingsKey, JSON.stringify({
       preset: selectedAppearancePreset,
       fontFamily: selectedFontFamily,
       uiScalePercent,
+      uiElementScalePercent,
       customVars: customAppearanceVars,
+      customThemes: userAppearanceThemes,
     }))
-  }, [appearanceLoaded, selectedAppearancePreset, selectedFontFamily, uiScalePercent, customAppearanceVars])
+  }, [appearanceLoaded, selectedAppearancePreset, selectedFontFamily, uiScalePercent, uiElementScalePercent, customAppearanceVars, userAppearanceThemes])
 
   return (
     <div className="app-shell">
@@ -2539,59 +2560,17 @@ function App() {
             )}
 
             {selectedGlobalSettingsTab === 'Apariencia' && (
-              <section className="appearance-workspace appearance-workspace-3">
+              <section className="appearance-workspace">
                 <div className="appearance-presets">
                   <h3>Apariencia</h3>
-                  <p>Colores, opacidad, temas y guardado de tema personalizado.</p>
-                  {[...appearancePresets, { id: 'custom', name: 'Personalizado', description: 'Ajuste manual de colores globales.' } as AppearancePreset].map((preset) => (
-                    <button
-                      key={preset.id}
-                      className={selectedAppearancePreset === preset.id ? 'active' : ''}
-                      onClick={() => setSelectedAppearancePreset(preset.id)}
-                    >
-                      <strong>{preset.name}</strong>
-                      <span>{preset.description}</span>
-                    </button>
-                  ))}
+                  <p>Temas dentro de menú para ocupar menos espacio.</p>
                   <label className="appearance-control-field">
-                    <span>Opacidad global</span>
-                    <input type="range" min={70} max={100} defaultValue={95} />
-                  </label>
-                  <button onClick={() => setSelectedAppearancePreset('custom')}>Guardar tema personalizado</button>
-                </div>
-
-                <div className="appearance-preview detailed">
-                  <h3>Tipografía</h3>
-                  <p>Ajustes de tipografía para todo el launcher.</p>
-                  <label className="appearance-control-field">
-                    <span>Familia tipográfica global</span>
-                    <select value={selectedFontFamily} onChange={(event) => setSelectedFontFamily(event.target.value)}>
-                      {fontOptions.map((font) => (
-                        <option key={font.id} value={font.family}>{font.label}</option>
-                      ))}
+                    <span>Preset activo</span>
+                    <select value={selectedAppearancePreset} onChange={(event) => setSelectedAppearancePreset(event.target.value)}>
+                      {appearancePresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+                      <option value="custom">Personalizado manual</option>
+                      {userAppearanceThemes.map((theme) => <option key={theme.id} value={theme.id}>🧩 {theme.name}</option>)}
                     </select>
-                  </label>
-                  <label className="appearance-control-field">
-                    <span>Tamaño base de texto</span>
-                    <input type="range" min={85} max={125} defaultValue={100} />
-                  </label>
-                </div>
-
-                <div className="appearance-preview detailed">
-                  <h3>Escala UI</h3>
-                  <p>Escala de paneles, botones y componentes.</p>
-                  <label className="appearance-control-field appearance-scale-field">
-                    <span>Escala UI</span>
-                    <div className="appearance-scale-row">
-                      <input
-                        type="range"
-                        min={85}
-                        max={120}
-                        value={uiScalePercent}
-                        onChange={(event) => setUiScalePercent(Number(event.target.value))}
-                      />
-                      <strong>{uiScalePercent}%</strong>
-                    </div>
                   </label>
                   <div className="appearance-color-grid">
                     {([
@@ -2618,12 +2597,81 @@ function App() {
                       </label>
                     ))}
                   </div>
-                  <button>Modo Editor</button>
+                </div>
+
+                <div className="appearance-preview detailed">
+                  <h3>Tipografía</h3>
+                  <label className="appearance-control-field">
+                    <span>Familia tipográfica global</span>
+                    <select value={selectedFontFamily} onChange={(event) => setSelectedFontFamily(event.target.value)}>
+                      {fontOptions.map((font) => (
+                        <option key={font.id} value={font.family}>{font.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="appearance-control-field">
+                    <span>Tamaño base de texto</span>
+                    <input type="range" min={85} max={125} defaultValue={100} />
+                  </label>
+                  <h3>Temas personalizados</h3>
+                  <label className="appearance-control-field">
+                    <span>Nombre del ajuste</span>
+                    <input value={newThemeName} onChange={(event) => setNewThemeName(event.target.value)} placeholder="Ej: Noche azul" />
+                  </label>
+                  <div className="network-controls">
+                    <button onClick={() => {
+                      const name = newThemeName.trim()
+                      if (!name) return
+                      const theme: UserAppearanceTheme = { id: `user-${Date.now()}`, name, vars: { ...customAppearanceVars } }
+                      setUserAppearanceThemes((prev) => [...prev, theme])
+                      setSelectedAppearancePreset(theme.id)
+                      setNewThemeName('')
+                    }}>Guardar ajuste</button>
+                    <button className="danger" onClick={() => {
+                      if (!selectedAppearancePreset.startsWith('user-')) return
+                      setUserAppearanceThemes((prev) => prev.filter((theme) => theme.id !== selectedAppearancePreset))
+                      setSelectedAppearancePreset('custom')
+                    }} disabled={!selectedAppearancePreset.startsWith('user-')}>Eliminar ajuste</button>
+                  </div>
                 </div>
               </section>
             )}
 
-            {selectedGlobalSettingsTab === 'Java' && (
+            {selectedGlobalSettingsTab === 'Escala UI' && (
+              <section className="section-placeholder">
+                <h2>Escala UI</h2>
+                <p>Solo escalado global, elementos individuales y modo editor.</p>
+                <label className="appearance-control-field appearance-scale-field">
+                  <span>Escala UI global</span>
+                  <div className="appearance-scale-row">
+                    <input
+                      type="range"
+                      min={85}
+                      max={120}
+                      value={uiScalePercent}
+                      onChange={(event) => setUiScalePercent(Number(event.target.value))}
+                    />
+                    <strong>{uiScalePercent}%</strong>
+                  </div>
+                </label>
+                <label className="appearance-control-field appearance-scale-field">
+                  <span>Escala de elementos individuales</span>
+                  <div className="appearance-scale-row">
+                    <input
+                      type="range"
+                      min={85}
+                      max={120}
+                      value={uiElementScalePercent}
+                      onChange={(event) => setUiElementScalePercent(Number(event.target.value))}
+                    />
+                    <strong>{uiElementScalePercent}%</strong>
+                  </div>
+                </label>
+                <button>Modo Editor</button>
+              </section>
+            )}
+
+                        {selectedGlobalSettingsTab === 'Java' && (
               <section className="section-placeholder">
                 <h2>Java</h2>
                 <p>Runtime principal: <strong>{folderRoutes.find((item) => item.key === 'java')?.value ?? '-'}</strong></p>
