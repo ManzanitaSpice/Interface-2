@@ -231,8 +231,17 @@ pub fn validate_and_prepare_launch(
     )?;
 
     let selected_version_id = resolve_effective_version_id(&mc_root, &metadata)?;
+    let loader_lower = metadata.loader.trim().to_ascii_lowercase();
+    let is_forge = loader_lower == "forge";
     logs.push(format!("VERSION JSON efectivo: {selected_version_id}"));
     let version_json = load_merged_version_json(&mc_root, &selected_version_id)?;
+    let forge_generation = if is_forge {
+        let detected = detect_forge_generation(&mc_root, &selected_version_id, &version_json);
+        logs.push(format!("Forge generación detectada: {:?}", detected));
+        detected
+    } else {
+        ForgeGeneration::Legacy
+    };
     log_merged_json_summary(&version_json, &mut logs);
     validate_merged_has_auth_args(&version_json)?;
 
@@ -434,7 +443,6 @@ en ningún JAR del classpath del loader '{}'.\n{}",
         || jar_exists_in_libraries_dir(&mc_root.join("libraries"), "bootstraplauncher");
     logs.push(format!("BOOTSTRAP EN CP: {has_bootstrap}"));
 
-    let loader_lower = metadata.loader.trim().to_ascii_lowercase();
     logs.push(format!("JAVA ejecutado: {}", embedded_java));
     logs.push(format!("versionId efectivo: {selected_version_id}"));
     logs.push(format!("mainClass efectiva: {resolved_main_class}"));
@@ -463,7 +471,8 @@ en ningún JAR del classpath del loader '{}'.\n{}",
             metadata.loader
         ));
     }
-    if let Some(expected_main_class) = expected_main_class_for_loader(&loader_lower) {
+    if let Some(expected_main_class) = expected_main_class_for_loader(&loader_lower, &version_json)
+    {
         if resolved_main_class != expected_main_class {
             return Err(format!(
                 "Regla de validación incumplida: loader={} requiere mainClass={} pero se obtuvo {}.",
@@ -480,10 +489,16 @@ en ningún JAR del classpath del loader '{}'.\n{}",
             .iter()
             .any(|e| e.to_ascii_lowercase().contains("net.neoforged"))
         || jar_exists_in_libraries_dir(&mc_root.join("libraries"), "neoforged");
-    if (loader_lower == "forge" || loader_lower == "neoforge")
+    if loader_lower == "forge"
+        && forge_generation == ForgeGeneration::Modern
         && !has_bootstrap
         && !has_neoforged_modern
     {
+        return Err(
+            "Forge moderno requiere bootstraplauncher en classpath o module-path.".to_string(),
+        );
+    }
+    if loader_lower == "neoforge" && !has_bootstrap && !has_neoforged_modern {
         return Err(format!(
             "Regla de validación incumplida: loader={} requiere bootstraplauncher en classpath.",
             metadata.loader
@@ -654,11 +669,32 @@ en ningún JAR del classpath del loader '{}'.\n{}",
     };
 
     let mut resolved = resolve_launch_arguments(&version_json, &launch_context, &launch_rules)?;
+
+    let forge_extra_jvm_args = if is_forge && forge_generation == ForgeGeneration::Modern {
+        match load_forge_args_file(&mc_root, &selected_version_id, &launch_context, &mut logs)? {
+            Some(args) => args,
+            None => {
+                return Err(format!(
+                    "Forge moderno detectado pero no se encontró win_args.txt/unix_args.txt en versions/{}/. El instalador de Forge debe haber fallado o la instancia debe recrearse.",
+                    selected_version_id
+                ));
+            }
+        }
+    } else {
+        Vec::new()
+    };
+
     let memory_args = vec![
         format!("-Xms{}M", metadata.ram_mb.max(512) / 2),
         format!("-Xmx{}M", metadata.ram_mb.max(512)),
     ];
-    let mut jvm_args = memory_args;
+    let mut jvm_args: Vec<String> = Vec::new();
+    jvm_args.extend(memory_args.clone());
+
+    if is_forge && forge_generation == ForgeGeneration::Modern {
+        jvm_args.extend(forge_extra_jvm_args.clone());
+    }
+
     jvm_args.extend(
         metadata
             .java_args
@@ -696,11 +732,42 @@ en ningún JAR del classpath del loader '{}'.\n{}",
     logs.push(format!("DEBUG game_args count: {}", resolved.game.len()));
     logs.push(format!("DEBUG game_args completos: {:?}", resolved.game));
     logs.push(format!("DEBUG jvm_args count: {}", jvm_args.len()));
+    logs.push(format!(
+        "forge_extra_jvm_args count: {}",
+        forge_extra_jvm_args.len()
+    ));
+    let forge_preview = forge_extra_jvm_args
+        .iter()
+        .take(3)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" | ");
+    logs.push(format!(
+        "Primeros 3 args del file: {}",
+        if forge_preview.is_empty() {
+            "(sin args file)"
+        } else {
+            forge_preview.as_str()
+        }
+    ));
 
     if !contains_classpath_switch(&jvm_args) {
         jvm_args.push("-cp".to_string());
         jvm_args.push(classpath.clone());
     }
+
+    logs.push(format!(
+        "jvm_args orden final: [memory({})] [forge_file({})] [user({})] [version_json({})] [cp({})]",
+        memory_args.len(),
+        if is_forge && forge_generation == ForgeGeneration::Modern {
+            forge_extra_jvm_args.len()
+        } else {
+            0
+        },
+        metadata.java_args.len(),
+        jvm_args.len().saturating_sub(memory_args.len()).saturating_sub(metadata.java_args.len()),
+        if contains_classpath_switch(&jvm_args) { 2 } else { 0 }
+    ));
 
     let unresolved_vars = unresolved_variables_in_args(jvm_args.iter().chain(resolved.game.iter()));
     if !unresolved_vars.is_empty() {
@@ -1505,6 +1572,120 @@ fn log_merged_json_summary(merged: &serde_json::Value, logs: &mut Vec<String>) {
                 .to_string(),
         );
     }
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+enum ForgeGeneration {
+    Legacy,
+    Transitional,
+    Modern,
+}
+
+fn detect_forge_generation(
+    mc_root: &Path,
+    version_id: &str,
+    merged_json: &Value,
+) -> ForgeGeneration {
+    if merged_json.get("minecraftArguments").is_some() {
+        return ForgeGeneration::Legacy;
+    }
+
+    let has_args_file = ["win_args.txt", "unix_args.txt"].iter().any(|filename| {
+        mc_root
+            .join("versions")
+            .join(version_id)
+            .join(filename)
+            .exists()
+    });
+
+    if has_args_file {
+        let filename = if cfg!(target_os = "windows") {
+            "win_args.txt"
+        } else {
+            "unix_args.txt"
+        };
+        let path = mc_root.join("versions").join(version_id).join(filename);
+        if let Ok(content) = fs::read_to_string(path) {
+            if content.contains("--module-path") || content.contains("--add-modules") {
+                return ForgeGeneration::Modern;
+            }
+        }
+        return ForgeGeneration::Transitional;
+    }
+
+    ForgeGeneration::Transitional
+}
+
+fn load_forge_args_file(
+    mc_root: &Path,
+    version_id: &str,
+    launch_context: &LaunchContext,
+    logs: &mut Vec<String>,
+) -> Result<Option<Vec<String>>, String> {
+    let filename = if cfg!(target_os = "windows") {
+        "win_args.txt"
+    } else {
+        "unix_args.txt"
+    };
+
+    let path = mc_root.join("versions").join(version_id).join(filename);
+    logs.push(format!(
+        "Args file path: {} → {}",
+        path.display(),
+        if path.exists() { "existe" } else { "NO EXISTE" }
+    ));
+
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let content = fs::read_to_string(&path)
+        .map_err(|e| format!("No se pudo leer {}: {e}", path.display()))?;
+
+    let mut args: Vec<String> = Vec::new();
+
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        if line.starts_with("--") || line.starts_with('-') {
+            if let Some(space_pos) = line.find(' ') {
+                let flag = &line[..space_pos];
+                let value = line[space_pos + 1..].trim();
+                args.push(flag.to_string());
+                args.push(replace_launch_variables(value, launch_context));
+            } else {
+                args.push(replace_launch_variables(line, launch_context));
+            }
+        } else {
+            args.push(replace_launch_variables(line, launch_context));
+        }
+    }
+
+    let module_path_present = args
+        .windows(2)
+        .any(|window| matches!(window, [flag, _] if flag == "--module-path"));
+    logs.push(format!(
+        "✔ Forge args file cargado: {} ({} args, --module-path: {})",
+        path.display(),
+        args.len(),
+        if module_path_present {
+            "✔"
+        } else {
+            "✗ FALTA"
+        }
+    ));
+
+    if !module_path_present {
+        logs.push(
+            "⚠ args file existe pero no contiene --module-path. Puede ser Forge transitional."
+                .to_string(),
+        );
+    }
+
+    Ok(Some(args))
 }
 
 fn validate_required_online_launch_flags(
@@ -2492,12 +2673,21 @@ fn log_natives_dir_contents(natives_dir: &Path, logs: &mut Vec<String>) {
     }
 }
 
-fn expected_main_class_for_loader(loader: &str) -> Option<&'static str> {
+fn expected_main_class_for_loader(
+    loader: &str,
+    version_json: &serde_json::Value,
+) -> Option<&'static str> {
     match loader.trim().to_ascii_lowercase().as_str() {
         "vanilla" | "" => Some("net.minecraft.client.main.Main"),
         "fabric" => Some("net.fabricmc.loader.impl.launch.knot.KnotClient"),
-        // Forge and NeoForge mainClass varies by version and bootstrap generation.
-        // Do not enforce a specific class — let the installer's version.json decide.
+        "quilt" => Some("org.quiltmc.loader.impl.launch.knot.KnotClient"),
+        "forge" => {
+            let has_legacy_args = version_json.get("minecraftArguments").is_some();
+            if has_legacy_args {
+                return Some("net.minecraft.launchwrapper.Launch");
+            }
+            None
+        }
         _ => None,
     }
 }
@@ -2615,13 +2805,59 @@ fn persist_instance_java_path(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_maven_library_path, contains_classpath_switch, extract_maven_key,
-        merge_version_jsons, parse_runtime_from_metadata, parse_runtime_major,
-        should_extract_for_platform, verify_no_duplicate_classpath_entries,
+        build_maven_library_path, contains_classpath_switch, detect_forge_generation,
+        extract_maven_key, load_forge_args_file, merge_version_jsons, parse_runtime_from_metadata,
+        parse_runtime_major, should_extract_for_platform, verify_no_duplicate_classpath_entries,
+        ForgeGeneration,
     };
+    use crate::domain::minecraft::argument_resolver::LaunchContext;
     use crate::domain::models::{instance::InstanceMetadata, java::JavaRuntime};
     use serde_json::json;
-    use std::path::Path;
+    use std::{
+        fs,
+        path::Path,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    fn test_temp_dir(prefix: &str) -> std::path::PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("{prefix}-{nonce}"));
+        fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    fn launch_context_for_tests() -> LaunchContext {
+        LaunchContext {
+            classpath: "cp".to_string(),
+            classpath_separator: ":".to_string(),
+            library_directory: "/libraries".to_string(),
+            natives_dir: "/natives".to_string(),
+            launcher_name: "Interface-2".to_string(),
+            launcher_version: "0.0.0".to_string(),
+            auth_player_name: "player".to_string(),
+            auth_uuid: "uuid".to_string(),
+            auth_access_token: "token".to_string(),
+            user_type: "msa".to_string(),
+            user_properties: "{}".to_string(),
+            version_name: "1.20.1".to_string(),
+            game_directory: "/game".to_string(),
+            assets_root: "/assets".to_string(),
+            assets_index_name: "17".to_string(),
+            version_type: "release".to_string(),
+            resolution_width: "854".to_string(),
+            resolution_height: "480".to_string(),
+            clientid: "cid".to_string(),
+            auth_xuid: "xuid".to_string(),
+            xuid: "xuid".to_string(),
+            quick_play_singleplayer: String::new(),
+            quick_play_multiplayer: String::new(),
+            quick_play_realms: String::new(),
+            quick_play_path: String::new(),
+        }
+    }
 
     #[test]
     fn maven_fallback_supports_classifier_and_extension() {
@@ -2670,6 +2906,104 @@ mod tests {
             parse_runtime_from_metadata(&metadata),
             Some(JavaRuntime::Java17)
         );
+    }
+
+    #[test]
+    fn forge_legacy_detection_via_minecraft_arguments() {
+        let root = test_temp_dir("forge-legacy-detect");
+        let json = json!({
+            "minecraftArguments": "--username ${auth_player_name}",
+            "mainClass": "net.minecraft.launchwrapper.Launch"
+        });
+
+        assert_eq!(
+            detect_forge_generation(&root, "1.12.2-forge", &json),
+            ForgeGeneration::Legacy
+        );
+    }
+
+    #[test]
+    fn forge_modern_detection_requires_args_file_with_module_path() {
+        let root = test_temp_dir("forge-modern-detect");
+        let version_id = "1.20.1-forge-47.3.0";
+        let version_dir = root.join("versions").join(version_id);
+        fs::create_dir_all(&version_dir).expect("version dir");
+        let args_path = if cfg!(target_os = "windows") {
+            version_dir.join("win_args.txt")
+        } else {
+            version_dir.join("unix_args.txt")
+        };
+        fs::write(
+            &args_path,
+            "--module-path\n/libraries/mods\n--add-modules\nALL-MODULE-PATH\n",
+        )
+        .expect("args file");
+
+        let json = json!({"arguments": {"jvm": []}, "mainClass": "cpw.mods.bootstraplauncher.BootstrapLauncher"});
+        assert_eq!(
+            detect_forge_generation(&root, version_id, &json),
+            ForgeGeneration::Modern
+        );
+    }
+
+    #[test]
+    fn forge_args_file_parsing_splits_flag_and_value_correctly() {
+        let root = test_temp_dir("forge-args-parse");
+        let version_id = "forge-test";
+        let version_dir = root.join("versions").join(version_id);
+        fs::create_dir_all(&version_dir).expect("version dir");
+        let args_path = if cfg!(target_os = "windows") {
+            version_dir.join("win_args.txt")
+        } else {
+            version_dir.join("unix_args.txt")
+        };
+        fs::write(
+            &args_path,
+            "--module-path /libraries/one:/libraries/two\n--add-modules\nALL-MODULE-PATH\n",
+        )
+        .expect("args file");
+
+        let mut logs = Vec::new();
+        let parsed =
+            load_forge_args_file(&root, version_id, &launch_context_for_tests(), &mut logs)
+                .expect("ok")
+                .expect("some");
+
+        assert!(
+            parsed
+                .windows(2)
+                .any(|w| matches!(w, [f, _] if f == "--module-path")),
+            "--module-path con su valor debe quedar separado"
+        );
+        assert!(
+            parsed
+                .windows(2)
+                .any(|w| matches!(w, [f, v] if f == "--add-modules" && v == "ALL-MODULE-PATH")),
+            "--add-modules debe preservar su valor en la siguiente posición"
+        );
+    }
+
+    #[test]
+    fn jvm_args_order_for_modern_forge_has_module_path_before_cp() {
+        let mut jvm_args = vec!["-Xms512M".to_string(), "-Xmx2048M".to_string()];
+        jvm_args.extend([
+            "--module-path".to_string(),
+            "/libraries/modules".to_string(),
+            "--add-modules".to_string(),
+            "ALL-MODULE-PATH".to_string(),
+            "-Djava.library.path=/natives".to_string(),
+        ]);
+        if !contains_classpath_switch(&jvm_args) {
+            jvm_args.push("-cp".to_string());
+            jvm_args.push("/classpath".to_string());
+        }
+
+        let module_idx = jvm_args
+            .iter()
+            .position(|arg| arg == "--module-path")
+            .expect("module path");
+        let cp_idx = jvm_args.iter().position(|arg| arg == "-cp").expect("cp");
+        assert!(module_idx < cp_idx, "--module-path debe ir antes de -cp");
     }
 
     #[test]

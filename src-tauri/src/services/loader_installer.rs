@@ -120,6 +120,7 @@ fn expected_main_class_for_loader(loader: &str) -> Option<&'static str> {
     match loader.trim().to_ascii_lowercase().as_str() {
         "vanilla" | "" => Some("net.minecraft.client.main.Main"),
         "fabric" => Some("net.fabricmc.loader.impl.launch.knot.KnotClient"),
+        "quilt" => Some("org.quiltmc.loader.impl.launch.knot.KnotClient"),
         // Forge mainClass varies by version and bootstrap generation.
         // Let the installer's version.json decide — do not force-override.
         // NeoForge also varies (old: cpw.mods.bootstraplauncher.BootstrapLauncher,
@@ -537,8 +538,8 @@ fn parse_neoforge_candidate_json(
     let id = json.get("id").and_then(Value::as_str).unwrap_or(version_id);
     let id_lower = id.to_ascii_lowercase();
     // 1.20.1: NeoForge installs under "1.20.1-forge-X" (no "neoforge" in name)
-    let is_neoforge_id = id_lower.contains("neoforge")
-        || (mc_version == "1.20.1" && id_lower.contains("forge"));
+    let is_neoforge_id =
+        id_lower.contains("neoforge") || (mc_version == "1.20.1" && id_lower.contains("forge"));
     if inherits != mc_version || !is_neoforge_id {
         return None;
     }
