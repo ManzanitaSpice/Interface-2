@@ -1748,3 +1748,40 @@
 
 .instance-card.is-dim { opacity: 0.58; }
 .modal-actions { display:flex; gap:0.5rem; margin-top:0.7rem; }
+
+
+.import-page {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 0.7rem;
+}
+
+.import-toolbar {
+  justify-content: flex-start;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 0.6rem;
+  padding: 0.65rem;
+  background: color-mix(in srgb, var(--bg-surface-muted) 90%, black);
+}
+
+.import-toolbar-summary {
+  display: grid;
+  margin-right: auto;
+}
+
+.import-toolbar-summary small {
+  color: var(--text-muted);
+}
+
+.import-toolbar-badges {
+  display: flex;
+  gap: 0.45rem;
+}
+
+.import-toolbar-badges span {
+  font-size: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  padding: 0.25rem 0.45rem;
+  border-radius: 0.4rem;
+  background: color-mix(in srgb, var(--bg-surface) 90%, transparent);
+}

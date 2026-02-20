@@ -12,6 +12,21 @@ type ScanProgress = {
   totalTargets: number
 }
 
+
+
+const dedupeInstances = (items: DetectedInstance[]) => {
+  const byPath = new Set<string>()
+  const out: DetectedInstance[] = []
+
+  for (const item of items) {
+    const key = item.sourcePath.trim().toLowerCase()
+    if (!key || byPath.has(key)) continue
+    byPath.add(key)
+    out.push(item)
+  }
+
+  return out
+}
 export function useImportScanner() {
   const [instances, setInstances] = useState<DetectedInstance[]>([])
   const [status, setStatus] = useState('Ninguna detección activa')
@@ -41,7 +56,7 @@ export function useImportScanner() {
     }).then((f) => { u1 = f })
 
     void listen<DetectedInstance>('import_scan_result', (event) => {
-      setInstances((prev) => [...prev, event.payload])
+      setInstances((prev) => dedupeInstances([...prev, event.payload]))
     }).then((f) => { u2 = f })
 
     return () => { u1?.(); u2?.() }
@@ -55,8 +70,9 @@ export function useImportScanner() {
     setIsScanning(true)
     try {
       const found = await invoke<DetectedInstance[]>('detect_external_instances')
-      setInstances(found)
-      setStatus(`Se encontraron ${found.length} instancias`)
+      const uniqueFound = dedupeInstances(found)
+      setInstances(uniqueFound)
+      setStatus(`Se encontraron ${uniqueFound.length} instancias`)
       setProgressPercent(100)
     } finally {
       setIsScanning(false)
@@ -65,7 +81,7 @@ export function useImportScanner() {
 
   const importSpecific = async (path: string) => {
     const found = await invoke<DetectedInstance[]>('import_specific', { path })
-    setInstances((prev) => [...prev, ...found])
+    setInstances((prev) => dedupeInstances([...prev, ...found]))
   }
 
   const clear = () => {
