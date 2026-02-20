@@ -46,6 +46,8 @@
 .instances-workspace.with-right-panel {
   grid-template-columns: minmax(0, 1fr) 240px;
   align-items: stretch;
+  margin: 0;
+  gap: 0;
 }
 
 .cards-grid {
@@ -61,11 +63,11 @@
 }
 
 .instance-card {
-  min-height: 138px;
+  min-height: 116px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--bg-surface-muted) 95%, black), color-mix(in srgb, var(--bg-surface) 96%, black));
   border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
   border-radius: 0;
-  padding: 0 0.6rem 0.6rem;
+  padding: 0 0.6rem 0.45rem;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
@@ -122,8 +124,8 @@
 
 .instance-card-meta {
   display: grid;
-  gap: 0.25rem;
-  margin-top: auto;
+  gap: 0.2rem;
+  margin-top: 0;
 }
 
 .instance-card.clickable {
@@ -153,7 +155,7 @@
 
 .instance-right-panel {
   background: linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 94%, black), color-mix(in srgb, var(--bg-surface-muted) 92%, black));
-  border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
+  border: 0;
   border-radius: 0;
   padding: 0.62rem;
   min-height: calc(100vh - 260px);

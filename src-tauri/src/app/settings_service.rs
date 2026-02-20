@@ -8,7 +8,7 @@ use tauri::AppHandle;
 
 use crate::infrastructure::filesystem::{
     config::load_launcher_config,
-    paths::{default_launcher_root, folder_routes_settings_file, resolve_launcher_root},
+    paths::{folder_routes_settings_file, resolve_launcher_root},
 };
 
 #[derive(serde::Serialize)]
@@ -86,7 +86,12 @@ where
         .map(|route| route.value)
         .unwrap_or_else(|| default.display().to_string());
 
-    Ok(PathBuf::from(normalize_path(&route)))
+    let normalized = PathBuf::from(normalize_path(&route));
+    if normalized.is_absolute() {
+        Ok(normalized)
+    } else {
+        Ok(launcher_root.join(normalized))
+    }
 }
 
 pub fn resolve_instances_root(app: &AppHandle) -> Result<PathBuf, String> {
@@ -132,7 +137,7 @@ pub fn pick_folder(
 }
 
 fn default_routes(app: &AppHandle) -> Result<Vec<FolderRouteInput>, String> {
-    let launcher_root = default_launcher_root(app)?;
+    let launcher_root = resolve_launcher_root(app)?;
     Ok(vec![
         FolderRouteInput {
             key: "launcher".to_string(),
@@ -203,7 +208,7 @@ fn normalize_routes_payload(
     app: &AppHandle,
     routes: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let launcher_root = default_launcher_root(app)?;
+    let launcher_root = resolve_launcher_root(app)?;
     let mut parsed: FolderRouteFile = serde_json::from_value(routes)
         .map_err(|err| format!("Formato inválido en rutas de carpetas: {err}"))?;
 
