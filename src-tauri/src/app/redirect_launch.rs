@@ -8,10 +8,15 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager};
 use zip::ZipArchive;
+
+use tokio::time::sleep;
 
 use crate::{
     app::instance_service::{get_instance_metadata, StartInstanceResult},
@@ -22,7 +27,9 @@ use crate::{
         },
         models::{instance::LaunchAuthSession, java::JavaRuntime},
     },
-    infrastructure::downloader::queue::{build_official_client, download_with_retry},
+    infrastructure::downloader::queue::{
+        ensure_official_binary_url, explain_network_error, official_retries, official_timeout,
+    },
     services::java_installer::ensure_embedded_java,
 };
 
@@ -866,14 +873,133 @@ fn link_or_copy(existing: &Path, target: &Path) -> Result<(), String> {
     })
 }
 
-fn load_manifest_version_url(version_id: &str) -> Result<String, String> {
-    let client = build_official_client()?;
+fn build_async_official_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .timeout(official_timeout())
+        .connect_timeout(official_timeout())
+        .user_agent("InterfaceLauncher/0.1")
+        .build()
+        .map_err(|err| format!("No se pudo construir cliente HTTP oficial de Minecraft: {err}"))
+}
+
+async fn download_async_with_retry(
+    client: &reqwest::Client,
+    url: &str,
+    target_path: &Path,
+    expected_sha1: &str,
+    force: bool,
+) -> Result<bool, String> {
+    ensure_official_binary_url(url)?;
+
+    if target_path.exists() && !force {
+        if expected_sha1.is_empty() {
+            return Ok(false);
+        }
+
+        let current_sha1 = crate::infrastructure::checksum::sha1::compute_file_sha1(target_path)?;
+        if current_sha1.eq_ignore_ascii_case(expected_sha1) {
+            return Ok(false);
+        }
+
+        let _ = fs::remove_file(target_path);
+    }
+
+    if let Some(parent) = target_path.parent() {
+        tokio::fs::create_dir_all(parent).await.map_err(|err| {
+            format!(
+                "No se pudo crear directorio para descarga {}: {err}",
+                parent.display()
+            )
+        })?;
+    }
+
+    let mut last_error = String::new();
+    for attempt in 1..=official_retries() {
+        let result: Result<(), String> = async {
+            let response = client
+                .get(url)
+                .send()
+                .await
+                .map_err(|err| explain_network_error(url, &err))?;
+            let status = response.status();
+            if !status.is_success() {
+                return Err(format!("HTTP {} al descargar {}", status.as_u16(), url));
+            }
+            let bytes = response
+                .bytes()
+                .await
+                .map_err(|err| format!("No se pudo leer respuesta HTTP de {url}: {err}"))?;
+
+            let downloaded_sha1 = {
+                use sha1::{Digest, Sha1};
+                let mut hasher = Sha1::new();
+                hasher.update(bytes.as_ref());
+                format!("{:x}", hasher.finalize())
+            };
+
+            if !expected_sha1.is_empty() && !downloaded_sha1.eq_ignore_ascii_case(expected_sha1) {
+                let _ = tokio::fs::remove_file(target_path).await;
+                return Err(format!(
+                    "SHA1 inválido para {}. Esperado {}, obtenido {}",
+                    url, expected_sha1, downloaded_sha1
+                ));
+            }
+
+            tokio::fs::write(target_path, &bytes).await.map_err(|err| {
+                format!(
+                    "No se pudo guardar archivo descargado {}: {err}",
+                    target_path.display()
+                )
+            })?;
+
+            if !expected_sha1.is_empty() {
+                let disk_sha1 =
+                    crate::infrastructure::checksum::sha1::compute_file_sha1(target_path)?;
+                if !disk_sha1.eq_ignore_ascii_case(expected_sha1) {
+                    let _ = tokio::fs::remove_file(target_path).await;
+                    return Err(format!(
+                        "SHA1 inválido tras escritura para {}. Esperado {}, obtenido {}",
+                        target_path.display(),
+                        expected_sha1,
+                        disk_sha1
+                    ));
+                }
+            }
+
+            Ok(())
+        }
+        .await;
+
+        match result {
+            Ok(()) => return Ok(true),
+            Err(err) => {
+                last_error = err;
+                if attempt < official_retries() {
+                    sleep(std::time::Duration::from_millis((attempt as u64) * 350)).await;
+                }
+            }
+        }
+    }
+
+    Err(format!(
+        "Fallo al descargar recurso oficial tras {} intentos: {}",
+        official_retries(),
+        last_error
+    ))
+}
+
+async fn load_manifest_version_url(
+    client: &reqwest::Client,
+    version_id: &str,
+) -> Result<String, String> {
     let manifest: Value = client
         .get(MOJANG_MANIFEST_URL)
         .send()
+        .await
         .and_then(|res| res.error_for_status())
         .map_err(|err| format!("No se pudo descargar manifest oficial: {err}"))?
         .json()
+        .await
         .map_err(|err| format!("No se pudo parsear manifest oficial: {err}"))?;
 
     manifest
@@ -889,7 +1015,7 @@ fn load_manifest_version_url(version_id: &str) -> Result<String, String> {
         .ok_or_else(|| format!("No se encontró la versión {version_id} en manifest oficial."))
 }
 
-fn download_redirect_runtime(
+async fn download_redirect_runtime(
     app: &AppHandle,
     source_path: &Path,
     instance_uuid: &str,
@@ -912,7 +1038,7 @@ fn download_redirect_runtime(
         app,
         json!({
             "stage": "downloading",
-            "instance_uuid": instance_uuid,
+            "instance_uuid": instance_uuid.clone(),
             "version_id": version_id,
             "message": format!("Descargando metadata de versión {version_id}..."),
             "progress_percent": 10,
@@ -922,18 +1048,21 @@ fn download_redirect_runtime(
         }),
     );
 
-    let version_url = load_manifest_version_url(version_id)?;
-    let client = build_official_client()?;
+    let client = build_async_official_client()?;
+    let version_url = load_manifest_version_url(&client, version_id).await?;
     let version_json_path = versions_dir.join(format!("{version_id}.json"));
     if !version_json_path.exists() {
         let raw = client
             .get(&version_url)
             .send()
+            .await
             .and_then(|res| res.error_for_status())
             .map_err(|err| format!("No se pudo descargar version json {version_url}: {err}"))?
             .bytes()
+            .await
             .map_err(|err| format!("No se pudo leer version json: {err}"))?;
-        fs::write(&version_json_path, &raw)
+        tokio::fs::write(&version_json_path, &raw)
+            .await
             .map_err(|err| format!("No se pudo guardar {}: {err}", version_json_path.display()))?;
     }
 
@@ -952,7 +1081,7 @@ fn download_redirect_runtime(
         app,
         json!({
             "stage": "downloading",
-            "instance_uuid": instance_uuid,
+            "instance_uuid": instance_uuid.clone(),
             "version_id": version_id,
             "message": format!("Descargando client jar {version_id}..."),
             "progress_percent": 30,
@@ -972,7 +1101,7 @@ fn download_redirect_runtime(
             .get("sha1")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        download_with_retry(&client, url, &jar_path, sha1, false)?;
+        download_async_with_retry(&client, url, &jar_path, sha1, false).await?;
     } else {
         return Err("version json no contiene downloads.client".to_string());
     }
@@ -981,7 +1110,7 @@ fn download_redirect_runtime(
         app,
         json!({
             "stage": "downloading",
-            "instance_uuid": instance_uuid,
+            "instance_uuid": instance_uuid.clone(),
             "version_id": version_id,
             "message": format!("Sincronizando libraries para {version_id}..."),
             "progress_percent": 60,
@@ -1038,14 +1167,14 @@ fn download_redirect_runtime(
             .and_then(Value::as_str)
             .map(ToOwned::to_owned)
             .unwrap_or_else(|| format!("https://libraries.minecraft.net/{rel}"));
-        download_with_retry(&client, &url, &target, sha1, false)?;
+        download_async_with_retry(&client, &url, &target, sha1, false).await?;
     }
 
     emit_redirect_cache_status(
         app,
         json!({
             "stage": "downloading",
-            "instance_uuid": instance_uuid,
+            "instance_uuid": instance_uuid.clone(),
             "version_id": version_id,
             "message": format!("Descargando índice de assets de {version_id}..."),
             "progress_percent": 85,
@@ -1068,12 +1197,15 @@ fn download_redirect_runtime(
             let bytes = client
                 .get(url)
                 .send()
+                .await
                 .and_then(|res| res.error_for_status())
                 .map_err(|err| format!("No se pudo descargar assets index {url}: {err}"))?
                 .bytes()
+                .await
                 .map_err(|err| format!("No se pudo leer assets index: {err}"))?;
             let asset_path = assets_indexes_dir.join(format!("{id}.json"));
-            fs::write(&asset_path, &bytes)
+            tokio::fs::write(&asset_path, &bytes)
+                .await
                 .map_err(|err| format!("No se pudo guardar {}: {err}", asset_path.display()))?;
         }
     }
@@ -1136,7 +1268,7 @@ fn resolve_from_cache(
     })
 }
 
-fn ensure_redirect_cache_context(
+async fn ensure_redirect_cache_context(
     app: &AppHandle,
     source_path: &Path,
     source_launcher: &str,
@@ -1156,7 +1288,7 @@ fn ensure_redirect_cache_context(
             "redirect_cache_status",
             json!({
                 "stage":"ready",
-                "instance_uuid": instance_uuid,
+                "instance_uuid": instance_uuid.clone(),
                 "version_id": version_id,
                 "message":"Usando caché temporal REDIRECT existente.",
                 "progress_percent":100,
@@ -1187,7 +1319,8 @@ fn ensure_redirect_cache_context(
     save_redirect_cache_index(&cache_root, &index)?;
 
     let downloaded =
-        download_redirect_runtime(app, source_path, instance_uuid, version_id, source_launcher)?;
+        download_redirect_runtime(app, source_path, instance_uuid, version_id, source_launcher)
+            .await?;
 
     index
         .entries
@@ -1200,7 +1333,7 @@ fn ensure_redirect_cache_context(
         app,
         json!({
             "stage": "ready",
-            "instance_uuid": instance_uuid,
+            "instance_uuid": instance_uuid.clone(),
             "version_id": version_id,
             "message": format!("Caché temporal REDIRECT listo para {version_id}."),
             "progress_percent": 100,
@@ -1350,7 +1483,7 @@ pub fn validate_redirect_instance(
     })
 }
 
-pub fn launch_redirect_instance(
+pub async fn launch_redirect_instance(
     app: AppHandle,
     instance_root: String,
     auth_session: LaunchAuthSession,
@@ -1391,13 +1524,16 @@ pub fn launch_redirect_instance(
         &redirect.source_launcher,
     ) {
         Ok(ctx) => ctx,
-        Err(_) => ensure_redirect_cache_context(
-            &app,
-            &source_path,
-            &redirect.source_launcher,
-            &metadata.internal_uuid,
-            &metadata.version_id,
-        )?,
+        Err(_) => {
+            ensure_redirect_cache_context(
+                &app,
+                &source_path,
+                &redirect.source_launcher,
+                &metadata.internal_uuid,
+                &metadata.version_id,
+            )
+            .await?
+        }
     };
     touch_cache_entry_last_used(&app, &metadata.internal_uuid);
     let runtime = parse_java_runtime_for_redirect(&ctx.version_json, &metadata.version_id);
@@ -1512,30 +1648,36 @@ pub fn launch_redirect_instance(
         }),
     );
 
-    let mut child = Command::new(&java_exec)
+    let mut command = Command::new(&java_exec);
+    command
         .args(&jvm_args)
         .arg(resolved.main_class.clone())
         .args(&resolved.game)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::null())
-        .current_dir(&ctx.game_dir)
-        .spawn()
-        .map_err(|err| {
-            let message = format!("No se pudo iniciar el proceso REDIRECT: {err}");
-            let _ = app.emit(
-                "redirect_launch_status",
-                json!({
-                    "stage":"error",
-                    "message":"Falló el inicio de la instancia REDIRECT.",
-                    "instance_uuid": metadata.internal_uuid,
-                    "source_launcher": redirect.source_launcher,
-                    "exit_code": Value::Null,
-                    "error": message,
-                }),
-            );
-            message
-        })?;
+        .current_dir(&ctx.game_dir);
+
+    #[cfg(unix)]
+    {
+        command.process_group(0);
+    }
+
+    let mut child = command.spawn().map_err(|err| {
+        let message = format!("No se pudo iniciar el proceso REDIRECT: {err}");
+        let _ = app.emit(
+            "redirect_launch_status",
+            json!({
+                "stage":"error",
+                "message":"Falló el inicio de la instancia REDIRECT.",
+                "instance_uuid": metadata.internal_uuid,
+                "source_launcher": redirect.source_launcher,
+                "exit_code": Value::Null,
+                "error": message,
+            }),
+        );
+        message
+    })?;
 
     let pid = child.id();
     let _ = app.emit(
@@ -1553,6 +1695,8 @@ pub fn launch_redirect_instance(
     let app_for_thread = app.clone();
     let instance_uuid = metadata.internal_uuid.clone();
     let source_launcher = redirect.source_launcher.clone();
+    let instance_root_for_thread = instance_root.clone();
+    let registry_instance_root = instance_root.clone();
     thread::spawn(move || {
         let exit_code = child.wait().ok().and_then(|status| status.code());
         let _ = app_for_thread.emit(
@@ -1560,11 +1704,24 @@ pub fn launch_redirect_instance(
             json!({
                 "stage":"closed",
                 "message":"Instancia REDIRECT finalizada.",
-                "instance_uuid": instance_uuid,
-                "source_launcher": source_launcher,
+                "instance_uuid": instance_uuid.clone(),
+                "source_launcher": source_launcher.clone(),
                 "exit_code": exit_code,
                 "error": Value::Null,
             }),
+        );
+        let _ = app_for_thread.emit(
+            "instance_runtime_exit",
+            serde_json::json!({
+                "instanceRoot": instance_root_for_thread,
+                "exitCode": exit_code,
+                "pid": pid,
+            }),
+        );
+        crate::app::instance_service::register_runtime_exit(
+            &registry_instance_root,
+            pid,
+            exit_code,
         );
         let _ = fs::remove_dir_all(&natives_dir);
         touch_cache_entry_last_used(&app_for_thread, &instance_uuid);

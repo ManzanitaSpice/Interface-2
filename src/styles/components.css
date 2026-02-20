@@ -142,8 +142,13 @@
 
 .instance-card-meta {
   display: grid;
-  gap: 0.12rem;
-  margin-top: 0;
+  gap: 0.36rem;
+  margin-top: 0.35rem;
+}
+
+.instance-card-meta small {
+  display: block;
+  line-height: 1.3;
 }
 
 .instance-card.clickable {
@@ -1955,6 +1960,7 @@
   position: absolute;
   right: .55rem;
   top: .55rem;
+  z-index: 2;
   background: color-mix(in srgb, var(--accent) 28%, #2d3f59);
   border: 1px solid color-mix(in srgb, var(--accent-hover) 48%, var(--border));
   color: var(--text-main);

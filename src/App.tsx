@@ -1915,6 +1915,23 @@ function App() {
       return
     }
 
+    if (action === 'Forzar Cierre') {
+      if (!selectedCard.instanceRoot) {
+        setCreationConsoleLogs((prev) => [...prev, `No hay ruta registrada para la instancia ${selectedCard.name}.`])
+        return
+      }
+      try {
+        const result = await invoke<string>('force_close_instance', { instanceRoot: selectedCard.instanceRoot })
+        setCreationConsoleLogs((prev) => [...prev, result])
+        setIsStartingInstance(false)
+        setIsInstanceRunning(false)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        setCreationConsoleLogs((prev) => [...prev, `No se pudo forzar cierre de la instancia: ${message}`])
+      }
+      return
+    }
+
     if (action === 'Editar') {
       openEditor()
       return
