@@ -101,16 +101,18 @@
 }
 
 .instance-card-icon.hero {
-  width: calc(100% + 1.2rem);
+  width: 100%;
   height: 168px;
-  border: 0;
-  margin: 0 -0.68rem 0.32rem;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 0.6rem;
+  margin: 0 0 0.32rem;
   font-size: 1.2rem;
   background-size: cover;
   background-repeat: no-repeat;
   background-position: center top;
   display: grid;
   place-items: center;
+  overflow: hidden;
 }
 
 .instance-card-icon.hero img,
@@ -187,16 +189,18 @@
 }
 
 .instance-right-hero {
-  width: calc(100% + 1.24rem);
-  margin: -0.62rem -0.62rem 0.45rem;
-  height: 112px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+  width: 100%;
+  margin: 0 0 0.7rem;
+  height: 132px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 0.7rem;
   background: color-mix(in srgb, var(--bg-surface-muted) 92%, black);
   background-size: cover;
   background-position: center;
   display: grid;
   place-items: center;
   font-size: 1.8rem;
+  overflow: hidden;
 }
 
 .instance-right-panel header {
@@ -1426,15 +1430,19 @@
 }
 
 .global-settings-tabs {
-  display: flex;
-  gap: 0.45rem;
-  flex-wrap: wrap;
-  padding-bottom: 0.2rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 0.55rem;
+  padding: 0.15rem;
+  border-radius: 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: color-mix(in srgb, var(--bg-surface-muted) 62%, #0c1522);
 }
 
 .global-settings-tabs button {
   min-width: 110px;
-  border-radius: 0.2rem;
+  border-radius: 0.55rem;
+  font-weight: 600;
 }
 
 .global-settings-tabs button.active,
@@ -1550,6 +1558,8 @@
 
 .folder-routes-card {
   grid-column: 1 / -1;
+  padding: 1rem;
+  background: linear-gradient(165deg, color-mix(in srgb, var(--bg-surface-muted) 85%, #132034), color-mix(in srgb, var(--bg-surface) 90%, #0e1724));
 }
 
 .folder-route-list {
@@ -1586,8 +1596,9 @@
 }
 
 .folder-route-actions {
-  display: flex;
-  gap: 0.4rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.55rem;
   flex-wrap: wrap;
 }
 
@@ -1998,6 +2009,26 @@
   width: 100%;
 }
 
+
+.explorer-card {
+  max-height: none;
+  padding: 0.72rem;
+  border-radius: 0.75rem;
+  gap: 0.6rem;
+}
+
+.explorer-card-media {
+  aspect-ratio: 16 / 9;
+  min-height: 140px;
+  background: color-mix(in srgb, var(--bg-surface-muted) 88%, #121a27);
+}
+
+.explorer-card-body {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
 .explorer-results.tablero {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -2012,18 +2043,17 @@
 
 .explorer-results.lista .explorer-card {
   display: grid;
-  grid-template-columns: 180px minmax(0, 1fr);
+  grid-template-columns: 220px minmax(0, 1fr);
   align-items: start;
-  column-gap: .8rem;
-  max-height: none;
-  padding-bottom: .6rem;
+  column-gap: .9rem;
 }
 
 .explorer-results.lista .explorer-card .instance-card-icon.hero {
-  width: 180px;
-  height: 118px;
+  width: 100%;
+  height: auto;
+  min-height: 124px;
   margin: 0;
-  border-radius: .45rem;
+  border-radius: .6rem;
 }
 
 .explorer-results.titulos {

@@ -927,6 +927,24 @@ function App() {
   const isAuthCooldown = authRetrySeconds > 0
 
   const selectedLocale = languageLocaleMap[selectedLanguage] ?? 'es-ES'
+  const uiLanguage: 'es' | 'en' | 'pt' = selectedLocale.startsWith('en') ? 'en' : selectedLocale.startsWith('pt') ? 'pt' : 'es'
+  const ui = uiLanguage === 'en'
+    ? {
+        globalTitle: 'Global Settings', globalDesc: 'Central launcher settings by category.', folderTitle: 'Folder locations',
+        launcherRoot: 'Launcher root folder', instances: 'Instances folder', runtime: 'Embedded Java', assets: 'Skins / Assets',
+        changeRoot: 'Change root folder', changeInstances: 'Change instances folder', current: 'Current',
+      }
+    : uiLanguage === 'pt'
+      ? {
+          globalTitle: 'Configurações Globais', globalDesc: 'Painel central de ajustes do launcher por categoria.', folderTitle: 'Localização de pastas',
+          launcherRoot: 'Pasta raiz do launcher', instances: 'Pasta de instâncias', runtime: 'Java embutido', assets: 'Skins / Assets',
+          changeRoot: 'Alterar pasta raiz', changeInstances: 'Alterar pasta de instâncias', current: 'Atual',
+        }
+      : {
+          globalTitle: 'Configuración Global', globalDesc: 'Panel central de ajustes del launcher por categorías.', folderTitle: 'Ubicaciones de carpetas',
+          launcherRoot: 'Carpeta raíz del launcher', instances: 'Instancias', runtime: 'Java embebido', assets: 'Skins / Assets',
+          changeRoot: 'Cambiar carpeta raíz', changeInstances: 'Elegir carpeta de instancias', current: 'Actual',
+        }
   const filteredLanguages = languageCatalog.filter((lang) => lang.name.toLowerCase().includes(languageSearch.trim().toLowerCase()))
 
 
@@ -2222,6 +2240,7 @@ function App() {
       <PrincipalTopBar
         authSession={authSession}
         activePage={activePage}
+        uiLanguage={uiLanguage}
         onNavigate={navigateToPage}
         onLogout={logout}
         onOpenAccountManager={openAccountManager}
@@ -2546,7 +2565,7 @@ function App() {
       )}
 
       {authSession && activePage === 'Explorador' && (
-        <ExplorerPage />
+        <ExplorerPage uiLanguage={uiLanguage} />
       )}
 
       {authSession && activePage === 'Updates' && (
@@ -2621,8 +2640,8 @@ function App() {
           <section className="instances-panel global-settings-panel">
             <header className="news-panel-header">
               <div>
-                <h2>Configuración Global</h2>
-                <p>Panel central de ajustes del launcher por categorías.</p>
+                <h2>{ui.globalTitle}</h2>
+                <p>{ui.globalDesc}</p>
               </div>
             </header>
 
@@ -2641,16 +2660,16 @@ function App() {
             {selectedGlobalSettingsTab === 'General' && (
               <div className="global-settings-list professional-general-grid">
                 <article className="global-setting-item folder-routes-card">
-                  <h3>Ubicaciones de carpetas</h3>
+                  <h3>{ui.folderTitle}</h3>
                   <div className="folder-route-list">
-                    <FolderRow label="📁 Carpeta raíz del launcher" path={launcherFolders?.launcherRoot ?? '-'} />
-                    <FolderRow label="📁 Instancias" path={launcherFolders?.instancesDir ?? '-'} />
-                    <FolderRow label="📁 Java embebido" path={launcherFolders?.runtimeDir ?? '-'} />
+                    <FolderRow label={`📁 ${ui.launcherRoot}`} path={launcherFolders?.launcherRoot ?? '-'} />
+                    <FolderRow label={`📁 ${ui.instances}`} path={launcherFolders?.instancesDir ?? '-'} />
+                    <FolderRow label={`📁 ${ui.runtime}`} path={launcherFolders?.runtimeDir ?? '-'} />
                     <FolderRow label="📁 Skins / Assets" path={launcherFolders?.assetsDir ?? '-'} />
                   </div>
                   <div className="folder-route-actions" style={{ marginTop: '0.7rem' }}>
-                    <button className="primary" onClick={() => void pickNewLauncherRoot()}>🔁 Cambiar carpeta raíz</button>
-                    <button onClick={() => void pickNewInstancesFolder()}>📦 Elegir carpeta de instancias para descargas e instalación</button>
+                    <button className="primary" onClick={() => void pickNewLauncherRoot()}>🔁 {ui.changeRoot}</button>
+                    <button onClick={() => void pickNewInstancesFolder()}>📦 {ui.changeInstances}</button>
                   </div>
                 </article>
               </div>
@@ -3259,6 +3278,7 @@ function App() {
 type PrincipalTopBarProps = {
   authSession: AuthSession | null
   activePage: MainPage
+  uiLanguage: 'es' | 'en' | 'pt'
   onNavigate: (page: MainPage) => void
   onLogout: () => void
   onOpenAccountManager: () => void
@@ -3274,6 +3294,7 @@ type PrincipalTopBarProps = {
 function PrincipalTopBar({
   authSession,
   activePage,
+  uiLanguage,
   onNavigate,
   onLogout,
   onOpenAccountManager,
@@ -3286,6 +3307,11 @@ function PrincipalTopBar({
   hideSecondaryNav,
 }: PrincipalTopBarProps) {
   const principalSections: MainPage[] = ['Mis Modpacks', 'Novedades', 'Explorador', 'Servers', 'Configuración Global']
+  const labels = uiLanguage === 'en'
+    ? { back: 'Go back', forward: 'Go forward', account: 'Manage accounts', logout: 'Sign out', noSession: 'Not signed in', settings: 'Settings', myModpacks: 'My Modpacks', news: 'News', explorer: 'Browser', servers: 'Servers' }
+    : uiLanguage === 'pt'
+      ? { back: 'Voltar', forward: 'Avançar', account: 'Gerenciar contas', logout: 'Encerrar sessão', noSession: 'Sem sessão iniciada', settings: 'Configurações', myModpacks: 'Meus Modpacks', news: 'Novidades', explorer: 'Explorador', servers: 'Servidores' }
+      : { back: 'Ir hacia atrás', forward: 'Ir hacia adelante', account: 'Administrar cuentas', logout: 'Cerrar sesión', noSession: 'Sin sesión iniciada', settings: 'Configuración', myModpacks: 'Mis Modpacks', news: 'Novedades', explorer: 'Explorador', servers: 'Servers' }
 
   return (
     <header className="top-launcher-shell">
@@ -3295,8 +3321,8 @@ function PrincipalTopBar({
             <img className="launcher-brand-logo-image" src="/vite.svg" alt="" />
           </div>
           <strong>INTERFACE</strong>
-          <button type="button" className="window-chip" aria-label="Ir hacia atrás" onClick={onNavigateBack} disabled={!canNavigateBack}>←</button>
-          <button type="button" className="window-chip" aria-label="Ir hacia adelante" onClick={onNavigateForward} disabled={!canNavigateForward}>→</button>
+          <button type="button" className="window-chip" aria-label={labels.back} onClick={onNavigateBack} disabled={!canNavigateBack}>←</button>
+          <button type="button" className="window-chip" aria-label={labels.forward} onClick={onNavigateForward} disabled={!canNavigateForward}>→</button>
         </div>
         {authSession ? (
           <div className="account-menu">
@@ -3305,13 +3331,13 @@ function PrincipalTopBar({
             </button>
             {accountMenuOpen && (
               <div className="account-menu-dropdown">
-                <button onClick={onOpenAccountManager}>Administrar cuentas</button>
-                <button onClick={onLogout}>Cerrar sesión</button>
+                <button onClick={onOpenAccountManager}>{labels.account}</button>
+                <button onClick={onLogout}>{labels.logout}</button>
               </div>
             )}
           </div>
         ) : (
-          <span>Sin sesión iniciada</span>
+          <span>{labels.noSession}</span>
         )}
       </div>
       {authSession && !hideSecondaryNav && (
@@ -3323,7 +3349,17 @@ function PrincipalTopBar({
               className={activePage === section ? 'active' : ''}
               onClick={() => onNavigate(section)}
             >
-              {section === 'Configuración Global' ? 'Configuración' : section}
+              {section === 'Configuración Global'
+                ? labels.settings
+                : section === 'Mis Modpacks'
+                  ? labels.myModpacks
+                  : section === 'Novedades'
+                    ? labels.news
+                    : section === 'Explorador'
+                      ? labels.explorer
+                      : section === 'Servers'
+                        ? labels.servers
+                        : section}
             </button>
           ))}
         </nav>
