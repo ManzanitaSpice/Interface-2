@@ -294,17 +294,17 @@ const appearancePresets: AppearancePreset[] = [
   {
     id: 'matte-graphite',
     name: 'Matte Graphite (Default)',
-    description: 'Tema oscuro mate en escala de grises, sin tonos azules ni morados.',
+    description: 'Tema oscuro profesional con contornos cálidos y alto contraste controlado.',
     vars: {
-      '--bg-main': '#121212',
-      '--bg-surface': '#1d1d1d',
-      '--bg-surface-muted': '#252525',
-      '--bg-hover': '#303030',
-      '--border': '#3f3f3f',
-      '--text-main': '#d8d8d8',
-      '--text-muted': '#a4a4a4',
-      '--accent': '#8f8f8f',
-      '--accent-hover': '#a4a4a4',
+      '--bg-main': '#19191a',
+      '--bg-surface': '#020202',
+      '--bg-surface-muted': '#121213',
+      '--bg-hover': '#373739',
+      '--border': '#ecdda2',
+      '--text-main': '#f2f2f2',
+      '--text-muted': '#b2b2b4',
+      '--accent': '#ecdda2',
+      '--accent-hover': '#f5eac0',
     },
   },
   {
@@ -566,6 +566,7 @@ function App() {
   const [selectedAppearancePreset, setSelectedAppearancePreset] = useState(appearancePresets[0].id)
   const [selectedFontFamily, setSelectedFontFamily] = useState(fontOptions[0].family)
   const [uiScalePercent, setUiScalePercent] = useState(100)
+  const [appearanceLoaded, setAppearanceLoaded] = useState(false)
   const [customAppearanceVars, setCustomAppearanceVars] = useState<Record<AppearanceColorKey, string>>({
     '--bg-main': appearancePresets[0].vars['--bg-main'],
     '--bg-surface': appearancePresets[0].vars['--bg-surface'],
@@ -1815,7 +1816,10 @@ function App() {
 
   useEffect(() => {
     const raw = localStorage.getItem(appearanceSettingsKey)
-    if (!raw) return
+    if (!raw) {
+      setAppearanceLoaded(true)
+      return
+    }
     try {
       const parsed = JSON.parse(raw) as {
         preset?: string
@@ -1837,23 +1841,14 @@ function App() {
       }
     } catch {
       localStorage.removeItem(appearanceSettingsKey)
+    } finally {
+      setAppearanceLoaded(true)
     }
   }, [])
 
   useEffect(() => {
     const preset = appearancePresets.find((item) => item.id === selectedAppearancePreset) ?? appearancePresets[0]
-    const vars = selectedAppearancePreset === 'custom' ? customAppearanceVars : {
-      ...preset.vars,
-      '--bg-main': customAppearanceVars['--bg-main'] ?? preset.vars['--bg-main'],
-      '--bg-surface': customAppearanceVars['--bg-surface'] ?? preset.vars['--bg-surface'],
-      '--bg-surface-muted': customAppearanceVars['--bg-surface-muted'] ?? preset.vars['--bg-surface-muted'],
-      '--bg-hover': customAppearanceVars['--bg-hover'] ?? preset.vars['--bg-hover'],
-      '--border': customAppearanceVars['--border'] ?? preset.vars['--border'],
-      '--text-main': customAppearanceVars['--text-main'] ?? preset.vars['--text-main'],
-      '--text-muted': customAppearanceVars['--text-muted'] ?? preset.vars['--text-muted'],
-      '--accent': customAppearanceVars['--accent'] ?? preset.vars['--accent'],
-      '--accent-hover': customAppearanceVars['--accent-hover'] ?? preset.vars['--accent-hover'],
-    }
+    const vars = selectedAppearancePreset === 'custom' ? customAppearanceVars : preset.vars
     Object.entries(vars).forEach(([key, value]) => {
       document.documentElement.style.setProperty(key, value)
     })
@@ -1867,13 +1862,14 @@ function App() {
     document.documentElement.style.setProperty('--font-ui', selectedFontFamily)
     document.documentElement.style.setProperty('--ui-scale', `${uiScalePercent / 100}`)
 
+    if (!appearanceLoaded) return
     localStorage.setItem(appearanceSettingsKey, JSON.stringify({
       preset: selectedAppearancePreset,
       fontFamily: selectedFontFamily,
       uiScalePercent,
       customVars: customAppearanceVars,
     }))
-  }, [selectedAppearancePreset, selectedFontFamily, uiScalePercent, customAppearanceVars])
+  }, [appearanceLoaded, selectedAppearancePreset, selectedFontFamily, uiScalePercent, customAppearanceVars])
 
   return (
     <div className="app-shell">
@@ -2092,12 +2088,7 @@ function App() {
                       <div className="instance-card-icon hero" style={icon ? { backgroundImage: `url(${icon})` } : undefined} aria-hidden="true">
                         {!icon ? '🧱' : ''}
                       </div>
-                      <div className="instance-card-header-row">
-                        <div>
-                          <strong>{card.name}</strong>
-                          <span className="instance-group-chip">By INTERFACE</span>
-                        </div>
-                      </div>
+                      <strong className="instance-card-title">{card.name}</strong>
                       <div className="instance-card-meta">
                         <small>Version: {cardVersion}</small>
                         <small>Loader: {cardLoader}</small>
@@ -2138,9 +2129,11 @@ function App() {
 
               {selectedCard && (
                 <aside className="instance-right-panel">
+                  <div className="instance-right-hero" style={instanceVisualMeta[selectedCard.id]?.icon ? { backgroundImage: `url(${instanceVisualMeta[selectedCard.id]?.icon})` } : undefined} aria-hidden="true">
+                    {!instanceVisualMeta[selectedCard.id]?.icon ? '🧱' : ''}
+                  </div>
                   <header>
                     <h3>{selectedCard.name}</h3>
-                    <small>Grupo: {selectedCard.group}</small>
                   </header>
                   <div className="instance-right-actions">
                     {instanceActions.map((action) => (
