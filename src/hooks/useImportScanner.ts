@@ -12,7 +12,7 @@ type ScanProgress = {
   totalTargets: number
 }
 
-
+const importScannerStorageKey = 'launcher_import_scanner_v1'
 
 const dedupeInstances = (items: DetectedInstance[]) => {
   const byPath = new Set<string>()
@@ -27,12 +27,36 @@ const dedupeInstances = (items: DetectedInstance[]) => {
 
   return out
 }
+
 export function useImportScanner() {
   const [instances, setInstances] = useState<DetectedInstance[]>([])
   const [status, setStatus] = useState('Ninguna detección activa')
   const [progressPercent, setProgressPercent] = useState(0)
   const [scanLogs, setScanLogs] = useState<string[]>([])
   const [isScanning, setIsScanning] = useState(false)
+  const [keepDetected, setKeepDetected] = useState(true)
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(importScannerStorageKey)
+      if (!raw) return
+      const parsed = JSON.parse(raw) as { instances?: DetectedInstance[]; keepDetected?: boolean }
+      setInstances(Array.isArray(parsed.instances) ? dedupeInstances(parsed.instances) : [])
+      setKeepDetected(parsed.keepDetected !== false)
+      if ((parsed.instances?.length ?? 0) > 0) {
+        setStatus(`Instancias recuperadas: ${parsed.instances?.length ?? 0}`)
+      }
+    } catch {
+      localStorage.removeItem(importScannerStorageKey)
+    }
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem(importScannerStorageKey, JSON.stringify({
+      instances: keepDetected ? instances : [],
+      keepDetected,
+    }))
+  }, [instances, keepDetected])
 
   useEffect(() => {
     let u1: (() => void) | undefined
@@ -63,14 +87,16 @@ export function useImportScanner() {
   }, [])
 
   const scan = async () => {
-    setInstances([])
+    if (!keepDetected) {
+      setInstances([])
+    }
     setStatus('Escaneando...')
     setProgressPercent(0)
     setScanLogs([])
     setIsScanning(true)
     try {
       const found = await invoke<DetectedInstance[]>('detect_external_instances')
-      const uniqueFound = dedupeInstances(found)
+      const uniqueFound = dedupeInstances(keepDetected ? [...instances, ...found] : found)
       setInstances(uniqueFound)
       setStatus(`Se encontraron ${uniqueFound.length} instancias`)
       setProgressPercent(100)
@@ -91,5 +117,16 @@ export function useImportScanner() {
     setStatus('Lista vacía')
   }
 
-  return { instances, status, progressPercent, scanLogs, isScanning, scan, importSpecific, clear }
+  return {
+    instances,
+    status,
+    progressPercent,
+    scanLogs,
+    isScanning,
+    keepDetected,
+    setKeepDetected,
+    scan,
+    importSpecific,
+    clear,
+  }
 }

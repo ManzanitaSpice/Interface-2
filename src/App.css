@@ -38,8 +38,6 @@
 }
 
 :is(
-  .instance-card-icon,
-  .instance-card-icon.hero,
   .auth-feedback-status,
   .auth-feedback-error,
   .auth-feedback-warn,
