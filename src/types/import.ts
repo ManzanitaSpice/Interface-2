@@ -32,3 +32,25 @@ export type ImportRequest = {
 }
 
 export type ImportAction = 'ejecutar' | 'clonar' | 'migrar'
+
+export type ImportExecutionProgress = {
+  instanceId: string
+  instanceName: string
+  step: string
+  stepIndex: number
+  totalSteps: number
+  completed: number
+  total: number
+  message: string
+}
+
+export type ImportActionRequest = {
+  detectedInstanceId: string
+  sourcePath: string
+  targetName: string
+  targetGroup: string
+  minecraftVersion: string
+  loader: string
+  loaderVersion: string
+  action: ImportAction | 'abrir_carpeta'
+}
