@@ -4,6 +4,7 @@ use std::{fs, path::{Path, PathBuf}, time::{SystemTime, UNIX_EPOCH}};
 const VISUAL_META_FILE: &str = ".interface-visual.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InstanceVisualMeta {
     pub media_data_url: Option<String>,
     pub media_path: Option<String>,
@@ -48,8 +49,13 @@ pub fn load_instance_visual_meta(instance_root: String) -> Result<Option<Instanc
         return Ok(None);
     }
     let content = fs::read_to_string(path).map_err(|err| format!("No se pudo leer metadata visual: {err}"))?;
-    let parsed = serde_json::from_str::<InstanceVisualMeta>(&content)
+    let mut parsed = serde_json::from_str::<InstanceVisualMeta>(&content)
         .map_err(|err| format!("Metadata visual inválida: {err}"))?;
+    if let Some(path) = parsed.media_path.as_ref() {
+        if !Path::new(path).exists() {
+            parsed.media_path = None;
+        }
+    }
     Ok(Some(parsed))
 }
 

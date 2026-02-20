@@ -2022,35 +2022,53 @@
 
 
 .explorer-card {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
   max-height: none;
-  padding: 0.52rem;
-  border-radius: 0.75rem;
-  gap: 0.4rem;
+  padding: 0;
+  border-radius: 12px;
+  gap: 0;
+}
+
+.explorer-card-media-wrapper {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: 12px 12px 0 0;
+  background: #1a1a2e;
 }
 
 .explorer-card-media {
-  aspect-ratio: 1 / 1;
+  position: absolute;
+  inset: 0;
   min-height: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
   background: color-mix(in srgb, var(--bg-surface-muted) 88%, #121a27);
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
-  border-radius: 0.6rem;
-  padding: 0.35rem;
 }
 
-.explorer-card-media img {
+.explorer-card-media-wrapper .instance-card-media {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
   object-position: center;
-  border-radius: 0.4rem;
+  border-radius: 0;
   background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--bg-surface) 92%, #0f1724), #0b0f17 84%);
 }
 
-.explorer-card-body {
-  display: grid;
+.explorer-card-info {
+  display: flex;
+  flex-direction: column;
   gap: 0.4rem;
   min-width: 0;
+  padding: 10px 12px;
 }
 
 .explorer-results.grid {
@@ -2068,16 +2086,16 @@
 .explorer-results.list .explorer-card {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
-  align-items: start;
+  align-items: stretch;
   column-gap: .9rem;
 }
 
-.explorer-results.list .explorer-card .instance-card-icon.hero {
-  width: 100%;
-  height: auto;
-  min-height: 124px;
-  margin: 0;
+.explorer-results.list .explorer-card .explorer-card-media-wrapper {
   border-radius: .6rem;
+}
+
+.explorer-results.list .explorer-card .explorer-card-info {
+  padding: .2rem 0;
 }
 
 .explorer-results.titles {
@@ -2088,7 +2106,10 @@
 
 .explorer-results.titles .explorer-card {
   min-height: auto;
-  padding: .5rem .6rem .7rem;
+}
+
+.explorer-results.titles .explorer-card .explorer-card-info {
+  padding: .45rem .55rem .6rem;
 }
 
 .explorer-description {

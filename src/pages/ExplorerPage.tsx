@@ -187,10 +187,12 @@ export function ExplorerPage({ uiLanguage }: Props) {
         <div className={`explorer-results ${view}`}>
           {items.map((item) => (
             <article key={`${item.source}-${item.id}`} className="instance-card explorer-card">
-              <div className="instance-card-icon hero explorer-card-media">
-                {item.image ? <img src={item.image} alt={item.title} loading="lazy" referrerPolicy="no-referrer" /> : null}
+              <div className="explorer-card-media-wrapper">
+                <div className="instance-card-icon hero explorer-card-media">
+                  {item.image ? <img className="instance-card-media" src={item.image} alt={item.title} loading="lazy" referrerPolicy="no-referrer" /> : null}
+                </div>
               </div>
-              <div className="explorer-card-body">
+              <div className="explorer-card-info">
                 <strong className="instance-card-title" title={item.title}>{item.title}</strong>
                 {view !== 'titles' && (
                   <>
