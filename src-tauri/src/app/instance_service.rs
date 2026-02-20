@@ -1112,6 +1112,15 @@ pub async fn start_instance(
     instance_root: String,
     auth_session: LaunchAuthSession,
 ) -> Result<StartInstanceResult, String> {
+    let metadata = get_instance_metadata(instance_root.clone())?;
+    if metadata.state.eq_ignore_ascii_case("redirect") {
+        return crate::app::redirect_launch::launch_redirect_instance(
+            app,
+            instance_root,
+            auth_session,
+        );
+    }
+
     {
         let mut registry = runtime_registry()
             .lock()
