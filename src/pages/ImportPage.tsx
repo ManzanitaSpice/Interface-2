@@ -7,7 +7,7 @@ import { ImportToolbar } from '../components/import/ImportToolbar'
 import { ScanStatusBar } from '../components/import/ScanStatusBar'
 import { useImportExecution } from '../hooks/useImportExecution'
 import { useImportScanner } from '../hooks/useImportScanner'
-import type { ImportAction, ImportRequest } from '../types/import'
+import type { ImportAction, ImportActionRequest, ImportRequest } from '../types/import'
 
 type Props = {
   onInstancesChanged?: () => Promise<void> | void
@@ -15,7 +15,7 @@ type Props = {
 
 export function ImportPage({ onInstancesChanged }: Props) {
   const { instances, status, progressPercent, scanLogs, isScanning, scan, clear } = useImportScanner()
-  const { running, message, execute } = useImportExecution()
+  const { running, message, progressPercent: executionProgressPercent, execute, executeActionBatch } = useImportExecution()
   const [selected, setSelected] = useState<string[]>([])
 
   const selectedItems = useMemo(() => instances.filter((item) => selected.includes(item.id)), [instances, selected])
@@ -36,6 +36,19 @@ export function ImportPage({ onInstancesChanged }: Props) {
     copyLogs: false,
   }))
 
+  const buildActionRequests = (action: ImportAction): ImportActionRequest[] => selectedItems
+    .filter((entry) => entry.importable)
+    .map((item) => ({
+      detectedInstanceId: item.id,
+      sourcePath: item.sourcePath,
+      targetName: action === 'clonar' ? `${item.name}-copia` : item.name,
+      targetGroup: action === 'migrar' ? 'Migradas' : 'Importadas',
+      minecraftVersion: item.minecraftVersion,
+      loader: item.loader,
+      loaderVersion: item.loaderVersion,
+      action,
+    }))
+
   const runImport = async (requests: ImportRequest[]) => {
     if (requests.length === 0) return
     await execute(requests)
@@ -43,20 +56,9 @@ export function ImportPage({ onInstancesChanged }: Props) {
   }
 
   const executeAction = async (action: ImportAction) => {
-    for (const item of selectedItems.filter((entry) => entry.importable)) {
-      await invoke('execute_import_action', {
-        request: {
-          detectedInstanceId: item.id,
-          sourcePath: item.sourcePath,
-          targetName: action === 'clonar' ? `${item.name}-copia` : item.name,
-          targetGroup: action === 'migrar' ? 'Migradas' : 'Importadas',
-          minecraftVersion: item.minecraftVersion,
-          loader: item.loader,
-          loaderVersion: item.loaderVersion,
-          action,
-        },
-      })
-    }
+    const requests = buildActionRequests(action)
+    if (requests.length === 0) return
+    await executeActionBatch(action, requests)
     await onInstancesChanged?.()
   }
 
@@ -113,7 +115,7 @@ export function ImportPage({ onInstancesChanged }: Props) {
           />
         </div>
       </section>
-      <ImportProgressModal open={running} message={message} />
+      <ImportProgressModal open={running} message={message} progressPercent={executionProgressPercent} />
     </main>
   )
 }

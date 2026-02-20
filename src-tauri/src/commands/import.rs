@@ -71,6 +71,25 @@ pub struct ImportActionResult {
     error: Option<String>,
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportActionBatchFailure {
+    instance_id: String,
+    target_name: String,
+    error: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportActionBatchResult {
+    success: bool,
+    action: String,
+    total: usize,
+    success_count: usize,
+    failure_count: usize,
+    failures: Vec<ImportActionBatchFailure>,
+}
+
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ScanProgressEvent {
@@ -959,9 +978,11 @@ pub fn execute_import(app: AppHandle, requests: Vec<ImportRequest>) -> Result<()
     Ok(())
 }
 
-
 #[tauri::command]
-pub fn execute_import_action(app: AppHandle, request: ImportActionRequest) -> Result<ImportActionResult, String> {
+pub fn execute_import_action(
+    app: AppHandle,
+    request: ImportActionRequest,
+) -> Result<ImportActionResult, String> {
     let action = request.action.trim().to_ascii_lowercase();
 
     if action == "abrir_carpeta" {
@@ -995,8 +1016,9 @@ pub fn execute_import_action(app: AppHandle, request: ImportActionRequest) -> Re
     if action == "migrar" {
         let source_path = PathBuf::from(&request.source_path);
         if source_path.exists() && source_path.is_dir() {
-            fs::remove_dir_all(&source_path)
-                .map_err(|err| format!("No se pudo eliminar la instancia original tras migrar: {err}"))?;
+            fs::remove_dir_all(&source_path).map_err(|err| {
+                format!("No se pudo eliminar la instancia original tras migrar: {err}")
+            })?;
         }
     }
 
@@ -1005,6 +1027,56 @@ pub fn execute_import_action(app: AppHandle, request: ImportActionRequest) -> Re
         target_name: request.target_name,
         target_path: None,
         error: None,
+    })
+}
+
+#[tauri::command]
+pub fn execute_import_action_batch(
+    app: AppHandle,
+    action: String,
+    requests: Vec<ImportActionRequest>,
+) -> Result<ImportActionBatchResult, String> {
+    let normalized_action = action.trim().to_ascii_lowercase();
+    let total = requests.len();
+    let mut failures = Vec::new();
+    let mut success_count = 0usize;
+
+    for mut request in requests {
+        request.action = normalized_action.clone();
+        let instance_id = request.detected_instance_id.clone();
+        let target_name = request.target_name.clone();
+        let result = execute_import_action(app.clone(), request);
+
+        match result {
+            Ok(response) if response.success => {
+                success_count += 1;
+            }
+            Ok(response) => {
+                failures.push(ImportActionBatchFailure {
+                    instance_id,
+                    target_name: response.target_name,
+                    error: response
+                        .error
+                        .unwrap_or_else(|| "La acción terminó sin éxito".to_string()),
+                });
+            }
+            Err(error) => {
+                failures.push(ImportActionBatchFailure {
+                    instance_id,
+                    target_name,
+                    error,
+                });
+            }
+        }
+    }
+
+    Ok(ImportActionBatchResult {
+        success: failures.is_empty(),
+        action: normalized_action,
+        total,
+        success_count,
+        failure_count: failures.len(),
+        failures,
     })
 }
 
