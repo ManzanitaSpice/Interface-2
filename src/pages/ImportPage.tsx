@@ -17,8 +17,14 @@ export function ImportPage({ onInstancesChanged }: Props) {
   const { instances, status, progressPercent, scanLogs, isScanning, scan, clear } = useImportScanner()
   const { running, message, progressPercent: executionProgressPercent, execute, executeActionBatch } = useImportExecution()
   const [selected, setSelected] = useState<string[]>([])
+  const [search, setSearch] = useState('')
 
   const selectedItems = useMemo(() => instances.filter((item) => selected.includes(item.id)), [instances, selected])
+  const filteredInstances = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    if (!query) return instances
+    return instances.filter((item) => item.name.toLowerCase().includes(query) || item.sourceLauncher.toLowerCase().includes(query))
+  }, [instances, search])
 
   const buildImportRequests = (items = selectedItems): ImportRequest[] => items.filter((item) => item.importable).map((item) => ({
     detectedInstanceId: item.id,
@@ -91,9 +97,18 @@ export function ImportPage({ onInstancesChanged }: Props) {
           onClear={() => { clear(); setSelected([]) }}
         />
         <ScanStatusBar status={status} progressPercent={progressPercent} scanLogs={scanLogs} isScanning={isScanning} />
+        <div className="instance-search-row">
+          <input
+            className="instance-search-compact"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Buscar instancia detectada por nombre o launcher"
+            aria-label="Buscar entre instancias detectadas"
+          />
+        </div>
         <div className="instances-workspace with-right-panel">
           <div className="cards-grid instances-grid-area">
-            {instances.map((item) => (
+            {filteredInstances.map((item) => (
               <DetectedInstanceCard
                 key={item.id}
                 item={item}
@@ -101,18 +116,20 @@ export function ImportPage({ onInstancesChanged }: Props) {
                 onToggle={() => setSelected((prev) => prev.includes(item.id) ? prev.filter((id) => id !== item.id) : [...prev, item.id])}
               />
             ))}
-            {instances.length === 0 && <article className="instance-card placeholder">Ninguna instancia detectada</article>}
+            {filteredInstances.length === 0 && <article className="instance-card placeholder">Ninguna instancia detectada</article>}
           </div>
-          <ImportSidePanel
-            selectedCount={selected.length}
-            canImport={selectedItems.some((item) => item.importable)}
-            onImport={() => void runImport(buildImportRequests())}
-            onClone={() => void executeAction('clonar')}
-            onMigrate={() => void executeAction('migrar')}
-            onRun={() => void executeAction('ejecutar')}
-            onOpenFolder={() => void openSelectedFolder()}
-            onClear={() => setSelected([])}
-          />
+          {selected.length > 0 && (
+            <ImportSidePanel
+              selectedCount={selected.length}
+              canImport={selectedItems.some((item) => item.importable)}
+              onImport={() => void runImport(buildImportRequests())}
+              onClone={() => void executeAction('clonar')}
+              onMigrate={() => void executeAction('migrar')}
+              onRun={() => void executeAction('ejecutar')}
+              onOpenFolder={() => void openSelectedFolder()}
+              onClear={() => setSelected([])}
+            />
+          )}
         </div>
       </section>
       <ImportProgressModal open={running} message={message} progressPercent={executionProgressPercent} />
