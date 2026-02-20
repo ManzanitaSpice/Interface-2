@@ -66,8 +66,8 @@
   display: grid;
   grid-template-columns: var(--sidebar-width) 6px minmax(0, 1fr);
   gap: 0;
-  min-height: 0;
-  height: 100%;
+  min-height: calc(100vh - 118px);
+  height: calc(100vh - 118px);
 }
 
 .creator-main {
@@ -87,8 +87,8 @@
 .edit-instance-layout {
   display: grid;
   grid-template-columns: var(--sidebar-width) 6px minmax(0, 1fr);
-  min-height: 0;
-  height: 100%;
+  min-height: calc(100vh - 118px);
+  height: calc(100vh - 118px);
 }
 
 .third-top-bar,

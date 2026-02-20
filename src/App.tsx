@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { AnimatePresence, motion } from 'framer-motion'
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import './App.css'
 import { SkinStudio } from './skin/SkinStudio'
 
@@ -713,6 +713,20 @@ function App() {
     localStorage.setItem(folderRoutesKey, JSON.stringify(routes))
   }
 
+  const refreshInstances = useCallback(async () => {
+    try {
+      const loadedCards = await invoke<InstanceSummary[]>('list_instances')
+      setCards(loadedCards)
+      setSelectedCard((prev) => {
+        if (!prev) return null
+        return loadedCards.find((card) => card.id === prev.id) ?? null
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setCreationConsoleLogs((prev) => [...prev, `No se pudieron cargar las instancias guardadas: ${message}`])
+    }
+  }, [])
+
   const updateAndPersistFolderRoutes = async (nextRoutes: FolderRouteItem[]) => {
     const sanitized = sanitizeFolderRoutes(nextRoutes)
     setFolderRoutes(sanitized)
@@ -741,6 +755,9 @@ function App() {
         })
       }
       await updateAndPersistFolderRoutes(nextRoutes)
+      if (route.key === 'instances') {
+        await refreshInstances()
+      }
       setUpdatesStatus(`Ruta actualizada: ${route.label}`)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -751,10 +768,10 @@ function App() {
 
   const openRouteFolder = async (route: FolderRouteItem) => {
     try {
-      await invoke('open_folder_route', { key: route.key })
+      await invoke('open_folder_path', { path: route.value })
     } catch {
       try {
-        await invoke('open_folder_path', { path: route.value })
+        await invoke('open_folder_route', { key: route.key })
       } catch (fallbackError) {
         const message = fallbackError instanceof Error ? fallbackError.message : String(fallbackError)
         setUpdatesStatus(`No se pudo abrir carpeta: ${message}`)
@@ -1155,18 +1172,8 @@ function App() {
     let cancelled = false
 
     const loadInstances = async () => {
-      try {
-        const loadedCards = await invoke<InstanceSummary[]>('list_instances')
-        if (cancelled) return
-        setCards(loadedCards)
-        setSelectedCard((prev) => {
-          if (!prev) return null
-          return loadedCards.find((card) => card.id === prev.id) ?? null
-        })
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        setCreationConsoleLogs((prev) => [...prev, `No se pudieron cargar las instancias guardadas: ${message}`])
-      }
+      await refreshInstances()
+      if (cancelled) return
     }
 
     loadInstances()
@@ -1174,7 +1181,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [refreshInstances])
 
   useEffect(() => {
     let cancelled = false
@@ -2130,7 +2137,6 @@ function App() {
                 >
                   <strong>{card.name}</strong>
                   <span className="instance-group-chip">{card.group}</span>
-                  <small>{card.instanceRoot ?? "Ruta pendiente"}</small>
                 </article>
               ))}
             </div>
@@ -2248,7 +2254,6 @@ function App() {
               <button>Vista</button>
             </header>
 
-            <h2>Panel de Instancias</h2>
             <div className="instances-workspace with-right-panel">
               <div className="cards-grid instances-grid-area">
                 {filteredCards.length === 0 && <article className="instance-card placeholder">No hay instancias para mostrar.</article>}
@@ -2318,7 +2323,6 @@ function App() {
                   </div>
                   <header>
                     <h3>{selectedCard.name}</h3>
-                    <small title={selectedCard.instanceRoot}>Ruta: {selectedCard.instanceRoot ?? '-'}</small>
                   </header>
                   <div className="instance-right-actions">
                     {instanceActions.map((action) => (
