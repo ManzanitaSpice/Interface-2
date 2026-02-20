@@ -6,8 +6,9 @@ use std::{
 
 use tauri::AppHandle;
 
-use crate::infrastructure::filesystem::paths::{
-    default_launcher_root, folder_routes_settings_file, resolve_launcher_root,
+use crate::infrastructure::filesystem::{
+    config::load_launcher_config,
+    paths::{default_launcher_root, folder_routes_settings_file, resolve_launcher_root},
 };
 
 #[derive(serde::Serialize)]
@@ -89,6 +90,15 @@ where
 }
 
 pub fn resolve_instances_root(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Ok(config) = load_launcher_config(app) {
+        if let Some(path) = config.instances_dir_override {
+            let candidate = PathBuf::from(path.trim());
+            if !candidate.as_os_str().is_empty() {
+                return Ok(candidate);
+            }
+        }
+    }
+
     resolve_folder_route(app, "instances", |launcher_root| {
         launcher_root.join("instances")
     })
@@ -280,15 +290,16 @@ fn open_folder_path_internal(path: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn open_folder_route(app: AppHandle, key: String) -> Result<(), String> {
-    let route_path = resolve_folder_route(&app, key.as_str(), |launcher_root| match key.as_str() {
-        "launcher" => launcher_root.to_path_buf(),
-        "instances" => launcher_root.join("instances"),
-        "icons" => launcher_root.join("assets").join("icons"),
-        "java" => launcher_root.join("runtime"),
-        "skins" => launcher_root.join("assets").join("skins"),
-        "downloads" => launcher_root.join("downloads"),
-        _ => launcher_root.to_path_buf(),
-    })?;
+    let route_path =
+        resolve_folder_route(&app, key.as_str(), |launcher_root| match key.as_str() {
+            "launcher" => launcher_root.to_path_buf(),
+            "instances" => launcher_root.join("instances"),
+            "icons" => launcher_root.join("assets").join("icons"),
+            "java" => launcher_root.join("runtime"),
+            "skins" => launcher_root.join("assets").join("skins"),
+            "downloads" => launcher_root.join("downloads"),
+            _ => launcher_root.to_path_buf(),
+        })?;
     open_folder_path_internal(route_path.display().to_string())
 }
 

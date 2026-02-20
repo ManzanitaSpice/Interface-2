@@ -104,6 +104,13 @@ fn runtime_registry() -> &'static Mutex<HashMap<String, RuntimeState>> {
     RUNTIME_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+pub fn has_running_instances() -> Result<bool, String> {
+    let registry = runtime_registry()
+        .lock()
+        .map_err(|_| "No se pudo bloquear el registro de runtime.".to_string())?;
+    Ok(registry.values().any(|state| state.running))
+}
+
 #[tauri::command]
 pub fn get_runtime_status(instance_root: String) -> Result<RuntimeStatus, String> {
     let registry = runtime_registry()

@@ -1,11 +1,24 @@
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use tauri::{path::BaseDirectory, Manager};
 
-use crate::shared::result::AppResult;
+use crate::{infrastructure::filesystem::config::load_launcher_config, shared::result::AppResult};
 
 pub fn resolve_launcher_root(app: &tauri::AppHandle) -> AppResult<PathBuf> {
     let default = default_launcher_root(app)?;
+
+    if let Ok(config) = load_launcher_config(app) {
+        if let Some(override_path) = config.launcher_root_override {
+            let candidate = PathBuf::from(override_path.trim());
+            if !candidate.as_os_str().is_empty() && candidate.exists() {
+                return Ok(candidate);
+            }
+        }
+    }
+
     let file = folder_routes_settings_file(app)?;
     if !file.exists() {
         return Ok(default);
