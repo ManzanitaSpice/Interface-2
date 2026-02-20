@@ -2221,10 +2221,10 @@ fn should_extract_for_platform(filename: &str) -> bool {
 
 fn prepare_natives_dir(natives_dir: &Path) -> Result<(), String> {
     if natives_dir.exists() {
-        let entries = fs::read_dir(natives_dir)
-            .map_err(|err| format!("No se pudo leer natives dir: {err}"))?;
-
-        for entry in entries.flatten() {
+        for entry in fs::read_dir(natives_dir)
+            .map_err(|err| format!("No se pudo leer natives dir: {err}"))?
+            .flatten()
+        {
             let path = entry.path();
             if !path.is_file() {
                 continue;
@@ -2256,9 +2256,10 @@ fn extract_natives(
     logs: &mut Vec<String>,
 ) -> Result<(), String> {
     if natives_dir.exists() {
-        let entries =
-            fs::read_dir(natives_dir).map_err(|err| format!("Error leyendo natives dir: {err}"))?;
-        for entry in entries.flatten() {
+        for entry in fs::read_dir(natives_dir)
+            .map_err(|err| format!("Error leyendo natives dir: {err}"))?
+            .flatten()
+        {
             let path = entry.path();
             if !path.is_file() {
                 continue;
