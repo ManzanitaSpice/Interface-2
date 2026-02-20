@@ -744,7 +744,7 @@ function App() {
     const sanitized = sanitizeFolderRoutes(nextRoutes)
     setFolderRoutes(sanitized)
     persistFolderRoutes(sanitized)
-    await invoke('save_folder_routes', { routes: { routes: sanitized } })
+    await invoke('save_folder_routes', { routes: { routes: sanitized.map(({ key, value }) => ({ key, value })) } })
     await refreshLauncherFolders()
   }
 
