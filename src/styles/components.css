@@ -61,7 +61,6 @@
 }
 
 .instance-card {
-  min-height: 138px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--bg-surface-muted) 95%, black), color-mix(in srgb, var(--bg-surface) 96%, black));
   border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
   border-radius: 0;
@@ -123,7 +122,6 @@
 .instance-card-meta {
   display: grid;
   gap: 0.25rem;
-  margin-top: auto;
 }
 
 .instance-card.clickable {
