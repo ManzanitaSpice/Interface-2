@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashSet, VecDeque},
     fs,
     path::{Path, PathBuf},
     sync::{
@@ -64,6 +64,29 @@ struct DetectionMeta {
 }
 
 static CANCEL_IMPORT: OnceLock<Arc<AtomicBool>> = OnceLock::new();
+
+const INSTANCE_MARKER_FILES: &[&str] = &[
+    "minecraftinstance.json",
+    "mmc-pack.json",
+    "profile.json",
+    "instance.cfg",
+    ".curseclient",
+];
+
+const INSTANCE_MARKER_DIRS: &[&str] = &[".minecraft", "versions"];
+const INSTANCE_HINT_KEYWORDS: &[&str] = &[
+    "instancias",
+    "instances",
+    "instance",
+    "launcher",
+    "minecraft",
+    "modpacks",
+    "prism",
+    "multimc",
+    "curseforge",
+    "curse",
+    "mmc",
+];
 
 fn known_paths() -> Vec<(String, PathBuf)> {
     let mut out = Vec::new();
@@ -132,6 +155,127 @@ fn known_paths() -> Vec<(String, PathBuf)> {
                 "Mojang Official".to_string(),
                 PathBuf::from(&home).join(".minecraft"),
             ));
+        }
+    }
+
+    out
+}
+
+fn has_instance_markers(path: &Path) -> bool {
+    INSTANCE_MARKER_FILES
+        .iter()
+        .any(|file| path.join(file).is_file())
+        || INSTANCE_MARKER_DIRS
+            .iter()
+            .any(|dir| path.join(dir).is_dir())
+}
+
+fn directory_name_looks_like_container(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|value| value.to_str())
+        .map(|value| {
+            let lower = value.to_ascii_lowercase();
+            INSTANCE_HINT_KEYWORDS
+                .iter()
+                .any(|keyword| lower.contains(keyword))
+        })
+        .unwrap_or(false)
+}
+
+fn external_search_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+
+    #[cfg(target_os = "windows")]
+    {
+        for drive in b'A'..=b'Z' {
+            let root = PathBuf::from(format!("{}:\\", drive as char));
+            if root.exists() {
+                roots.push(root);
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        for candidate in ["/media", "/mnt", "/run/media", "/Volumes"] {
+            let path = PathBuf::from(candidate);
+            if path.exists() {
+                roots.push(path);
+            }
+        }
+    }
+
+    if let Ok(home) = std::env::var("HOME") {
+        let home = PathBuf::from(home);
+        roots.push(home.clone());
+        roots.push(home.join("Desktop"));
+        roots.push(home.join("Documents"));
+    }
+
+    roots
+}
+
+fn discover_keyword_scan_paths(
+    base: &Path,
+    max_depth: usize,
+    max_candidates: usize,
+) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut visited = HashSet::new();
+    let mut queue = VecDeque::new();
+    queue.push_back((base.to_path_buf(), 0usize));
+
+    while let Some((current, depth)) = queue.pop_front() {
+        if found.len() >= max_candidates {
+            break;
+        }
+
+        let canonical = fs::canonicalize(&current).unwrap_or(current.clone());
+        if !visited.insert(canonical) {
+            continue;
+        }
+
+        if directory_name_looks_like_container(&current) || has_instance_markers(&current) {
+            found.push(current.clone());
+        }
+
+        if depth >= max_depth {
+            continue;
+        }
+
+        let Ok(entries) = fs::read_dir(&current) else {
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                queue.push_back((path, depth + 1));
+            }
+        }
+    }
+
+    found
+}
+
+fn known_and_discovered_paths() -> Vec<(String, PathBuf)> {
+    let mut out = known_paths();
+    let mut seen = HashSet::new();
+
+    for (_, path) in &out {
+        seen.insert(fs::canonicalize(path).unwrap_or(path.clone()));
+    }
+
+    for base in external_search_roots() {
+        if !base.exists() || !base.is_dir() {
+            continue;
+        }
+
+        for discovered in discover_keyword_scan_paths(&base, 4, 120) {
+            let canonical = fs::canonicalize(&discovered).unwrap_or(discovered.clone());
+            if seen.insert(canonical) {
+                out.push(("Auto detectado".to_string(), discovered));
+            }
         }
     }
 
@@ -241,6 +385,12 @@ fn detect_from_manifest(path: &Path) -> DetectionMeta {
         return meta;
     }
 
+    if path.join(".curseclient").exists() {
+        meta.importable = true;
+        meta.format = Some("curseforge".to_string());
+        return meta;
+    }
+
     if path.join("instance.cfg").exists() {
         meta.importable = true;
         meta.format = Some("instance.cfg".to_string());
@@ -342,7 +492,7 @@ pub fn detect_external_instances(app: AppHandle) -> Result<Vec<DetectedInstance>
     let mut found = Vec::new();
     let mut seen_paths = HashSet::new();
 
-    for (launcher, root) in known_paths() {
+    for (launcher, root) in known_and_discovered_paths() {
         let _ = app.emit(
             "import_scan_progress",
             ScanProgressEvent {
@@ -357,21 +507,20 @@ pub fn detect_external_instances(app: AppHandle) -> Result<Vec<DetectedInstance>
             continue;
         }
 
-        if launcher == "Mojang Official" {
-            let canonical = fs::canonicalize(&root).unwrap_or(root.clone());
-            if seen_paths.insert(canonical) {
-                if let Some(instance) = detect_dir(&root, &launcher) {
-                    let _ = app.emit("import_scan_result", instance.clone());
-                    found.push(instance);
-                }
+        let canonical = fs::canonicalize(&root).unwrap_or(root.clone());
+        if seen_paths.insert(canonical) {
+            if let Some(instance) = detect_dir(&root, &launcher) {
+                let _ = app.emit("import_scan_result", instance.clone());
+                found.push(instance);
             }
-            continue;
         }
 
-        let entries =
-            fs::read_dir(&root).map_err(|e| format!("No se pudo leer {}: {e}", root.display()))?;
+        let entries = match fs::read_dir(&root) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
 
-        for entry in entries {
+        for entry in entries.flatten() {
             if CANCEL_IMPORT
                 .get()
                 .is_some_and(|flag| flag.load(Ordering::Relaxed))
@@ -379,7 +528,6 @@ pub fn detect_external_instances(app: AppHandle) -> Result<Vec<DetectedInstance>
                 return Ok(found);
             }
 
-            let entry = entry.map_err(|e| format!("No se pudo leer entrada: {e}"))?;
             let path = entry.path();
             if !path.is_dir() {
                 continue;
