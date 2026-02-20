@@ -948,6 +948,7 @@ fn install_forge_like_modern(
     let mut command = Command::new(java_exec);
     command
         .env("JAVA_HOME", java_home)
+        .env("JAVA_HOME_OVERRIDE", java_home)
         .arg(format!("-Djava.home={}", java_home.display()))
         .arg("-jar")
         .arg(&installer_jar);
