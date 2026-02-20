@@ -113,10 +113,25 @@
   place-items: center;
 }
 
+.instance-card-icon.hero img,
+.instance-card-icon.hero video,
+.instance-right-hero img,
+.instance-right-hero video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
 .instance-card-title {
   font-size: 0.92rem;
   line-height: 1.2;
   letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .instance-card-header-row strong {
@@ -769,7 +784,7 @@
 .instance-card small {
   color: var(--text-muted);
   font-size: 0.8rem;
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .instance-card-hover-info {
@@ -1140,6 +1155,7 @@
   background: linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 90%, #18263b) 0%, color-mix(in srgb, var(--bg-surface-muted) 92%, #121d2d) 100%);
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
+  border-radius: 0.6rem 0.6rem 0 0;
 }
 
 .skin-editor-workspace.pro {
@@ -1183,6 +1199,13 @@
   overflow: hidden;
 }
 
+.three-preview.fallback {
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  text-align: center;
+}
+
 .right-mode-switch {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1195,7 +1218,7 @@
   padding: 0.42rem 0.6rem;
   border: 1px solid var(--border);
   border-radius: 0.45rem;
-  background: #1b2940;
+  background: linear-gradient(180deg, #243652, #18263b);
   color: var(--text);
 }
 
@@ -1971,13 +1994,30 @@
 
 .explorer-results.tablero {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 0.92fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: .7rem;
+  overflow: auto;
 }
 
 .explorer-results.lista {
   display: grid;
   gap: .6rem;
+}
+
+.explorer-results.lista .explorer-card {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  align-items: start;
+  column-gap: .8rem;
+  max-height: none;
+  padding-bottom: .6rem;
+}
+
+.explorer-results.lista .explorer-card .instance-card-icon.hero {
+  width: 180px;
+  height: 118px;
+  margin: 0;
+  border-radius: .45rem;
 }
 
 .explorer-results.titulos {
@@ -1989,6 +2029,34 @@
 .explorer-results.titulos .explorer-card {
   min-height: auto;
   padding: .5rem .6rem .7rem;
+}
+
+.explorer-description {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.3;
+}
+
+.explorer-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+}
+
+.explorer-tags span {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: .1rem .45rem;
+  font-size: .68rem;
+  color: var(--text-muted);
+}
+
+.instance-export-menu {
+  display: grid;
+  gap: .35rem;
+  margin-top: .25rem;
 }
 
 .explorer-card .instance-card-meta {

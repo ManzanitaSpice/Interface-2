@@ -1,6 +1,8 @@
 pub mod catalog;
+pub mod exports;
 pub mod file_manager;
 pub mod import;
 pub mod settings;
+pub mod visual_meta;
 pub mod skin_processor;
 pub mod validator;

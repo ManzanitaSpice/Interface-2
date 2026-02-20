@@ -44,10 +44,18 @@ const PARTS: Array<{ key: SkinPartKey; label: string }> = [
 
 function SkinCardModelPreview({ src, skinName }: { src?: string; skinName: string }) {
   const mountRef = useRef<HTMLDivElement | null>(null)
+  const canUseWebgl = useMemo(() => {
+    try {
+      const canvas = document.createElement('canvas')
+      return Boolean(canvas.getContext('webgl2') || canvas.getContext('webgl'))
+    } catch {
+      return false
+    }
+  }, [])
 
   useEffect(() => {
     const mount = mountRef.current
-    if (!mount) return
+    if (!mount || !canUseWebgl) return
 
     const scene = new THREE.Scene()
     scene.background = new THREE.Color('#0c111b')
@@ -122,8 +130,11 @@ function SkinCardModelPreview({ src, skinName }: { src?: string; skinName: strin
       texture.dispose()
       mount.innerHTML = ''
     }
-  }, [src])
+  }, [canUseWebgl, src])
 
+  if (!canUseWebgl) {
+    return src ? <img src={src} className="skin-card-preview-face" alt={`Preview de ${skinName}`} /> : <div className="skin-card-preview-model" />
+  }
   return <div ref={mountRef} className="skin-card-preview-model" aria-label={`Preview 3D de ${skinName}`} />
 }
 
@@ -153,6 +164,14 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
   const [ambientIntensity, setAmbientIntensity] = useState(0.7)
   const [rimIntensity, setRimIntensity] = useState(0.35)
   const [previewZoom, setPreviewZoom] = useState(100)
+  const webglAvailable = useMemo(() => {
+    try {
+      const canvas = document.createElement('canvas')
+      return Boolean(canvas.getContext('webgl2') || canvas.getContext('webgl'))
+    } catch {
+      return false
+    }
+  }, [])
 
   const threeRef = useRef<ThreeCtx | null>(null)
   const renderRafRef = useRef<number | null>(null)
@@ -267,7 +286,7 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
   }, [scheduleRender, variant, layerVisibility])
 
   useEffect(() => {
-    if (activePage !== 'Editor de skins') return
+    if (activePage !== 'Editor de skins' || !webglAvailable) return
     const mount = document.getElementById('skin-three-root') as HTMLDivElement | null
     const texCanvas = texCanvasRef.current
     if (!mount || !texCanvas) return
@@ -344,7 +363,7 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
       if (renderRafRef.current) cancelAnimationFrame(renderRafRef.current)
       threeRef.current = null
     }
-  }, [activePage, scheduleRender, texHeight, variant, layerVisibility, ambientIntensity, rimIntensity])
+  }, [activePage, webglAvailable, scheduleRender, texHeight, variant, layerVisibility, ambientIntensity, rimIntensity])
 
   useEffect(() => {
     skins.forEach((item) => {
@@ -621,7 +640,9 @@ export function SkinStudio({ activePage, selectedAccountId, onNavigateEditor }: 
         </aside>
 
         <section className="skin-editor-canvas">
-          <div id="skin-three-root" className="three-preview" onPointerDown={paintFromModelEvent} onPointerMove={(e) => e.buttons === 1 && paintFromModelEvent(e)} />
+          {webglAvailable
+            ? <div id="skin-three-root" className="three-preview" onPointerDown={paintFromModelEvent} onPointerMove={(e) => e.buttons === 1 && paintFromModelEvent(e)} />
+            : <div className="three-preview fallback"><p>WebGL no disponible en este entorno. Puedes seguir editando en el canvas 2D.</p></div>}
         </section>
 
         <aside className="editor-right-sidebar">
