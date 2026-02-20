@@ -268,6 +268,12 @@ type FolderRouteItem = {
   value: string
 }
 
+type FolderRouteMigrationResult = {
+  movedEntries: number
+  skippedEntries: number
+  targetPath: string
+}
+
 type LauncherUpdateItem = {
   version: string
   releaseDate: string
@@ -290,21 +296,38 @@ const languageCatalog = [
   '日本語', '한국어', '简体中文', '繁體中文', 'ไทย', 'Tiếng Việt', 'Bahasa Indonesia', 'Bahasa Melayu', 'Filipino', 'Ελληνικά',
 ]
 
+
+
+const languageLocaleMap: Record<string, string> = {
+  'Español (España)': 'es-ES',
+  'Español (Latinoamérica)': 'es-MX',
+  'English (US)': 'en-US',
+  'English (UK)': 'en-GB',
+  'Português (Brasil)': 'pt-BR',
+  'Português (Portugal)': 'pt-PT',
+  Français: 'fr-FR',
+  Deutsch: 'de-DE',
+  Italiano: 'it-IT',
+  日本語: 'ja-JP',
+  한국어: 'ko-KR',
+  简体中文: 'zh-CN',
+  繁體中文: 'zh-TW',
+}
 const appearancePresets: AppearancePreset[] = [
   {
-    id: 'matte-graphite',
-    name: 'Matte Graphite (Default)',
-    description: 'Tema oscuro profesional con contornos cálidos y alto contraste controlado.',
+    id: 'obsidian-elegance',
+    name: 'Obsidian Elegance (Default)',
+    description: 'Tema oscuro elegante con acento azul nocturno y contraste suave premium.',
     vars: {
-      '--bg-main': '#19191a',
-      '--bg-surface': '#020202',
-      '--bg-surface-muted': '#121213',
-      '--bg-hover': '#373739',
-      '--border': '#ecdda2',
-      '--text-main': '#f2f2f2',
-      '--text-muted': '#b2b2b4',
-      '--accent': '#ecdda2',
-      '--accent-hover': '#f5eac0',
+      '--bg-main': '#111318',
+      '--bg-surface': '#171a21',
+      '--bg-surface-muted': '#1e2430',
+      '--bg-hover': '#273043',
+      '--border': '#3c4a63',
+      '--text-main': '#edf2ff',
+      '--text-muted': '#b7c2d8',
+      '--accent': '#7aa2ff',
+      '--accent-hover': '#9eb9ff',
     },
   },
   {
@@ -396,6 +419,9 @@ const fontOptions: FontOption[] = [
   { id: 'nunito', label: 'Nunito', family: "Nunito, 'Segoe UI', Inter, sans-serif" },
   { id: 'jetbrains', label: 'JetBrains Sans', family: "'JetBrains Sans', 'Segoe UI', Inter, sans-serif" },
   { id: 'fira', label: 'Fira Sans', family: "'Fira Sans', 'Segoe UI', Inter, sans-serif" },
+  { id: 'roboto', label: 'Roboto', family: "Roboto, 'Segoe UI', Inter, sans-serif" },
+  { id: 'source', label: 'Source Sans 3', family: "'Source Sans 3', 'Segoe UI', Inter, sans-serif" },
+  { id: 'manrope', label: 'Manrope', family: "Manrope, 'Segoe UI', Inter, sans-serif" },
 ]
 
 const launcherUpdatesUrl = 'https://github.com/TU_USUARIO/TU_REPO/releases'
@@ -410,6 +436,7 @@ const managedAccountsKey = 'launcher_managed_accounts_v1'
 const instanceVisualMetaKey = 'launcher_instance_visual_meta_v1'
 const folderRoutesKey = 'launcher_folder_routes_v1'
 const appearanceSettingsKey = 'launcher_appearance_settings_v1'
+const languageSettingsKey = 'launcher_language_settings_v1'
 const authCodeRegenerateCooldownMs = 10_000
 
 const defaultFolderRoutes: FolderRouteItem[] = [
@@ -457,9 +484,9 @@ function makeConsoleEntry(level: ConsoleLevel, source: ConsoleSource, message: s
   return { timestamp: nowTimestamp(), level, source, message }
 }
 
-function formatIsoDate(iso: string): string {
+function formatIsoDate(iso: string, locale = 'es-ES'): string {
   if (!iso) return '-'
-  return new Date(iso).toLocaleDateString('es-ES')
+  return new Date(iso).toLocaleDateString(locale)
 }
 
 function toJavaMajorOrUndefined(value: number | undefined): number | undefined {
@@ -563,6 +590,7 @@ function App() {
   const [selectedSettingsTab, setSelectedSettingsTab] = useState<InstanceSettingsTab>('General')
   const [selectedGlobalSettingsTab, setSelectedGlobalSettingsTab] = useState<GlobalSettingsTab>('General')
   const [selectedLanguage, setSelectedLanguage] = useState(languageCatalog[0])
+  const [languageSearch, setLanguageSearch] = useState('')
   const [selectedAppearancePreset, setSelectedAppearancePreset] = useState(appearancePresets[0].id)
   const [selectedFontFamily, setSelectedFontFamily] = useState(fontOptions[0].family)
   const [uiScalePercent, setUiScalePercent] = useState(100)
@@ -599,6 +627,7 @@ function App() {
   const [authStatus, setAuthStatus] = useState('')
   const [authError, setAuthError] = useState('')
   const creationIconInputRef = useRef<HTMLInputElement | null>(null)
+  const selectedCardIconInputRef = useRef<HTMLInputElement | null>(null)
   const creationConsoleRef = useRef<HTMLDivElement | null>(null)
   const runtimeConsoleRef = useRef<HTMLDivElement | null>(null)
   const playtimeStartRef = useRef<number | null>(null)
@@ -673,10 +702,33 @@ function App() {
       })
       if (!result.path) return
       updateFolderRouteValue(route.key, result.path)
+      const nextRoutes = folderRoutes.map((item) => item.key === route.key ? { ...item, value: result.path ?? item.value } : item)
+      await invoke('save_folder_routes', { routes: { routes: nextRoutes } })
       setUpdatesStatus(`Ruta actualizada: ${route.label}`)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setUpdatesStatus(`No se pudo seleccionar carpeta: ${message}`)
+    }
+  }
+
+
+  const openRouteFolder = async (route: FolderRouteItem) => {
+    try {
+      await invoke('open_folder_path', { path: route.value })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setUpdatesStatus(`No se pudo abrir carpeta: ${message}`)
+    }
+  }
+
+  const migrateInstancesFolder = async (route: FolderRouteItem) => {
+    try {
+      const result = await invoke<FolderRouteMigrationResult>('migrate_instances_folder', { targetPath: route.value })
+      await invoke('save_folder_routes', { routes: { routes: folderRoutes } })
+      setUpdatesStatus(`Migración completada. Movidos: ${result.movedEntries}, omitidos: ${result.skippedEntries}.`) 
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setUpdatesStatus(`Error de migración: ${message}`)
     }
   }
 
@@ -785,6 +837,9 @@ function App() {
 
   const authRetrySeconds = Math.max(0, Math.ceil((authRetryAt - nowTick) / 1000))
   const isAuthCooldown = authRetrySeconds > 0
+
+  const selectedLocale = languageLocaleMap[selectedLanguage] ?? 'es-ES'
+  const filteredLanguages = languageCatalog.filter((lang) => lang.toLowerCase().includes(languageSearch.trim().toLowerCase()))
 
 
 
@@ -1554,6 +1609,27 @@ function App() {
     }
   }
 
+  const uploadSelectedCardIcon = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file || !selectedCard) return
+    if (!file.type.startsWith('image/')) return
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const data = typeof reader.result === 'string' ? reader.result : ''
+      if (!data) return
+      setInstanceVisualMeta((prev) => ({
+        ...prev,
+        [selectedCard.id]: {
+          ...(prev[selectedCard.id] ?? {}),
+          icon: data,
+        },
+      }))
+    }
+    reader.readAsDataURL(file)
+    event.target.value = ''
+  }
+
   const uploadInstanceIcon = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
@@ -1845,6 +1921,19 @@ function App() {
     }
   }, [])
 
+
+  useEffect(() => {
+    const raw = localStorage.getItem(languageSettingsKey)
+    if (!raw) return
+    if (languageCatalog.includes(raw)) {
+      setSelectedLanguage(raw)
+    }
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem(languageSettingsKey, selectedLanguage)
+  }, [selectedLanguage])
+
   useEffect(() => {
     const raw = localStorage.getItem(appearanceSettingsKey)
     if (!raw) {
@@ -2129,7 +2218,7 @@ function App() {
                           const hoverInfo: InstanceHoverInfo = {
                             size: '-',
                             createdAt: '-',
-                            lastUsedAt: metadata?.lastUsed ? formatIsoDate(metadata.lastUsed) : '-',
+                            lastUsedAt: metadata?.lastUsed ? formatIsoDate(metadata.lastUsed, selectedLocale) : '-',
                             author: 'INTERFACE',
                             modsCount: '-',
                           }
@@ -2160,7 +2249,8 @@ function App() {
 
               {selectedCard && (
                 <aside className="instance-right-panel">
-                  <div className="instance-right-hero" style={instanceVisualMeta[selectedCard.id]?.icon ? { backgroundImage: `url(${instanceVisualMeta[selectedCard.id]?.icon})` } : undefined} aria-hidden="true">
+                  <input ref={selectedCardIconInputRef} type="file" accept="image/*" hidden onChange={(event) => void uploadSelectedCardIcon(event)} />
+                  <div className="instance-right-hero clickable" onClick={() => selectedCardIconInputRef.current?.click()} style={instanceVisualMeta[selectedCard.id]?.icon ? { backgroundImage: `url(${instanceVisualMeta[selectedCard.id]?.icon})` } : undefined} aria-hidden="true">
                     {!instanceVisualMeta[selectedCard.id]?.icon ? '🧱' : ''}
                   </div>
                   <header>
@@ -2266,7 +2356,7 @@ function App() {
                 <article key={`${news.title}-${news.date}`} className="news-card">
                   <span className="news-chip">{news.category}</span>
                   <h3>{news.title}</h3>
-                  <small>{formatIsoDate(news.date)}</small>
+                  <small>{formatIsoDate(news.date, selectedLocale)}</small>
                   <p>{news.summary}</p>
                 </article>
               ))}
@@ -2311,6 +2401,7 @@ function App() {
                 <article className="global-setting-item">
                   <h3>Updates</h3>
                   <p>Canal de actualizaciones preparado para flujo con GitHub Releases + updater nativo Tauri.</p>
+                  <small>Interfaz de usuario: Próximamente integración avanzada en este mismo panel.</small>
                   <button className="primary" onClick={() => navigateToPage('Updates')}>Abrir panel de updates</button>
                 </article>
                 <article className="global-setting-item folder-routes-card">
@@ -2324,7 +2415,11 @@ function App() {
                           <p>{route.description}</p>
                           <code>{route.value}</code>
                         </div>
-                        <button onClick={() => void pickFolderRoute(route)}>Seleccionar carpeta</button>
+                        <div className="folder-route-actions">
+                          <button onClick={() => void pickFolderRoute(route)}>Setear</button>
+                          <button onClick={() => void openRouteFolder(route)}>Abrir</button>
+                          {route.key === 'instances' && <button className="primary" onClick={() => void migrateInstancesFolder(route)}>Migrar</button>}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -2338,12 +2433,24 @@ function App() {
             )}
 
             {selectedGlobalSettingsTab === 'Idioma' && (
-              <section className="global-settings-list language-list">
-                {languageCatalog.map((lang) => (
-                  <button key={lang} className={selectedLanguage === lang ? 'active' : ''} onClick={() => setSelectedLanguage(lang)}>
-                    {lang}
-                  </button>
-                ))}
+              <section className="global-settings-list language-settings-elegant">
+                <header className="language-toolbar">
+                  <input
+                    type="search"
+                    value={languageSearch}
+                    onChange={(event) => setLanguageSearch(event.target.value)}
+                    placeholder="Buscar idioma"
+                    aria-label="Buscar idioma"
+                  />
+                  <span>Actual: <strong>{selectedLanguage}</strong></span>
+                </header>
+                <div className="language-list">
+                  {filteredLanguages.map((lang) => (
+                    <button key={lang} className={selectedLanguage === lang ? 'active' : ''} onClick={() => setSelectedLanguage(lang)}>
+                      {lang}
+                    </button>
+                  ))}
+                </div>
               </section>
             )}
 
