@@ -12,6 +12,11 @@ use std::{
 use tauri::{AppHandle, Emitter, Manager};
 use uuid::Uuid;
 
+use crate::{
+    domain::models::instance::InstanceMetadata,
+    infrastructure::filesystem::paths::sanitize_path_segment,
+};
+
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DetectedInstance {
@@ -798,10 +803,7 @@ pub fn import_specific(path: String) -> Result<Vec<DetectedInstance>, String> {
 
 #[tauri::command]
 pub fn execute_import(app: AppHandle, requests: Vec<ImportRequest>) -> Result<(), String> {
-    use crate::{
-        app::settings_service::resolve_instances_root, domain::models::instance::InstanceMetadata,
-        infrastructure::filesystem::paths::sanitize_path_segment,
-    };
+    use crate::app::settings_service::resolve_instances_root;
 
     fn copy_recursive_limited(
         src: &Path,

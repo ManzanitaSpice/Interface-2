@@ -1,73 +1,124 @@
-# React + TypeScript + Vite
+# INTERFACE
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
-si
-Currently, two official plugins are available:
+**INTERFACE** es un launcher de escritorio multiplataforma con arquitectura híbrida **Tauri + React + Rust**, diseñado para gestionar instancias, importar perfiles existentes y ejecutar entornos de juego con enfoque en estabilidad, rendimiento y seguridad.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Qué es INTERFACE
 
-## React Compiler
+INTERFACE centraliza en una sola aplicación:
 
-The React Compiler is currently not compatible with SWC. See [this issue](https://github.com/vitejs/vite-plugin-react/issues/428) for tracking the progress.
+- Gestión de instancias locales.
+- Importación y migración de instancias desde carpetas externas.
+- Descarga/verificación de archivos necesarios.
+- Configuración de Java, memoria y parámetros de ejecución.
+- Herramientas visuales adicionales (por ejemplo, editor/estudio de skins).
 
-## Expanding the ESLint configuration
+## Funciones principales
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- **Explorador de instancias** con flujo de administración y apertura de carpetas.
+- **Sistema de importación** con escaneo, detección y ejecución por lotes.
+- **Instalación/gestión de loaders** y componentes de runtime.
+- **Gestión de versiones y servicios** de autenticación, ajustes y lanzamiento.
+- **Descargador con integridad** (hash/checksum) y utilidades de caché.
+- **Bloqueo de archivos y operaciones seguras de FS** para evitar corrupción de datos.
+- **UI moderna** en React con estado global y experiencia de escritorio vía Tauri.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Lenguajes y tecnologías usadas
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+### Frontend
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+- **TypeScript**
+- **React 19**
+- **Vite**
+- **Zustand**
+- **Three.js** (módulos visuales)
+
+### Backend / Core
+
+- **Rust (edition 2021)**
+- **Tauri 2**
+- **Tokio** (concurrencia async)
+- **Reqwest + Rustls** (HTTP/TLS)
+- **Serde / Serde JSON**
+- **SHA-1 / SHA-2** para verificación de integridad
+
+## Métodos y arquitectura implementados
+
+- **Arquitectura por capas**:
+  - `commands` (API invocable desde UI)
+  - `app` (servicios de dominio de aplicación)
+  - `domain` (modelos y lógica de negocio)
+  - `infrastructure` (filesystem, descarga, caché, checksum)
+  - `runtime` (procesos, memoria, entorno)
+- **Validación y saneamiento de rutas/nombres** para prevenir rutas inválidas.
+- **Copias controladas por límites** durante importaciones masivas.
+- **Persistencia explícita de metadata** por instancia para trazabilidad.
+- **Emisión de eventos de progreso** entre backend y frontend para seguimiento en tiempo real.
+
+## Rendimiento y seguridad (comparativa general)
+
+Sin mencionar marcas concretas, INTERFACE implementa mejoras que, en términos generales, suelen superar a launchers tradicionales en:
+
+### Rendimiento
+
+- **Core nativo en Rust**: menor sobrecarga de CPU/RAM frente a soluciones puramente interpretadas.
+- **Concurrencia eficiente (Tokio)** para I/O y descargas paralelas.
+- **Caché y cola de descargas** para reducir trabajo repetido.
+- **Gestión segmentada de archivos** en importaciones (evita cargas innecesarias).
+
+### Seguridad e integridad
+
+- **Verificación por checksum/hash** de archivos críticos descargados.
+- **Uso de TLS moderno (Rustls)** en comunicaciones HTTP seguras.
+- **Saneamiento de nombres y rutas** para mitigar path traversal y errores de escritura.
+- **Operaciones de filesystem con lock y validaciones** para reducir corrupción o estados inconsistentes.
+
+## Instalación (desarrollo)
+
+### Requisitos
+
+- **Node.js** (recomendado LTS)
+- **npm**
+- **Rust toolchain** (`rustup`, `cargo`)
+- Dependencias de sistema requeridas por **Tauri 2** según tu SO
+
+### Pasos
+
+```bash
+# 1) Clonar repositorio
+git clone <URL_DEL_REPOSITORIO>
+cd Interface-2
+
+# 2) Instalar dependencias de frontend
+npm install
+
+# 3) Ejecutar en modo desarrollo
+npm run tauri dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Compilación
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### Build del frontend
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run build
 ```
+
+### Build de aplicación de escritorio (Tauri)
+
+```bash
+npm run tauri build
+```
+
+Los artefactos finales se generan mediante el pipeline de Tauri en `src-tauri` según la plataforma objetivo.
+
+## Estructura base del proyecto
+
+```text
+src/                  # Frontend React/TypeScript
+src-tauri/src/        # Backend Rust (commands, app, domain, infrastructure, runtime)
+src-tauri/tauri.conf.json
+```
+
+## Estado del proyecto
+
+INTERFACE está orientado a evolución continua. Se recomienda mantener dependencias actualizadas y validar cambios con lint/build antes de publicar.
