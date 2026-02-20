@@ -49,6 +49,28 @@ pub struct ImportRequest {
     copy_logs: bool,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportActionRequest {
+    detected_instance_id: String,
+    source_path: String,
+    target_name: String,
+    target_group: String,
+    minecraft_version: String,
+    loader: String,
+    loader_version: String,
+    action: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportActionResult {
+    success: bool,
+    target_name: String,
+    target_path: Option<String>,
+    error: Option<String>,
+}
+
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ScanProgressEvent {
@@ -935,6 +957,55 @@ pub fn execute_import(app: AppHandle, requests: Vec<ImportRequest>) -> Result<()
         }
     }
     Ok(())
+}
+
+
+#[tauri::command]
+pub fn execute_import_action(app: AppHandle, request: ImportActionRequest) -> Result<ImportActionResult, String> {
+    let action = request.action.trim().to_ascii_lowercase();
+
+    if action == "abrir_carpeta" {
+        crate::app::instance_service::open_instance_folder(request.source_path.clone())?;
+        return Ok(ImportActionResult {
+            success: true,
+            target_name: request.target_name,
+            target_path: Some(request.source_path),
+            error: None,
+        });
+    }
+
+    let import_request = ImportRequest {
+        detected_instance_id: request.detected_instance_id,
+        source_path: request.source_path.clone(),
+        target_name: request.target_name.clone(),
+        target_group: request.target_group,
+        minecraft_version: request.minecraft_version,
+        loader: request.loader,
+        loader_version: request.loader_version,
+        ram_mb: 4096,
+        copy_mods: true,
+        copy_worlds: true,
+        copy_resourcepacks: true,
+        copy_screenshots: true,
+        copy_logs: false,
+    };
+
+    execute_import(app.clone(), vec![import_request])?;
+
+    if action == "migrar" {
+        let source_path = PathBuf::from(&request.source_path);
+        if source_path.exists() && source_path.is_dir() {
+            fs::remove_dir_all(&source_path)
+                .map_err(|err| format!("No se pudo eliminar la instancia original tras migrar: {err}"))?;
+        }
+    }
+
+    Ok(ImportActionResult {
+        success: true,
+        target_name: request.target_name,
+        target_path: None,
+        error: None,
+    })
 }
 
 #[tauri::command]

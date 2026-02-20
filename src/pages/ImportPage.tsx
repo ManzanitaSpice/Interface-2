@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core'
 import { useMemo, useState } from 'react'
 import { DetectedInstanceCard } from '../components/import/DetectedInstanceCard'
 import { ImportProgressModal } from '../components/import/ImportProgressModal'
@@ -6,13 +7,75 @@ import { ImportToolbar } from '../components/import/ImportToolbar'
 import { ScanStatusBar } from '../components/import/ScanStatusBar'
 import { useImportExecution } from '../hooks/useImportExecution'
 import { useImportScanner } from '../hooks/useImportScanner'
+import type { ImportAction, ImportRequest } from '../types/import'
 
-export function ImportPage() {
+type Props = {
+  onInstancesChanged?: () => Promise<void> | void
+}
+
+export function ImportPage({ onInstancesChanged }: Props) {
   const { instances, status, progressPercent, scanLogs, isScanning, scan, clear } = useImportScanner()
   const { running, message, execute } = useImportExecution()
   const [selected, setSelected] = useState<string[]>([])
 
   const selectedItems = useMemo(() => instances.filter((item) => selected.includes(item.id)), [instances, selected])
+
+  const buildImportRequests = (items = selectedItems): ImportRequest[] => items.filter((item) => item.importable).map((item) => ({
+    detectedInstanceId: item.id,
+    sourcePath: item.sourcePath,
+    targetName: item.name,
+    targetGroup: 'Importadas',
+    minecraftVersion: item.minecraftVersion,
+    loader: item.loader,
+    loaderVersion: item.loaderVersion,
+    ramMb: 4096,
+    copyMods: true,
+    copyWorlds: true,
+    copyResourcepacks: true,
+    copyScreenshots: false,
+    copyLogs: false,
+  }))
+
+  const runImport = async (requests: ImportRequest[]) => {
+    if (requests.length === 0) return
+    await execute(requests)
+    await onInstancesChanged?.()
+  }
+
+  const executeAction = async (action: ImportAction) => {
+    for (const item of selectedItems.filter((entry) => entry.importable)) {
+      await invoke('execute_import_action', {
+        request: {
+          detectedInstanceId: item.id,
+          sourcePath: item.sourcePath,
+          targetName: action === 'clonar' ? `${item.name}-copia` : item.name,
+          targetGroup: action === 'migrar' ? 'Migradas' : 'Importadas',
+          minecraftVersion: item.minecraftVersion,
+          loader: item.loader,
+          loaderVersion: item.loaderVersion,
+          action,
+        },
+      })
+    }
+    await onInstancesChanged?.()
+  }
+
+  const openSelectedFolder = async () => {
+    const first = selectedItems[0]
+    if (!first) return
+    await invoke('execute_import_action', {
+      request: {
+        detectedInstanceId: first.id,
+        sourcePath: first.sourcePath,
+        targetName: first.name,
+        targetGroup: 'Importadas',
+        minecraftVersion: first.minecraftVersion,
+        loader: first.loader,
+        loaderVersion: first.loaderVersion,
+        action: 'abrir_carpeta',
+      },
+    })
+  }
 
   return (
     <main className="content content-padded">
@@ -41,21 +104,11 @@ export function ImportPage() {
           <ImportSidePanel
             selectedCount={selected.length}
             canImport={selectedItems.some((item) => item.importable)}
-            onImport={() => void execute(selectedItems.filter((item) => item.importable).map((item) => ({
-              detectedInstanceId: item.id,
-              sourcePath: item.sourcePath,
-              targetName: item.name,
-              targetGroup: 'Importadas',
-              minecraftVersion: item.minecraftVersion,
-              loader: item.loader,
-              loaderVersion: item.loaderVersion,
-              ramMb: 4096,
-              copyMods: true,
-              copyWorlds: true,
-              copyResourcepacks: true,
-              copyScreenshots: false,
-              copyLogs: false,
-            })))}
+            onImport={() => void runImport(buildImportRequests())}
+            onClone={() => void executeAction('clonar')}
+            onMigrate={() => void executeAction('migrar')}
+            onRun={() => void executeAction('ejecutar')}
+            onOpenFolder={() => void openSelectedFolder()}
             onClear={() => setSelected([])}
           />
         </div>
