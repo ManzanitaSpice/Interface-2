@@ -596,6 +596,25 @@ function mediaTypeFromMime(mime?: string): 'video' | 'image' {
   return mime.startsWith('video/') ? 'video' : 'image'
 }
 
+function inferMimeFromName(fileName: string): string | undefined {
+  const ext = fileName.split('.').pop()?.toLowerCase()
+  if (!ext) return undefined
+  if (ext === 'png') return 'image/png'
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg'
+  if (ext === 'gif') return 'image/gif'
+  if (ext === 'webp') return 'image/webp'
+  if (ext === 'mp4') return 'video/mp4'
+  return undefined
+}
+
+function mediaTypeFromMeta(meta?: InstanceVisualMeta): 'video' | 'image' {
+  const mime = meta?.mediaMime?.toLowerCase()
+  if (mime) return mediaTypeFromMime(mime)
+  const path = meta?.mediaPath?.toLowerCase() ?? meta?.mediaDataUrl?.toLowerCase() ?? ''
+  if (path.includes('.mp4') || path.startsWith('data:video/')) return 'video'
+  return 'image'
+}
+
 function App() {
   const [activePage, setActivePage] = useState<MainPage>('Mis Modpacks')
   const [backHistory, setBackHistory] = useState<MainPage[]>([])
@@ -1011,7 +1030,11 @@ function App() {
   }, [])
 
   useEffect(() => {
-    localStorage.setItem(instanceVisualMetaKey, JSON.stringify(instanceVisualMeta))
+    try {
+      localStorage.setItem(instanceVisualMetaKey, JSON.stringify(instanceVisualMeta))
+    } catch {
+      setCreationConsoleLogs((prev) => [...prev, 'Aviso: no se pudo persistir metadata visual localmente (almacenamiento lleno).'])
+    }
   }, [instanceVisualMeta])
 
   useEffect(() => {
@@ -1772,7 +1795,13 @@ function App() {
   const uploadSelectedCardIcon = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file || !selectedCard) return
-    if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) return
+
+    const normalizedMime = file.type || inferMimeFromName(file.name) || ''
+    const isSupported = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'video/mp4'].includes(normalizedMime)
+    if (!isSupported) {
+      setCreationConsoleLogs((prev) => [...prev, `Error: formato no soportado (${file.name}). Usa PNG, JPG, JPEG, GIF, WEBP o MP4.`])
+      return
+    }
 
     try {
       const bytes = Array.from(new Uint8Array(await file.arrayBuffer()))
@@ -1784,19 +1813,22 @@ function App() {
           bytes,
         })
       }
-      const data = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
-        reader.onerror = () => reject(new Error('No se pudo leer el archivo visual.'))
-        reader.readAsDataURL(file)
-      })
+      const shouldStoreInline = !mediaPath && normalizedMime.startsWith('image/')
+      const data = shouldStoreInline
+        ? await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+          reader.onerror = () => reject(new Error('No se pudo leer el archivo visual.'))
+          reader.readAsDataURL(file)
+        })
+        : ''
       setInstanceVisualMeta((prev) => ({
         ...prev,
         [selectedCard.id]: {
           ...(prev[selectedCard.id] ?? {}),
-          mediaDataUrl: data || prev[selectedCard.id]?.mediaDataUrl,
+          mediaDataUrl: data || undefined,
           mediaPath: mediaPath ?? prev[selectedCard.id]?.mediaPath,
-          mediaMime: file.type,
+          mediaMime: normalizedMime,
         },
       }))
     } catch (error) {
@@ -2476,7 +2508,7 @@ function App() {
                           : '🟩 Vanilla'
                   const cardLoaderVersion = metadata?.loaderVersion ?? ''
                   const mediaDataUrl = resolveVisualMedia(visual)
-                  const mediaType = mediaTypeFromMime(visual?.mediaMime)
+                  const mediaType = mediaTypeFromMeta(visual)
 
                   return (
                     <motion.article
@@ -2536,7 +2568,7 @@ function App() {
                   <div className="instance-right-hero clickable" onClick={() => selectedCardIconInputRef.current?.click()} aria-hidden="true">
                     {(() => {
                       const media = resolveVisualMedia(instanceVisualMeta[selectedCard.id])
-                      const type = mediaTypeFromMime(instanceVisualMeta[selectedCard.id]?.mediaMime)
+                      const type = mediaTypeFromMeta(instanceVisualMeta[selectedCard.id])
                       if (!media) return '🧱'
                       return type === 'video' ? <video src={media} muted loop autoPlay playsInline /> : <img src={media} alt="" loading="lazy" />
                     })()}

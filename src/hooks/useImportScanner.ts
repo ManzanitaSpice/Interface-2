@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { DetectedInstance } from '../types/import'
 
 type ScanProgress = {
@@ -35,6 +35,7 @@ export function useImportScanner() {
   const [scanLogs, setScanLogs] = useState<string[]>([])
   const [isScanning, setIsScanning] = useState(false)
   const [keepDetected, setKeepDetected] = useState(true)
+  const lastProgressLogAtRef = useRef(0)
 
   useEffect(() => {
     try {
@@ -64,9 +65,12 @@ export function useImportScanner() {
 
     void listen<ScanProgress>('import_scan_progress', (event) => {
       const payload = event.payload
-      setStatus(payload.message)
-      setProgressPercent(payload.progressPercent ?? 0)
+      setStatus((prev) => (prev === payload.message ? prev : payload.message))
+      setProgressPercent((prev) => (prev === (payload.progressPercent ?? 0) ? prev : (payload.progressPercent ?? 0)))
       if (payload.currentPath) {
+        const now = Date.now()
+        if (now - lastProgressLogAtRef.current < 120) return
+        lastProgressLogAtRef.current = now
         const line = `${payload.message} ${payload.currentPath}`
         setScanLogs((prev) => {
           if (prev[prev.length - 1] === line) return prev

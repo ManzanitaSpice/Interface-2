@@ -164,6 +164,10 @@ const SCAN_SKIP_DIR_NAMES: &[&str] = &[
     "System Volume Information",
 ];
 
+const MAX_DISCOVERY_VISITED_DIRS: usize = 1_200;
+const MAX_ROOT_CHILDREN_TO_SCAN: usize = 600;
+const SCAN_PROGRESS_EMIT_INTERVAL: usize = 25;
+
 fn known_paths() -> Vec<(String, PathBuf)> {
     let mut out = Vec::new();
 
@@ -311,6 +315,9 @@ fn discover_keyword_scan_paths(
     queue.push_back((base.to_path_buf(), 0usize));
 
     while let Some((current, depth)) = queue.pop_front() {
+        if visited.len() >= MAX_DISCOVERY_VISITED_DIRS {
+            break;
+        }
         if found.len() >= max_candidates {
             break;
         }
@@ -347,6 +354,9 @@ fn should_skip_scan_dir(path: &Path) -> bool {
     path.file_name()
         .and_then(|value| value.to_str())
         .map(|value| {
+            if value.starts_with('.') {
+                return true;
+            }
             SCAN_SKIP_DIR_NAMES
                 .iter()
                 .any(|skip| value.eq_ignore_ascii_case(skip))
@@ -367,7 +377,7 @@ fn known_and_discovered_paths() -> Vec<(String, PathBuf)> {
             continue;
         }
 
-        for discovered in discover_keyword_scan_paths(&base, 3, 40) {
+        for discovered in discover_keyword_scan_paths(&base, 2, 24) {
             let canonical = fs::canonicalize(&discovered).unwrap_or(discovered.clone());
             if seen.insert(canonical) {
                 out.push(("Auto detectado".to_string(), discovered));
@@ -824,6 +834,7 @@ pub fn detect_external_instances(app: AppHandle) -> Result<Vec<DetectedInstance>
             Err(_) => continue,
         };
 
+        let mut scanned_children = 0usize;
         for entry in entries.flatten() {
             if CANCEL_IMPORT
                 .get()
@@ -832,26 +843,34 @@ pub fn detect_external_instances(app: AppHandle) -> Result<Vec<DetectedInstance>
                 return Ok(found);
             }
 
+            if scanned_children >= MAX_ROOT_CHILDREN_TO_SCAN {
+                break;
+            }
+
             let path = entry.path();
             if !path.is_dir() {
                 continue;
             }
 
+            scanned_children += 1;
+
             if should_skip_scan_dir(&path) {
                 continue;
             }
 
-            let _ = app.emit(
-                "import_scan_progress",
-                ScanProgressEvent {
-                    stage: format!("scanning_{}", launcher.to_lowercase().replace(' ', "_")),
-                    message: "Escaneando carpeta...".to_string(),
-                    found_so_far: found.len(),
-                    current_path: path.display().to_string(),
-                    progress_percent: percent.min(99) as u8,
-                    total_targets,
-                },
-            );
+            if scanned_children % SCAN_PROGRESS_EMIT_INTERVAL == 0 {
+                let _ = app.emit(
+                    "import_scan_progress",
+                    ScanProgressEvent {
+                        stage: format!("scanning_{}", launcher.to_lowercase().replace(' ', "_")),
+                        message: "Escaneando carpeta...".to_string(),
+                        found_so_far: found.len(),
+                        current_path: path.display().to_string(),
+                        progress_percent: percent.min(99) as u8,
+                        total_targets,
+                    },
+                );
+            }
 
             let canonical = fs::canonicalize(&path).unwrap_or(path.clone());
             if !seen_paths.insert(canonical) {
