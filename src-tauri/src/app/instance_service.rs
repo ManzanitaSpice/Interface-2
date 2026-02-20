@@ -540,6 +540,7 @@ en ningún JAR del classpath del loader '{}'.\n{}",
     };
     let mut classpath_entries = resolved_libraries.classpath_entries.clone();
     classpath_entries.push(client_jar.display().to_string());
+    verify_no_duplicate_classpath_entries(&classpath_entries, &mut logs)?;
     let classpath = classpath_entries.join(sep);
     if classpath.trim().is_empty() {
         return Err("Classpath vacío luego del ensamblado final.".to_string());
@@ -1656,9 +1657,43 @@ fn merge_version_jsons(parent: serde_json::Value, child: serde_json::Value) -> s
                     .unwrap_or_default();
                 let child_libs = child_val.as_array().cloned().unwrap_or_default();
 
-                let mut merged = parent_libs;
-                merged.extend(child_libs);
-                result.insert("libraries".to_string(), Value::Array(merged));
+                fn extract_maven_key(lib: &Value) -> Option<String> {
+                    let name = lib.get("name")?.as_str()?;
+                    let mut parts = name.splitn(3, ':');
+                    let group = parts.next()?;
+                    let artifact = parts.next()?;
+                    Some(format!("{group}:{artifact}"))
+                }
+
+                let mut deduped = Vec::with_capacity(child_libs.len() + parent_libs.len());
+                let mut seen_keys = std::collections::HashSet::new();
+                let mut fallback_idx = 0usize;
+
+                for lib in &child_libs {
+                    let key = extract_maven_key(lib).unwrap_or_else(|| {
+                        let key = format!("__unknown_{fallback_idx}");
+                        fallback_idx += 1;
+                        key
+                    });
+
+                    if seen_keys.insert(key) {
+                        deduped.push(lib.clone());
+                    }
+                }
+
+                for lib in &parent_libs {
+                    let key = extract_maven_key(lib).unwrap_or_else(|| {
+                        let key = format!("__unknown_{fallback_idx}");
+                        fallback_idx += 1;
+                        key
+                    });
+
+                    if seen_keys.insert(key) {
+                        deduped.push(lib.clone());
+                    }
+                }
+
+                result.insert("libraries".to_string(), Value::Array(deduped));
             }
             "arguments" => {
                 let parent_arguments = result
@@ -1914,12 +1949,76 @@ fn resolve_libraries(
         }
     }
 
+    let mut seen_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
+    classpath_entries.retain(|path| {
+        let normalized = path.replace('/', std::path::MAIN_SEPARATOR_STR);
+        seen_paths.insert(normalized)
+    });
+
+    let mut seen_natives: std::collections::HashSet<String> = std::collections::HashSet::new();
+    native_jars.retain(|entry| {
+        let normalized = entry.path.replace('/', std::path::MAIN_SEPARATOR_STR);
+        seen_natives.insert(normalized)
+    });
+
     ResolvedLibraries {
         classpath_entries,
         missing_classpath_entries,
         native_jars,
         missing_native_entries,
     }
+}
+
+fn verify_no_duplicate_classpath_entries(
+    classpath_entries: &[String],
+    logs: &mut Vec<String>,
+) -> Result<(), String> {
+    use std::collections::{HashMap, HashSet};
+
+    let mut counts: HashMap<String, usize> = HashMap::new();
+
+    for path in classpath_entries {
+        let normalized = path
+            .replace('/', std::path::MAIN_SEPARATOR_STR)
+            .to_ascii_lowercase();
+        *counts.entry(normalized).or_insert(0) += 1;
+    }
+
+    let duplicates: Vec<&String> = classpath_entries
+        .iter()
+        .filter(|path| {
+            let normalized = path
+                .replace('/', std::path::MAIN_SEPARATOR_STR)
+                .to_ascii_lowercase();
+            counts.get(&normalized).copied().unwrap_or(0) > 1
+        })
+        .collect();
+
+    if duplicates.is_empty() {
+        logs.push(format!(
+            "✔ Classpath verificado: {} entradas, sin duplicados.",
+            classpath_entries.len()
+        ));
+        return Ok(());
+    }
+
+    let mut unique_dupes: HashSet<String> = HashSet::new();
+    for path in &duplicates {
+        let filename = std::path::Path::new(path)
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        unique_dupes.insert(filename);
+    }
+
+    Err(format!(
+        "Classpath contiene {} entradas duplicadas que causarán \\n         'Duplicate key' en BootstrapLauncher de NeoForge/Forge.\n\n\
+         JARs duplicados: {}\n\n\
+         Causa: merge_version_jsons() no deduplicó libraries correctamente.",
+        duplicates.len(),
+        unique_dupes.into_iter().collect::<Vec<_>>().join(", ")
+    ))
 }
 
 fn validate_jars_as_zip(jars: &[PathBuf]) -> Result<(), String> {
@@ -2095,7 +2194,7 @@ fn persist_instance_java_path(
 mod tests {
     use super::{
         build_maven_library_path, contains_classpath_switch, merge_version_jsons,
-        parse_runtime_from_metadata, parse_runtime_major,
+        parse_runtime_from_metadata, parse_runtime_major, verify_no_duplicate_classpath_entries,
     };
     use crate::domain::models::{instance::InstanceMetadata, java::JavaRuntime};
     use serde_json::json;
@@ -2306,5 +2405,84 @@ mod tests {
             "jvm debe tener arg de parent (natives_directory)"
         );
         assert!(has_ignore, "jvm debe tener arg de child (ignoreList)");
+    }
+    #[test]
+    fn merge_deduplicates_libraries_child_wins() {
+        let parent = json!({
+            "libraries": [
+                { "name": "com.google.code.gson:gson:2.10.1",
+                  "downloads": { "artifact": { "path": "gson/gson-2.10.1.jar" } } },
+                { "name": "org.slf4j:slf4j-api:2.0.9",
+                  "downloads": { "artifact": { "path": "slf4j/slf4j-api-2.0.9.jar" } } },
+                { "name": "com.mojang:authlib:6.0.54",
+                  "downloads": { "artifact": { "path": "authlib/authlib-6.0.54.jar" } } }
+            ]
+        });
+
+        let child = json!({
+            "inheritsFrom": "1.21.1",
+            "libraries": [
+                { "name": "com.google.code.gson:gson:2.10.1",
+                  "downloads": { "artifact": { "path": "gson/gson-2.10.1.jar" } } },
+                { "name": "cpw.mods:bootstraplauncher:2.0.2",
+                  "downloads": { "artifact": { "path": "bootstraplauncher-2.0.2.jar" } } }
+            ]
+        });
+
+        let merged = merge_version_jsons(parent, child);
+        let libs = merged["libraries"].as_array().unwrap_or(&vec![]).clone();
+
+        assert_eq!(
+            libs.len(),
+            4,
+            "Debe haber 4 libraries únicas, hay: {}. gson duplicado no fue eliminado.",
+            libs.len()
+        );
+
+        let gson_count = libs
+            .iter()
+            .filter(|lib| {
+                lib.get("name")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.contains("com.google.code.gson:gson:"))
+                    .unwrap_or(false)
+            })
+            .count();
+
+        assert_eq!(
+            gson_count, 1,
+            "gson debe aparecer exactamente 1 vez, aparece: {}",
+            gson_count
+        );
+
+        let has_bootstrap = libs.iter().any(|lib| {
+            lib.get("name")
+                .and_then(|v| v.as_str())
+                .map(|s| s.contains("bootstraplauncher"))
+                .unwrap_or(false)
+        });
+        assert!(
+            has_bootstrap,
+            "bootstraplauncher de child debe estar presente"
+        );
+    }
+
+    #[test]
+    fn verify_classpath_detects_duplicates() {
+        let mut logs = Vec::new();
+        let classpath_entries = vec![
+            "/libs/gson-2.10.1.jar".to_string(),
+            "/libs/authlib-6.0.54.jar".to_string(),
+            "/libs/gson-2.10.1.jar".to_string(),
+            "/libs/slf4j-api-2.0.9.jar".to_string(),
+        ];
+
+        let result = verify_no_duplicate_classpath_entries(&classpath_entries, &mut logs);
+        assert!(result.is_err(), "debe fallar cuando hay duplicados");
+        let message = result.err().unwrap_or_default();
+        assert!(
+            message.contains("Duplicate key"),
+            "el error debe mencionar Duplicate key"
+        );
     }
 }
