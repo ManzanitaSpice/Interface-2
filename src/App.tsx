@@ -99,6 +99,7 @@ type InstanceMetadataView = {
   javaPath: string
   javaRuntime: string
   javaVersion: string
+  createdAt?: string
   lastUsed?: string
 }
 
@@ -233,11 +234,9 @@ type ManagedAccount = {
   loggedAt: number
 }
 
-type NewsItem = {
-  title: string
-  date: string
-  category: 'Comunidad' | 'Desarrollo' | 'Rendimiento'
-  summary: string
+type LanguageEntry = {
+  name: string
+  installedByDefault: boolean
 }
 
 type AppearancePreset = {
@@ -306,11 +305,20 @@ const editSections: EditSection[] = ['Ejecución', 'Version', 'Mods', 'Resource 
 
 const globalSettingsTabs: GlobalSettingsTab[] = ['General', 'Idioma', 'Apariencia', 'Java', 'Servicios', 'Herramientas', 'Network']
 
-const languageCatalog = [
-  'Español (España)', 'Español (Latinoamérica)', 'English (US)', 'English (UK)', 'Português (Brasil)', 'Português (Portugal)',
-  'Français', 'Deutsch', 'Italiano', 'Nederlands', 'Dansk', 'Svenska', 'Norsk Bokmål', 'Suomi', 'Polski', 'Čeština',
-  'Slovenčina', 'Magyar', 'Română', 'Türkçe', 'Українська', 'Русский', 'العربية', 'עברית', 'हिन्दी', 'বাংলা',
-  '日本語', '한국어', '简体中文', '繁體中文', 'ไทย', 'Tiếng Việt', 'Bahasa Indonesia', 'Bahasa Melayu', 'Filipino', 'Ελληνικά',
+const languageCatalog: LanguageEntry[] = [
+  { name: 'Español (España)', installedByDefault: false },
+  { name: 'Español (Latinoamérica)', installedByDefault: true },
+  { name: 'English (US)', installedByDefault: true },
+  { name: 'English (UK)', installedByDefault: false },
+  { name: 'Português (Brasil)', installedByDefault: false }, { name: 'Português (Portugal)', installedByDefault: false },
+  { name: 'Français', installedByDefault: false }, { name: 'Deutsch', installedByDefault: false }, { name: 'Italiano', installedByDefault: false }, { name: 'Nederlands', installedByDefault: false },
+  { name: 'Dansk', installedByDefault: false }, { name: 'Svenska', installedByDefault: false }, { name: 'Norsk Bokmål', installedByDefault: false }, { name: 'Suomi', installedByDefault: false },
+  { name: 'Polski', installedByDefault: false }, { name: 'Čeština', installedByDefault: false }, { name: 'Slovenčina', installedByDefault: false }, { name: 'Magyar', installedByDefault: false },
+  { name: 'Română', installedByDefault: false }, { name: 'Türkçe', installedByDefault: false }, { name: 'Українська', installedByDefault: false }, { name: 'Русский', installedByDefault: false },
+  { name: 'العربية', installedByDefault: false }, { name: 'עברית', installedByDefault: false }, { name: 'हिन्दी', installedByDefault: false }, { name: 'বাংলা', installedByDefault: false },
+  { name: '日本語', installedByDefault: false }, { name: '한국어', installedByDefault: false }, { name: '简体中文', installedByDefault: false }, { name: '繁體中文', installedByDefault: false },
+  { name: 'ไทย', installedByDefault: false }, { name: 'Tiếng Việt', installedByDefault: false }, { name: 'Bahasa Indonesia', installedByDefault: false }, { name: 'Bahasa Melayu', installedByDefault: false },
+  { name: 'Filipino', installedByDefault: false }, { name: 'Ελληνικά', installedByDefault: false },
 ]
 
 
@@ -458,7 +466,6 @@ const authCodeRegenerateCooldownMs = 10_000
 
 const defaultFolderRoutes: FolderRouteItem[] = [
   { key: 'launcher', label: 'Ruta de Launcher', description: 'Raíz principal de configuración del launcher.', value: 'InterfaceLauncher' },
-  { key: 'instances', label: 'Ruta de Instancias', description: 'Ubicación de creación y almacenamiento de instancias.', value: 'InterfaceLauncher/instances' },
   { key: 'icons', label: 'Ruta de Íconos', description: 'Biblioteca de iconos personalizados para perfiles.', value: 'InterfaceLauncher/assets/icons' },
   { key: 'java', label: 'Ruta de Java', description: 'Runtimes embebidos o selección manual de Java.', value: 'InterfaceLauncher/runtime' },
   { key: 'skins', label: 'Ruta de Skins', description: 'Skins importadas y exportadas por el launcher.', value: 'InterfaceLauncher/assets/skins' },
@@ -489,27 +496,6 @@ const launcherUpdatesFeed: LauncherUpdateItem[] = [
   { version: 'v0.2.5', releaseDate: '2026-02-10', channel: 'Stable', summary: 'Correcciones en gestión de cuentas, mejora de logs y estabilidad de inicio.', status: 'Instalada' },
   { version: 'v0.2.0', releaseDate: '2026-01-28', channel: 'Stable', summary: 'Integración de creador de instancias con más metadatos del runtime.', status: 'Histórica' },
   { version: 'v0.1.8', releaseDate: '2026-01-14', channel: 'Preview', summary: 'Primer experimento de consola avanzada y tarjetas dinámicas.', status: 'Histórica' },
-]
-
-const launcherNews: NewsItem[] = [
-  {
-    title: 'Nuevo pipeline de instalación de instancias',
-    date: '2026-02-18',
-    category: 'Desarrollo',
-    summary: 'Se reforzó la creación guiada para reducir errores de configuración y mejorar la estabilidad al primer arranque.',
-  },
-  {
-    title: 'Mejoras de rendimiento en panel principal',
-    date: '2026-02-16',
-    category: 'Rendimiento',
-    summary: 'La navegación entre secciones y tarjetas ahora responde de forma más fluida en bibliotecas grandes.',
-  },
-  {
-    title: 'Publicación de recursos oficiales de la comunidad',
-    date: '2026-02-14',
-    category: 'Comunidad',
-    summary: 'Se añadieron guías y recursos para compartir perfiles, configuraciones y buenas prácticas entre usuarios.',
-  },
 ]
 
 function nowTimestamp() {
@@ -625,7 +611,8 @@ function App() {
   const [instanceVisualMeta, setInstanceVisualMeta] = useState<Record<string, InstanceVisualMeta>>({})
   const [selectedSettingsTab, setSelectedSettingsTab] = useState<InstanceSettingsTab>('General')
   const [selectedGlobalSettingsTab, setSelectedGlobalSettingsTab] = useState<GlobalSettingsTab>('General')
-  const [selectedLanguage, setSelectedLanguage] = useState(languageCatalog[0])
+  const [selectedLanguage, setSelectedLanguage] = useState(languageCatalog[0].name)
+  const [installedLanguages, setInstalledLanguages] = useState<string[]>(languageCatalog.filter((item) => item.installedByDefault).map((item) => item.name))
   const [languageSearch, setLanguageSearch] = useState('')
   const [selectedAppearancePreset, setSelectedAppearancePreset] = useState(appearancePresets[0].id)
   const [selectedFontFamily, setSelectedFontFamily] = useState(fontOptions[0].family)
@@ -919,7 +906,7 @@ function App() {
   const isAuthCooldown = authRetrySeconds > 0
 
   const selectedLocale = languageLocaleMap[selectedLanguage] ?? 'es-ES'
-  const filteredLanguages = languageCatalog.filter((lang) => lang.toLowerCase().includes(languageSearch.trim().toLowerCase()))
+  const filteredLanguages = languageCatalog.filter((lang) => lang.name.toLowerCase().includes(languageSearch.trim().toLowerCase()))
 
 
 
@@ -2017,15 +2004,30 @@ function App() {
 
   useEffect(() => {
     const raw = localStorage.getItem(languageSettingsKey)
-    if (!raw) return
-    if (languageCatalog.includes(raw)) {
+    if (raw && languageCatalog.some((lang) => lang.name === raw)) {
       setSelectedLanguage(raw)
+    }
+
+    const installedRaw = localStorage.getItem('launcher_installed_languages_v1')
+    if (!installedRaw) return
+    try {
+      const parsed = JSON.parse(installedRaw) as string[]
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        setInstalledLanguages(parsed.filter((value) => languageCatalog.some((lang) => lang.name === value)))
+      }
+    } catch {
+      // ignore invalid storage
     }
   }, [])
 
   useEffect(() => {
     localStorage.setItem(languageSettingsKey, selectedLanguage)
+    document.documentElement.lang = languageLocaleMap[selectedLanguage] ?? 'en-US'
   }, [selectedLanguage])
+
+  useEffect(() => {
+    localStorage.setItem('launcher_installed_languages_v1', JSON.stringify(installedLanguages))
+  }, [installedLanguages])
 
   useEffect(() => {
     const raw = localStorage.getItem(appearanceSettingsKey)
@@ -2156,7 +2158,7 @@ function App() {
               {cards.map((card) => (
                 <article
                   key={card.id}
-                  className={`instance-card clickable ${selectedCard?.id === card.id ? 'active' : ''}`}
+                  className={`instance-card clickable modpack-card-layout ${selectedCard?.id === card.id ? 'active' : ''}`}
                   onClick={() => setSelectedCard(card)}
                 >
                   <strong>{card.name}</strong>
@@ -2292,7 +2294,7 @@ function App() {
                   return (
                     <motion.article
                       key={card.id}
-                      className={`instance-card clickable ${selectedCard?.id === card.id ? 'active' : ''}`}
+                      className={`instance-card clickable modpack-card-layout ${selectedCard?.id === card.id ? 'active' : ''}`}
                       onClick={() => setSelectedCard(card)}
                       whileHover={{ y: -2, scale: 1.01 }}
                       transition={{ duration: 0.14 }}
@@ -2309,9 +2311,9 @@ function App() {
                         {(() => {
                           const hoverInfo: InstanceHoverInfo = {
                             size: '-',
-                            createdAt: '-',
+                            createdAt: metadata?.createdAt ? formatIsoDate(metadata.createdAt, selectedLocale) : '-',
                             lastUsedAt: metadata?.lastUsed ? formatIsoDate(metadata.lastUsed, selectedLocale) : '-',
-                            author: 'INTERFACE',
+                            author: authSession?.profileName ?? 'INTERFACE',
                             modsCount: '-',
                           }
 
@@ -2449,20 +2451,7 @@ function App() {
               </div>
             </header>
 
-            <div className="news-grid">
-              {launcherNews.map((news) => (
-                <article key={`${news.title}-${news.date}`} className="news-card">
-                  <span className="news-chip">{news.category}</span>
-                  <h3>{news.title}</h3>
-                  <small>{formatIsoDate(news.date, selectedLocale)}</small>
-                  <p>{news.summary}</p>
-                </article>
-              ))}
-              <div className="news-side-note">
-                <h3>Canal de Updates</h3>
-                <p>El detalle de versiones publicadas permanece separado para evitar mezclar comunicación general con changelogs técnicos.</p>
-              </div>
-            </div>
+            <div className="news-grid" />
           </section>
         </main>
       )}
@@ -2501,7 +2490,7 @@ function App() {
                   </div>
                   <div className="folder-route-actions" style={{ marginTop: '0.7rem' }}>
                     <button className="primary" onClick={() => void pickNewLauncherRoot()}>🔁 Cambiar carpeta raíz</button>
-                    <button onClick={() => void pickNewInstancesFolder()}>🔁 Cambiar carpeta de instancias</button>
+                    <button onClick={() => void pickNewInstancesFolder()}>📦 Elegir carpeta de instancias para descargas e instalación</button>
                   </div>
                 </article>
               </div>
@@ -2520,18 +2509,35 @@ function App() {
                   <span>Actual: <strong>{selectedLanguage}</strong></span>
                 </header>
                 <div className="language-list">
-                  {filteredLanguages.map((lang) => (
-                    <button key={lang} className={selectedLanguage === lang ? 'active' : ''} onClick={() => setSelectedLanguage(lang)}>
-                      {lang}
-                    </button>
-                  ))}
+                  {filteredLanguages.map((lang) => {
+                    const installed = installedLanguages.includes(lang.name)
+                    return (
+                      <button
+                        key={lang.name}
+                        className={selectedLanguage === lang.name ? 'active' : ''}
+                        onClick={() => {
+                          if (!installed) {
+                            const approved = window.confirm(`El idioma ${lang.name} no está instalado. ¿Deseas descargarlo e instalarlo ahora?`)
+                            if (!approved) return
+                            setInstalledLanguages((prev) => prev.includes(lang.name) ? prev : [...prev, lang.name])
+                          }
+                          setSelectedLanguage(lang.name)
+                        }}
+                      >
+                        {lang.name}
+                        {!installed ? <small className="language-tag-not-installed">No instalado</small> : null}
+                      </button>
+                    )
+                  })}
                 </div>
               </section>
             )}
 
             {selectedGlobalSettingsTab === 'Apariencia' && (
-              <section className="appearance-workspace">
+              <section className="appearance-workspace appearance-workspace-3">
                 <div className="appearance-presets">
+                  <h3>Apariencia</h3>
+                  <p>Colores, opacidad, temas y guardado de tema personalizado.</p>
                   {[...appearancePresets, { id: 'custom', name: 'Personalizado', description: 'Ajuste manual de colores globales.' } as AppearancePreset].map((preset) => (
                     <button
                       key={preset.id}
@@ -2542,30 +2548,33 @@ function App() {
                       <span>{preset.description}</span>
                     </button>
                   ))}
-                </div>
-                <div className="appearance-preview detailed">
-                  <h3>Apariencia</h3>
-                  <p>Define tema y escala visual.</p>
-
                   <label className="appearance-control-field">
-                    <span>Preferencia de tema</span>
-                    <select value={selectedAppearancePreset} onChange={(event) => setSelectedAppearancePreset(event.target.value)}>
-                      {appearancePresets.map((preset) => (
-                        <option key={preset.id} value={preset.id}>{preset.name}</option>
-                      ))}
-                      <option value="custom">Personalizado</option>
-                    </select>
+                    <span>Opacidad global</span>
+                    <input type="range" min={70} max={100} defaultValue={95} />
                   </label>
+                  <button onClick={() => setSelectedAppearancePreset('custom')}>Guardar tema personalizado</button>
+                </div>
 
+                <div className="appearance-preview detailed">
+                  <h3>Tipografía</h3>
+                  <p>Ajustes de tipografía para todo el launcher.</p>
                   <label className="appearance-control-field">
-                    <span>Tipografía</span>
+                    <span>Familia tipográfica global</span>
                     <select value={selectedFontFamily} onChange={(event) => setSelectedFontFamily(event.target.value)}>
                       {fontOptions.map((font) => (
                         <option key={font.id} value={font.family}>{font.label}</option>
                       ))}
                     </select>
                   </label>
+                  <label className="appearance-control-field">
+                    <span>Tamaño base de texto</span>
+                    <input type="range" min={85} max={125} defaultValue={100} />
+                  </label>
+                </div>
 
+                <div className="appearance-preview detailed">
+                  <h3>Escala UI</h3>
+                  <p>Escala de paneles, botones y componentes.</p>
                   <label className="appearance-control-field appearance-scale-field">
                     <span>Escala UI</span>
                     <div className="appearance-scale-row">
@@ -2579,7 +2588,6 @@ function App() {
                       <strong>{uiScalePercent}%</strong>
                     </div>
                   </label>
-
                   <div className="appearance-color-grid">
                     {([
                       ['Fondo', '--bg-main'],
@@ -2605,6 +2613,7 @@ function App() {
                       </label>
                     ))}
                   </div>
+                  <button>Modo Editor</button>
                 </div>
               </section>
             )}
@@ -2613,7 +2622,10 @@ function App() {
               <section className="section-placeholder">
                 <h2>Java</h2>
                 <p>Runtime principal: <strong>{folderRoutes.find((item) => item.key === 'java')?.value ?? '-'}</strong></p>
-                <button onClick={() => void pickFolderRoute(folderRoutes.find((item) => item.key === 'java') ?? defaultFolderRoutes[3])}>Cambiar ruta Java</button>
+                <div className="network-controls">
+                  <button onClick={() => void pickFolderRoute(folderRoutes.find((item) => item.key === 'java') ?? defaultFolderRoutes[2])}>Cambiar ruta Java</button>
+                  <button onClick={() => void invoke('open_folder_path', { path: launcherFolders?.runtimeDir ?? '' })}>Abrir carpeta Java embebido</button>
+                </div>
               </section>
             )}
 
@@ -2847,7 +2859,7 @@ function App() {
               </section>
             )}
 
-            <footer className="creator-footer-actions">
+            <footer className="creator-footer-actions lowered">
               <button className="primary" onClick={createInstance} disabled={isCreating || !selectedMinecraftVersion}>
                 {isCreating ? 'Creando...' : 'Ok'}
               </button>

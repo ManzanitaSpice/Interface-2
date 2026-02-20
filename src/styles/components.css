@@ -1785,3 +1785,75 @@
   border-radius: 0.4rem;
   background: color-mix(in srgb, var(--bg-surface) 90%, transparent);
 }
+
+
+.scan-log-box.compact {
+  max-height: 2.9rem;
+  min-height: 2.9rem;
+  overflow-y: auto;
+}
+
+.import-page .instances-workspace.with-right-panel {
+  align-items: flex-start;
+}
+
+.import-selection-panel .import-action {
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface-muted);
+}
+
+.import-selection-panel .import-action.primary {
+  background: var(--accent);
+  color: #10131a;
+  border-color: var(--accent-hover);
+}
+
+.import-selection-panel .import-action.danger {
+  background: rgba(183, 63, 63, 0.15);
+}
+
+.instance-search-row {
+  margin: .5rem 0 .65rem;
+}
+
+.modpack-card-layout {
+  display: grid;
+  grid-template-rows: 140px auto;
+  min-height: 220px;
+}
+
+.modpack-card-layout .instance-card-icon.hero {
+  width: 100%;
+  height: 132px;
+  border-radius: 12px;
+}
+
+.modpack-card-layout .instance-card-title,
+.modpack-card-layout .instance-card-meta {
+  margin-top: .35rem;
+}
+
+.creator-footer-actions.lowered {
+  margin-top: 0.5rem;
+}
+
+.language-list button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: .6rem;
+}
+
+.language-tag-not-installed {
+  font-size: .72rem;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  padding: .14rem .42rem;
+  border-radius: 999px;
+}
+
+
+.appearance-workspace-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}

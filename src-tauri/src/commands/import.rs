@@ -234,8 +234,12 @@ fn has_required_instance_layout(path: &Path) -> bool {
         .iter()
         .any(|dir| path.join(dir).is_dir());
     let has_identifier = has_instance_markers(path);
+    let has_common_markers = path.join("mods").is_dir()
+        || path.join("versions").is_dir()
+        || path.join("options.txt").is_file()
+        || path.join(".minecraft/mods").is_dir();
 
-    has_minecraft_folder && has_identifier
+    has_identifier || (has_minecraft_folder && has_common_markers)
 }
 
 fn directory_name_looks_like_container(path: &Path) -> bool {
@@ -275,7 +279,6 @@ fn external_search_roots() -> Vec<PathBuf> {
 
     if let Ok(home) = std::env::var("HOME") {
         let home = PathBuf::from(home);
-        roots.push(home.clone());
         roots.push(home.join("Desktop"));
         roots.push(home.join("Documents"));
     }
@@ -540,11 +543,26 @@ fn detect_dir(path: &Path, launcher: &str) -> Option<DetectedInstance> {
         .find(|candidate| candidate.exists())
         .map(|candidate| candidate.display().to_string());
 
-    let mods_count = [path.join("mods"), path.join(".minecraft/mods")]
-        .into_iter()
-        .find(|mods_path| mods_path.is_dir())
-        .and_then(|mods_path| fs::read_dir(mods_path).ok())
-        .map(|entries| entries.filter_map(Result::ok).count() as u32);
+    let mods_count = [
+        path.join("mods"),
+        path.join(".minecraft/mods"),
+        path.join("minecraft/mods"),
+    ]
+    .into_iter()
+    .find(|mods_path| mods_path.is_dir())
+    .and_then(|mods_path| fs::read_dir(mods_path).ok())
+    .map(|entries| {
+        entries
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("jar"))
+            })
+            .count() as u32
+    });
 
     let size_mb = {
         let size_bytes = dir_size(path);
@@ -781,9 +799,9 @@ pub fn execute_import(app: AppHandle, requests: Vec<ImportRequest>) -> Result<()
         src: &Path,
         dst: &Path,
         copied: &mut usize,
-        max_files: usize,
+        max_files: Option<usize>,
     ) -> Result<(), String> {
-        if *copied >= max_files || !src.exists() {
+        if max_files.is_some_and(|max| *copied >= max) || !src.exists() {
             return Ok(());
         }
 
@@ -798,7 +816,7 @@ pub fn execute_import(app: AppHandle, requests: Vec<ImportRequest>) -> Result<()
             fs::read_dir(src).map_err(|err| format!("No se pudo leer {}: {err}", src.display()))?;
 
         for entry in entries.flatten() {
-            if *copied >= max_files {
+            if max_files.is_some_and(|max| *copied >= max) {
                 break;
             }
 
@@ -806,6 +824,14 @@ pub fn execute_import(app: AppHandle, requests: Vec<ImportRequest>) -> Result<()
             let target = dst.join(entry.file_name());
 
             if path.is_dir() {
+                let dir_name = path
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .map(|value| value.to_ascii_lowercase())
+                    .unwrap_or_default();
+                if ["cache", "temp", "tmp", "natives"].contains(&dir_name.as_str()) {
+                    continue;
+                }
                 copy_recursive_limited(&path, &target, copied, max_files)?;
                 continue;
             }
@@ -875,19 +901,22 @@ pub fn execute_import(app: AppHandle, requests: Vec<ImportRequest>) -> Result<()
                 )
             })?;
 
-            let source_minecraft_root = if source_root.join(".minecraft").is_dir() {
-                source_root.join(".minecraft")
-            } else {
-                source_root.clone()
-            };
+            let source_minecraft_root = resolve_source_minecraft_root(&source_root);
 
             let mut copied_files = 0usize;
+            copy_recursive_limited(
+                &source_minecraft_root,
+                &minecraft_root,
+                &mut copied_files,
+                None,
+            )?;
+
             if req.copy_mods {
                 copy_recursive_limited(
                     &source_minecraft_root.join("mods"),
                     &minecraft_root.join("mods"),
                     &mut copied_files,
-                    15_000,
+                    None,
                 )?;
             }
             if req.copy_worlds {
@@ -895,7 +924,7 @@ pub fn execute_import(app: AppHandle, requests: Vec<ImportRequest>) -> Result<()
                     &source_minecraft_root.join("saves"),
                     &minecraft_root.join("saves"),
                     &mut copied_files,
-                    15_000,
+                    None,
                 )?;
             }
             if req.copy_resourcepacks {
@@ -903,7 +932,7 @@ pub fn execute_import(app: AppHandle, requests: Vec<ImportRequest>) -> Result<()
                     &source_minecraft_root.join("resourcepacks"),
                     &minecraft_root.join("resourcepacks"),
                     &mut copied_files,
-                    15_000,
+                    None,
                 )?;
             }
             if req.copy_screenshots {
@@ -911,7 +940,7 @@ pub fn execute_import(app: AppHandle, requests: Vec<ImportRequest>) -> Result<()
                     &source_minecraft_root.join("screenshots"),
                     &minecraft_root.join("screenshots"),
                     &mut copied_files,
-                    15_000,
+                    None,
                 )?;
             }
             if req.copy_logs {
@@ -919,7 +948,7 @@ pub fn execute_import(app: AppHandle, requests: Vec<ImportRequest>) -> Result<()
                     &source_minecraft_root.join("logs"),
                     &minecraft_root.join("logs"),
                     &mut copied_files,
-                    15_000,
+                    None,
                 )?;
             }
 
@@ -1008,7 +1037,7 @@ pub fn execute_import_action(
         copy_worlds: true,
         copy_resourcepacks: true,
         copy_screenshots: true,
-        copy_logs: false,
+        copy_logs: true,
     };
 
     execute_import(app.clone(), vec![import_request])?;
@@ -1085,4 +1114,13 @@ pub fn cancel_import() {
     if let Some(flag) = CANCEL_IMPORT.get() {
         flag.store(true, Ordering::Relaxed);
     }
+}
+fn resolve_source_minecraft_root(source_root: &Path) -> PathBuf {
+    if source_root.join(".minecraft").is_dir() {
+        return source_root.join(".minecraft");
+    }
+    if source_root.join("minecraft").is_dir() {
+        return source_root.join("minecraft");
+    }
+    source_root.to_path_buf()
 }
