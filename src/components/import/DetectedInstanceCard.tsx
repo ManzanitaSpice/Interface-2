@@ -47,8 +47,12 @@ export function DetectedInstanceCard({ item, selected, onToggle, uiLanguage }: P
       onClick={() => item.importable && onToggle()}
       title={item.importWarnings.join(', ')}
     >
-      <div className="instance-card-icon hero" style={icon ? { backgroundImage: `url(${icon})` } : undefined}>
-        {!icon ? '📦' : null}
+      <div className="instance-card-icon hero">
+        {icon ? (
+          <img src={icon} alt={item.name} loading="lazy" referrerPolicy="no-referrer" />
+        ) : (
+          '📦'
+        )}
       </div>
       <strong className="instance-card-title">{item.name}</strong>
       <div className="instance-card-meta">
