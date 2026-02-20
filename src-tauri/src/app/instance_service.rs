@@ -12,6 +12,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Emitter};
@@ -503,6 +504,18 @@ en ningún JAR del classpath del loader '{}'.\n{}",
         jars_to_validate.len()
     ));
 
+    logs.push(format!(
+        "native_jars detectados: {}",
+        resolved_libraries.native_jars.len()
+    ));
+    for native in &resolved_libraries.native_jars {
+        let file_name = Path::new(&native.path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("unknown");
+        logs.push(format!("  - {file_name}"));
+    }
+
     let natives_dir = mc_root.join("natives");
     prepare_natives_dir(&natives_dir)?;
     extract_natives(&resolved_libraries.native_jars, &natives_dir, &mut logs)?;
@@ -524,14 +537,32 @@ en ningún JAR del classpath del loader '{}'.\n{}",
         .join("assets")
         .join("indexes")
         .join(format!("{assets_index_name}.json"));
-    logs.push(if assets_index.exists() {
-        format!("✔ assets index presente: {}", assets_index.display())
-    } else {
-        format!(
-            "⚠ assets index no encontrado todavía: {}",
+    if assets_index.exists() {
+        logs.push(format!(
+            "✔ assets index presente: {}",
             assets_index.display()
-        )
-    });
+        ));
+    } else {
+        return Err(format!(
+            "Asset index '{}' no encontrado en {}. La instancia puede necesitar re-crearse.",
+            assets_index_name,
+            assets_index.display()
+        ));
+    }
+
+    let client_extra = mc_root
+        .join("versions")
+        .join(&metadata.minecraft_version)
+        .join(format!("{}-client-extra.jar", metadata.minecraft_version));
+    if !client_extra.exists() {
+        logs.push(format!(
+            "⚠ client-extra.jar no encontrado: {}. NeoForge puede fallar al cargar recursos de MC.",
+            client_extra.display()
+        ));
+    }
+
+    fs::create_dir_all(mc_root.join("mods"))
+        .map_err(|err| format!("No se pudo crear mods/: {err}"))?;
 
     logs.push("🔹 2. Preparación de ejecución".to_string());
 
@@ -571,9 +602,9 @@ en ningún JAR del classpath del loader '{}'.\n{}",
         version_type: "release".to_string(),
         resolution_width: "854".to_string(),
         resolution_height: "480".to_string(),
-        clientid: String::new(),
-        auth_xuid: String::new(),
-        xuid: String::new(),
+        clientid: "00000000402b5328".to_string(),
+        auth_xuid: extract_xuid_from_jwt(&verified_auth.minecraft_access_token).unwrap_or_default(),
+        xuid: extract_xuid_from_jwt(&verified_auth.minecraft_access_token).unwrap_or_default(),
         quick_play_singleplayer: String::new(),
         quick_play_multiplayer: String::new(),
         quick_play_realms: String::new(),
@@ -1281,6 +1312,16 @@ fn find_arg_value(args: &[String], flag: &str) -> Option<String> {
     })
 }
 
+fn extract_xuid_from_jwt(token: &str) -> Option<String> {
+    let payload_b64 = token.split('.').nth(1)?;
+    let decoded = URL_SAFE_NO_PAD.decode(payload_b64).ok()?;
+    let payload: Value = serde_json::from_slice(&decoded).ok()?;
+    payload
+        .get("xuid")
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
 fn sanitize_uuid(uuid: &str) -> String {
     uuid.replace('-', "")
 }
@@ -1638,6 +1679,17 @@ fn load_single_version_json(mc_root: &Path, version_id: &str) -> Result<serde_js
     })
 }
 
+fn extract_maven_key(lib: &Value) -> Option<String> {
+    let name = lib.get("name")?.as_str()?;
+    let parts: Vec<&str> = name.splitn(4, ':').collect();
+
+    match parts.len() {
+        3 => Some(format!("{}:{}", parts[0], parts[1])),
+        4 => Some(format!("{}:{}:{}", parts[0], parts[1], parts[3])),
+        _ => Some(name.to_string()),
+    }
+}
+
 fn merge_version_jsons(parent: serde_json::Value, child: serde_json::Value) -> serde_json::Value {
     use serde_json::{Map, Value};
 
@@ -1658,14 +1710,6 @@ fn merge_version_jsons(parent: serde_json::Value, child: serde_json::Value) -> s
                     .cloned()
                     .unwrap_or_default();
                 let child_libs = child_val.as_array().cloned().unwrap_or_default();
-
-                fn extract_maven_key(lib: &Value) -> Option<String> {
-                    let name = lib.get("name")?.as_str()?;
-                    let mut parts = name.splitn(3, ':');
-                    let group = parts.next()?;
-                    let artifact = parts.next()?;
-                    Some(format!("{group}:{artifact}"))
-                }
 
                 let mut deduped = Vec::with_capacity(child_libs.len() + parent_libs.len());
                 let mut seen_keys = std::collections::HashSet::new();
@@ -1898,10 +1942,20 @@ fn resolve_libraries(
 
         if let Some(path) = artifact_path {
             if Path::new(&path).exists() {
-                if is_native_jar(&lib, &path) {
-                    native_jars.push(NativeJarEntry { path: path.clone() });
+                classpath_entries.push(path.clone());
+
+                let filename = Path::new(&path)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                let needs_extraction = lib.get("natives").is_some()
+                    || (is_native_jar_path(&path) && should_extract_for_platform(&filename));
+
+                if needs_extraction {
+                    native_jars.push(NativeJarEntry { path });
                 }
-                classpath_entries.push(path);
             } else {
                 let artifact = lib.get("downloads").and_then(|v| v.get("artifact"));
                 let url = artifact
@@ -1943,7 +1997,15 @@ fn resolve_libraries(
 
             match native_path {
                 Some(path) if Path::new(&path).exists() => {
-                    native_jars.push(NativeJarEntry { path })
+                    classpath_entries.push(path.clone());
+                    let filename = Path::new(&path)
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if should_extract_for_platform(&filename) {
+                        native_jars.push(NativeJarEntry { path });
+                    }
                 }
                 Some(path) => missing_native_entries.push(path),
                 None => missing_native_entries.push(format!(
@@ -1972,19 +2034,6 @@ fn resolve_libraries(
         native_jars,
         missing_native_entries,
     }
-}
-
-fn is_native_jar(lib: &Value, lib_path: &str) -> bool {
-    if lib.get("natives").is_some() {
-        return true;
-    }
-
-    let filename = Path::new(lib_path)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("");
-
-    filename.contains("-natives-")
 }
 
 fn verify_no_duplicate_classpath_entries(
@@ -2049,24 +2098,55 @@ fn validate_jars_as_zip(jars: &[PathBuf]) -> Result<(), String> {
     Ok(())
 }
 
-fn should_extract_for_current_arch(filename: &str) -> bool {
-    let arch = std::env::consts::ARCH;
+fn is_native_jar_path(jar_path: &str) -> bool {
+    let filename = Path::new(jar_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    filename.contains("-natives-")
+}
 
-    if filename.contains("arm64") && arch != "aarch64" {
-        return false;
+fn should_extract_for_platform(filename: &str) -> bool {
+    let is_windows = cfg!(target_os = "windows");
+    let is_linux = cfg!(target_os = "linux");
+    let is_macos = cfg!(target_os = "macos");
+    let is_x86_64 = std::env::consts::ARCH == "x86_64";
+    let is_aarch64 = std::env::consts::ARCH == "aarch64";
+
+    if filename.contains("natives-windows") {
+        if !is_windows {
+            return false;
+        }
+        if filename.contains("arm64") && !is_aarch64 {
+            return false;
+        }
+        if filename.contains("windows-x86") && is_x86_64 {
+            return false;
+        }
+        return true;
     }
 
-    if filename.contains("natives-windows-x86") && !filename.contains("x86_64") && arch == "x86_64"
-    {
-        return false;
+    if filename.contains("natives-linux") {
+        if !is_linux {
+            return false;
+        }
+        if filename.contains("arm64") && !is_aarch64 {
+            return false;
+        }
+        if filename.contains("arm32") && is_x86_64 {
+            return false;
+        }
+        return true;
     }
 
-    if filename.contains("natives-linux") && cfg!(target_os = "windows") {
-        return false;
-    }
-
-    if filename.contains("natives-macos") && !cfg!(target_os = "macos") {
-        return false;
+    if filename.contains("natives-macos") || filename.contains("natives-osx") {
+        if !is_macos {
+            return false;
+        }
+        if filename.contains("arm64") && !is_aarch64 {
+            return false;
+        }
+        return true;
     }
 
     true
@@ -2108,135 +2188,136 @@ fn extract_natives(
     natives_dir: &Path,
     logs: &mut Vec<String>,
 ) -> Result<(), String> {
-    fs::create_dir_all(natives_dir).map_err(|err| {
-        format!(
-            "No se pudo crear carpeta natives {}: {err}",
-            natives_dir.display()
-        )
-    })?;
+    if natives_dir.exists() {
+        let entries =
+            fs::read_dir(natives_dir).map_err(|err| format!("Error leyendo natives dir: {err}"))?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let ext = path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .unwrap_or("");
+            if matches!(ext, "dll" | "so" | "dylib" | "jnilib") {
+                let _ = fs::remove_file(&path);
+            }
+        }
+    }
+
+    fs::create_dir_all(natives_dir).map_err(|err| format!("No se pudo crear natives/: {err}"))?;
 
     if native_jars.is_empty() {
-        logs.push(
-            "⚠ native_jars está vacío. Si el juego usa LWJGL, los .dll no serán extraídos."
-                .to_string(),
-        );
-        return Ok(());
+        return Err("native_jars está vacío. lwjgl.dll no será extraído.
+
+             Causa probable: extract_maven_key() eliminó los JARs 
+             natives-windows por colisión de key con el JAR principal.
+
+             Verifica que extract_maven_key() usa el classifier en la key."
+            .to_string());
     }
 
     logs.push(format!(
-        "Extrayendo natives de {} JARs en {}...",
+        "Extrayendo natives de {} JARs → {}",
         native_jars.len(),
         natives_dir.display()
     ));
-
-    let mut total_extracted = 0_u32;
-    let mut total_skipped = 0_u32;
-
     for native in native_jars {
-        let jar_path = Path::new(&native.path);
-        let jar_filename = jar_path
+        let file_name = Path::new(&native.path)
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("unknown");
+        logs.push(format!("  JAR a extraer: {file_name}"));
+    }
 
-        if !should_extract_for_current_arch(jar_filename) {
-            logs.push(format!(
-                "↪ native omitido por arquitectura/OS: {jar_filename}"
-            ));
-            continue;
-        }
+    let mut extracted = 0_u32;
 
+    for native in native_jars {
+        let jar_path = Path::new(&native.path);
         if !jar_path.exists() {
-            logs.push(format!(
-                "⚠ JAR nativo no encontrado en disco, skip: {jar_filename}"
-            ));
+            logs.push(format!("  ⚠ No existe: {}", native.path));
             continue;
         }
 
         let file = fs::File::open(jar_path)
-            .map_err(|err| format!("No se pudo abrir JAR nativo {}: {err}", native.path))?;
-        let mut archive = ZipArchive::new(file)
-            .map_err(|err| format!("JAR nativo inválido {}: {err}", native.path))?;
+            .map_err(|err| format!("No se pudo abrir {}: {err}", native.path))?;
+        let mut archive =
+            ZipArchive::new(file).map_err(|err| format!("ZIP inválido {}: {err}", native.path))?;
 
         for i in 0..archive.len() {
             let mut entry = archive
                 .by_index(i)
-                .map_err(|err| format!("Error leyendo entrada {i} en {}: {err}", native.path))?;
+                .map_err(|err| format!("Error en entrada {i}: {err}"))?;
 
-            let entry_name = entry.name().to_string();
-            if entry.is_dir() || entry_name.starts_with("META-INF/") {
+            let name = entry.name().to_string();
+            if entry.is_dir() || name.starts_with("META-INF/") {
                 continue;
             }
 
-            let is_native_lib = entry_name.ends_with(".dll")
-                || entry_name.ends_with(".so")
-                || entry_name.ends_with(".dylib")
-                || entry_name.ends_with(".jnilib")
-                || entry_name.contains(".so.");
-            if !is_native_lib {
+            let ext = Path::new(&name)
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .unwrap_or("");
+            if !matches!(ext, "dll" | "so" | "dylib" | "jnilib") {
                 continue;
             }
 
-            let file_name = Path::new(&entry_name)
+            let out_name = Path::new(&name)
                 .file_name()
-                .and_then(|name| name.to_str())
+                .and_then(|file_name| file_name.to_str())
                 .unwrap_or("")
                 .to_string();
-            if file_name.is_empty() {
+            if out_name.is_empty() {
                 continue;
             }
 
-            let out_path = natives_dir.join(&file_name);
-            if out_path.exists() {
-                total_skipped += 1;
-                continue;
-            }
+            let out_path = natives_dir.join(&out_name);
+            let mut out_file = fs::File::create(&out_path)
+                .map_err(|err| format!("No se pudo crear {}: {err}", out_path.display()))?;
 
-            let mut out = fs::File::create(&out_path)
-                .map_err(|err| format!("No se pudo crear native {}: {err}", out_path.display()))?;
-            std::io::copy(&mut entry, &mut out).map_err(|err| {
-                format!(
-                    "No se pudo extraer native {} de {}: {err}",
-                    file_name, native.path
-                )
-            })?;
+            std::io::copy(&mut entry, &mut out_file)
+                .map_err(|err| format!("Error extrayendo {out_name}: {err}"))?;
 
-            total_extracted += 1;
+            extracted += 1;
+            logs.push(format!("  ✓ Extraído: {out_name}"));
         }
     }
 
-    logs.push(format!(
-        "✔ Natives extraídos: {total_extracted} nuevos, {total_skipped} ya existían en {}",
-        natives_dir.display()
-    ));
+    logs.push(format!("✔ Total extraídos: {} archivos nativos", extracted));
 
     #[cfg(target_os = "windows")]
     {
         let lwjgl_dll = natives_dir.join("lwjgl.dll");
-        if !lwjgl_dll.exists() && total_extracted == 0 && total_skipped == 0 {
-            let processed_jars = native_jars
-                .iter()
-                .map(|native| {
-                    Path::new(&native.path)
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .unwrap_or("unknown")
-                        .to_string()
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-
+        if !lwjgl_dll.exists() {
             return Err(format!(
-                "Extracción de natives completada pero lwjgl.dll no está en {}.\n\n\
-                 Verifica que los JARs natives-windows están en native_jars.\n\n\
-                 JARs procesados: {}",
+                "lwjgl.dll no fue extraído en {}.
+
+                 Archivos en natives/: {:?}
+
+                 JARs procesados: {:?}",
                 natives_dir.display(),
-                processed_jars
+                list_dir_files(natives_dir),
+                native_jars
+                    .iter()
+                    .map(|native| native.path.clone())
+                    .collect::<Vec<_>>()
             ));
         }
     }
 
     Ok(())
+}
+
+fn list_dir_files(dir: &Path) -> Vec<String> {
+    fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter_map(|entry| entry.file_name().into_string().ok())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn log_natives_dir_contents(natives_dir: &Path, logs: &mut Vec<String>) {
@@ -2401,8 +2482,9 @@ fn persist_instance_java_path(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_maven_library_path, contains_classpath_switch, merge_version_jsons,
-        parse_runtime_from_metadata, parse_runtime_major, verify_no_duplicate_classpath_entries,
+        build_maven_library_path, contains_classpath_switch, extract_maven_key,
+        merge_version_jsons, parse_runtime_from_metadata, parse_runtime_major,
+        should_extract_for_platform, verify_no_duplicate_classpath_entries,
     };
     use crate::domain::models::{instance::InstanceMetadata, java::JavaRuntime};
     use serde_json::json;
@@ -2692,5 +2774,69 @@ mod tests {
             message.contains("Duplicate key"),
             "el error debe mencionar Duplicate key"
         );
+    }
+
+    #[test]
+    fn maven_key_distinguishes_classifier() {
+        let principal = json!({ "name": "org.lwjgl:lwjgl:3.3.3" });
+        let natives = json!({ "name": "org.lwjgl:lwjgl:3.3.3:natives-windows" });
+        let natives_arm = json!({ "name": "org.lwjgl:lwjgl:3.3.3:natives-windows-arm64" });
+
+        let key_principal = extract_maven_key(&principal).unwrap_or_default();
+        let key_natives = extract_maven_key(&natives).unwrap_or_default();
+        let key_natives_arm = extract_maven_key(&natives_arm).unwrap_or_default();
+
+        assert_ne!(key_principal, key_natives);
+        assert_ne!(key_principal, key_natives_arm);
+        assert_ne!(key_natives, key_natives_arm);
+
+        assert_eq!(key_principal, "org.lwjgl:lwjgl");
+        assert_eq!(key_natives, "org.lwjgl:lwjgl:natives-windows");
+        assert_eq!(key_natives_arm, "org.lwjgl:lwjgl:natives-windows-arm64");
+    }
+
+    #[test]
+    fn natives_windows_arm64_not_extracted_on_x86_64() {
+        if cfg!(target_os = "windows") && std::env::consts::ARCH == "x86_64" {
+            assert!(should_extract_for_platform(
+                "lwjgl-3.3.3-natives-windows.jar"
+            ));
+            assert!(!should_extract_for_platform(
+                "lwjgl-3.3.3-natives-windows-arm64.jar"
+            ));
+            assert!(!should_extract_for_platform(
+                "lwjgl-3.3.3-natives-windows-x86.jar"
+            ));
+            assert!(!should_extract_for_platform(
+                "lwjgl-3.3.3-natives-linux.jar"
+            ));
+            assert!(!should_extract_for_platform(
+                "lwjgl-3.3.3-natives-macos.jar"
+            ));
+        }
+    }
+
+    #[test]
+    fn dedup_preserves_both_principal_and_natives() {
+        let libs = vec![
+            json!({ "name": "org.lwjgl:lwjgl:3.3.3" }),
+            json!({ "name": "org.lwjgl:lwjgl:3.3.3:natives-windows" }),
+            json!({ "name": "org.lwjgl:lwjgl:3.3.3:natives-windows-arm64" }),
+            json!({ "name": "com.google.code.gson:gson:2.10.1" }),
+            json!({ "name": "com.google.code.gson:gson:2.10.1" }),
+        ];
+
+        let mut seen = std::collections::HashMap::new();
+        let mut fallback_idx = 0usize;
+        for lib in &libs {
+            let key = extract_maven_key(lib).unwrap_or_else(|| {
+                let key = format!("unknown_{fallback_idx}");
+                fallback_idx += 1;
+                key
+            });
+            seen.entry(key).or_insert_with(|| lib.clone());
+        }
+
+        assert_eq!(seen.len(), 4);
     }
 }
