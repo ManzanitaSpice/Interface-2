@@ -366,7 +366,9 @@ pub fn validate_and_prepare_launch(
             let main_class_lower = resolved_main_class.to_ascii_lowercase();
             let is_forge_or_neo = loader == "forge" || loader == "neoforge";
 
-            let search_keyword = if main_class_lower.contains("bootstraplauncher") || main_class_lower.contains("cpw.mods") {
+            let search_keyword = if main_class_lower.contains("bootstraplauncher")
+                || main_class_lower.contains("cpw.mods")
+            {
                 Some("bootstraplauncher")
             } else if main_class_lower.contains("net.neoforged") {
                 Some("neoforged")
@@ -1911,6 +1913,10 @@ fn ensure_main_class_present_in_jar(jar_path: &Path, main_class: &str) -> Result
 /// Used to detect Forge/NeoForge JARs that live in `libraries/` but are launched via
 /// --module-path rather than being listed in the version.json `libraries` array.
 fn jar_exists_in_libraries_dir(dir: &Path, keyword: &str) -> bool {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return false;
+    };
+
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
@@ -1927,6 +1933,64 @@ fn jar_exists_in_libraries_dir(dir: &Path, keyword: &str) -> bool {
         }
     }
     false
+}
+
+fn forge_resolve_main_class(
+    current_main_class: &str,
+    classpath_entries: &[String],
+    logs: &mut Vec<String>,
+) -> Option<String> {
+    let current_main_lower = current_main_class.to_ascii_lowercase();
+
+    if current_main_lower.contains("bootstraplauncher")
+        || current_main_lower.contains("net.neoforged")
+    {
+        return None;
+    }
+
+    let has_bootstrap = classpath_entries
+        .iter()
+        .any(|entry| entry.to_ascii_lowercase().contains("bootstraplauncher"));
+    if has_bootstrap {
+        logs.push(
+            "Forge detectado con bootstraplauncher en classpath: corrigiendo mainClass a cpw.mods.bootstraplauncher.BootstrapLauncher"
+                .to_string(),
+        );
+        return Some("cpw.mods.bootstraplauncher.BootstrapLauncher".to_string());
+    }
+
+    None
+}
+
+fn forge_inject_system_properties(
+    jvm_args: &mut Vec<String>,
+    mc_root: &Path,
+    logs: &mut Vec<String>,
+) {
+    let java_home_value = mc_root.join("java").display().to_string();
+    let properties = [
+        (
+            "legacyClassPath",
+            mc_root.join("libraries").display().to_string(),
+        ),
+        (
+            "libraryDirectory",
+            mc_root.join("libraries").display().to_string(),
+        ),
+        (
+            "ignoreList",
+            "bootstraplauncher,securejarhandler".to_string(),
+        ),
+        ("java.home", java_home_value),
+    ];
+
+    for (key, value) in properties {
+        let prefix = format!("-D{key}=");
+        if !jvm_args.iter().any(|arg| arg.starts_with(&prefix)) {
+            jvm_args.push(format!("{prefix}{value}"));
+            logs.push(format!("Forge JVM prop inyectada: {key}"));
+        }
+    }
 }
 
 fn build_maven_library_path(mc_root: &Path, library: &Value) -> Option<String> {
