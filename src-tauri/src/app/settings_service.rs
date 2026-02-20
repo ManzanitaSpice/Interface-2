@@ -7,7 +7,7 @@ use std::{
 use tauri::AppHandle;
 
 use crate::infrastructure::filesystem::{
-    config::load_launcher_config,
+    config::{load_launcher_config, save_launcher_config},
     paths::{folder_routes_settings_file, resolve_launcher_root},
 };
 
@@ -236,7 +236,30 @@ pub fn save_folder_routes(app: AppHandle, routes: serde_json::Value) -> Result<(
             )
         })?;
     }
+
     let normalized = normalize_routes_payload(&app, routes)?;
+    let parsed: FolderRouteFile = serde_json::from_value(normalized.clone())
+        .map_err(|err| format!("No se pudo parsear rutas normalizadas: {err}"))?;
+
+    let launcher_route = parsed
+        .routes
+        .iter()
+        .find(|route| route.key == "launcher")
+        .map(|route| route.value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    let instances_route = parsed
+        .routes
+        .iter()
+        .find(|route| route.key == "instances")
+        .map(|route| route.value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    let mut config = load_launcher_config(&app).unwrap_or_default();
+    config.launcher_root_override = launcher_route;
+    config.instances_dir_override = instances_route;
+    save_launcher_config(&app, &config)?;
+
     let pretty = serde_json::to_string_pretty(&normalized)
         .map_err(|err| format!("No se pudo serializar configuración de carpetas: {err}"))?;
     fs::write(&target, pretty).map_err(|err| {

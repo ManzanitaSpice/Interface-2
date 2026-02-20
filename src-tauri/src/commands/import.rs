@@ -52,6 +52,8 @@ struct ScanProgressEvent {
     message: String,
     found_so_far: usize,
     current_path: String,
+    progress_percent: u8,
+    total_targets: usize,
 }
 
 #[derive(Default)]
@@ -86,6 +88,21 @@ const INSTANCE_HINT_KEYWORDS: &[&str] = &[
     "curseforge",
     "curse",
     "mmc",
+];
+
+const SCAN_SKIP_DIR_NAMES: &[&str] = &[
+    "node_modules",
+    "target",
+    ".git",
+    ".cache",
+    ".cargo",
+    ".rustup",
+    "Library",
+    "AppData",
+    "Program Files",
+    "Program Files (x86)",
+    "Windows",
+    "System Volume Information",
 ];
 
 fn known_paths() -> Vec<(String, PathBuf)> {
@@ -249,13 +266,24 @@ fn discover_keyword_scan_paths(
 
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_dir() {
+            if path.is_dir() && !should_skip_scan_dir(&path) {
                 queue.push_back((path, depth + 1));
             }
         }
     }
 
     found
+}
+
+fn should_skip_scan_dir(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|value| value.to_str())
+        .map(|value| {
+            SCAN_SKIP_DIR_NAMES
+                .iter()
+                .any(|skip| value.eq_ignore_ascii_case(skip))
+        })
+        .unwrap_or(false)
 }
 
 fn known_and_discovered_paths() -> Vec<(String, PathBuf)> {
@@ -271,7 +299,7 @@ fn known_and_discovered_paths() -> Vec<(String, PathBuf)> {
             continue;
         }
 
-        for discovered in discover_keyword_scan_paths(&base, 4, 120) {
+        for discovered in discover_keyword_scan_paths(&base, 3, 40) {
             let canonical = fs::canonicalize(&discovered).unwrap_or(discovered.clone());
             if seen.insert(canonical) {
                 out.push(("Auto detectado".to_string(), discovered));
@@ -406,16 +434,41 @@ fn detect_from_manifest(path: &Path) -> DetectionMeta {
 }
 
 fn dir_size(path: &Path) -> u64 {
-    if path.is_file() {
-        return fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
+    const MAX_SIZE_SCAN_DEPTH: usize = 6;
+    const MAX_SIZE_SCAN_ENTRIES: usize = 5_000;
+
+    fn inner(path: &Path, depth: usize, scanned_entries: &mut usize) -> u64 {
+        if *scanned_entries >= MAX_SIZE_SCAN_ENTRIES {
+            return 0;
+        }
+        if path.is_file() {
+            *scanned_entries += 1;
+            return fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
+        }
+        if depth >= MAX_SIZE_SCAN_DEPTH {
+            return 0;
+        }
+
+        let mut total = 0;
+        if let Ok(entries) = fs::read_dir(path) {
+            for entry in entries.flatten() {
+                if *scanned_entries >= MAX_SIZE_SCAN_ENTRIES {
+                    break;
+                }
+                let entry_path = entry.path();
+                if entry_path.is_dir() {
+                    total += inner(&entry_path, depth + 1, scanned_entries);
+                } else {
+                    *scanned_entries += 1;
+                    total += fs::metadata(entry_path).map(|meta| meta.len()).unwrap_or(0);
+                }
+            }
+        }
+        total
     }
 
-    fs::read_dir(path)
-        .ok()
-        .into_iter()
-        .flat_map(|entries| entries.filter_map(Result::ok))
-        .map(|entry| dir_size(&entry.path()))
-        .sum()
+    let mut scanned_entries = 0usize;
+    inner(path, 0, &mut scanned_entries)
 }
 
 fn detect_dir(path: &Path, launcher: &str) -> Option<DetectedInstance> {
@@ -492,7 +545,11 @@ pub fn detect_external_instances(app: AppHandle) -> Result<Vec<DetectedInstance>
     let mut found = Vec::new();
     let mut seen_paths = HashSet::new();
 
-    for (launcher, root) in known_and_discovered_paths() {
+    let scan_targets = known_and_discovered_paths();
+    let total_targets = scan_targets.len().max(1);
+
+    for (index, (launcher, root)) in scan_targets.into_iter().enumerate() {
+        let percent = (((index as f32) / (total_targets as f32)) * 100.0).round() as usize;
         let _ = app.emit(
             "import_scan_progress",
             ScanProgressEvent {
@@ -500,6 +557,8 @@ pub fn detect_external_instances(app: AppHandle) -> Result<Vec<DetectedInstance>
                 message: format!("Buscando en {launcher}..."),
                 found_so_far: found.len(),
                 current_path: root.display().to_string(),
+                progress_percent: percent.min(100) as u8,
+                total_targets,
             },
         );
 
@@ -533,6 +592,22 @@ pub fn detect_external_instances(app: AppHandle) -> Result<Vec<DetectedInstance>
                 continue;
             }
 
+            if should_skip_scan_dir(&path) {
+                continue;
+            }
+
+            let _ = app.emit(
+                "import_scan_progress",
+                ScanProgressEvent {
+                    stage: format!("scanning_{}", launcher.to_lowercase().replace(' ', "_")),
+                    message: "Escaneando carpeta...".to_string(),
+                    found_so_far: found.len(),
+                    current_path: path.display().to_string(),
+                    progress_percent: percent.min(99) as u8,
+                    total_targets,
+                },
+            );
+
             let canonical = fs::canonicalize(&path).unwrap_or(path.clone());
             if !seen_paths.insert(canonical) {
                 continue;
@@ -544,6 +619,18 @@ pub fn detect_external_instances(app: AppHandle) -> Result<Vec<DetectedInstance>
             }
         }
     }
+
+    let _ = app.emit(
+        "import_scan_progress",
+        ScanProgressEvent {
+            stage: "completed".to_string(),
+            message: "Escaneo completado".to_string(),
+            found_so_far: found.len(),
+            current_path: String::new(),
+            progress_percent: 100,
+            total_targets,
+        },
+    );
 
     Ok(found)
 }

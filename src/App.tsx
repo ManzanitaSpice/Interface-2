@@ -745,6 +745,7 @@ function App() {
     setFolderRoutes(sanitized)
     persistFolderRoutes(sanitized)
     await invoke('save_folder_routes', { routes: { routes: sanitized } })
+    await refreshLauncherFolders()
   }
 
   const pickFolderRoute = async (route: FolderRouteItem) => {
