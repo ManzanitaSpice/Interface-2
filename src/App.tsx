@@ -33,10 +33,13 @@ type InstanceCard = {
 }
 
 type InstanceVisualMeta = {
-  icon?: string
+  mediaDataUrl?: string
+  mediaMime?: string
   minecraftVersion?: string
   loader?: string
 }
+
+type InstanceExportFormat = 'prism-zip' | 'curseforge-zip' | 'mrpack'
 
 type InstanceHoverInfo = {
   size: string
@@ -574,6 +577,11 @@ function sortLoaderVersions(items: LoaderVersionItem[]): LoaderVersionItem[] {
   })
 }
 
+function mediaTypeFromMime(mime?: string): 'video' | 'image' {
+  if (!mime) return 'image'
+  return mime.startsWith('video/') ? 'video' : 'image'
+}
+
 function App() {
   const [activePage, setActivePage] = useState<MainPage>('Mis Modpacks')
   const [backHistory, setBackHistory] = useState<MainPage[]>([])
@@ -640,6 +648,7 @@ function App() {
     '--accent-hover': appearancePresets[0].vars['--accent-hover'],
   })
   const [newThemeName, setNewThemeName] = useState('')
+  const [appearanceMessage, setAppearanceMessage] = useState('')
   const [launchProgressPercent, setLaunchProgressPercent] = useState(0)
   const [folderRoutes, setFolderRoutes] = useState<FolderRouteItem[]>(defaultFolderRoutes)
   const [updatesAutoCheck, setUpdatesAutoCheck] = useState(true)
@@ -653,6 +662,7 @@ function App() {
   const [isInstanceRunning, setIsInstanceRunning] = useState(false)
   const [lastRuntimeExitKey, setLastRuntimeExitKey] = useState('')
   const [showDeleteInstanceConfirm, setShowDeleteInstanceConfirm] = useState(false)
+  const [showExportMenu, setShowExportMenu] = useState(false)
   const [isDeletingInstance, setIsDeletingInstance] = useState(false)
   const [authSession, setAuthSession] = useState<AuthSession | null>(null)
   const [managedAccounts, setManagedAccounts] = useState<ManagedAccount[]>([])
@@ -971,6 +981,45 @@ function App() {
   useEffect(() => {
     localStorage.setItem(instanceVisualMetaKey, JSON.stringify(instanceVisualMeta))
   }, [instanceVisualMeta])
+
+  useEffect(() => {
+    if (!selectedCard?.instanceRoot) return
+    const meta = instanceVisualMeta[selectedCard.id]
+    if (!meta) return
+    void invoke('save_instance_visual_meta', {
+      instanceRoot: selectedCard.instanceRoot,
+      meta,
+    })
+  }, [selectedCard?.id, selectedCard?.instanceRoot, instanceVisualMeta])
+
+  useEffect(() => {
+    let cancelled = false
+    const loadVisualMeta = async () => {
+      for (const card of cards) {
+        if (!card.instanceRoot) continue
+        try {
+          const result = await invoke<{
+            mediaDataUrl?: string
+            mediaMime?: string
+            minecraftVersion?: string
+            loader?: string
+          } | null>('load_instance_visual_meta', { instanceRoot: card.instanceRoot })
+          if (!result || cancelled) continue
+          setInstanceVisualMeta((prev) => ({
+            ...prev,
+            [card.id]: {
+              ...(prev[card.id] ?? {}),
+              ...result,
+            },
+          }))
+        } catch {
+          // fallback a localStorage
+        }
+      }
+    }
+    void loadVisualMeta()
+    return () => { cancelled = true }
+  }, [cards])
 
   useEffect(() => {
     if (!selectedCard?.instanceRoot) {
@@ -1661,7 +1710,8 @@ function App() {
       setInstanceVisualMeta((prev) => ({
         ...prev,
         [created.id]: {
-          icon: instanceIconPreview.startsWith('data:image') ? instanceIconPreview : undefined,
+          mediaDataUrl: instanceIconPreview.startsWith('data:image') ? instanceIconPreview : undefined,
+          mediaMime: instanceIconPreview.startsWith('data:image') ? 'image/*' : undefined,
           minecraftVersion: selectedMinecraftVersion.id,
           loader: selectedLoader === 'none' ? 'Vanilla' : `${selectedLoader} ${selectedLoaderVersion?.version ?? ''}`.trim(),
         },
@@ -1685,19 +1735,29 @@ function App() {
   const uploadSelectedCardIcon = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file || !selectedCard) return
-    if (!file.type.startsWith('image/')) return
+    if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) return
 
     const reader = new FileReader()
     reader.onload = () => {
       const data = typeof reader.result === 'string' ? reader.result : ''
       if (!data) return
-      setInstanceVisualMeta((prev) => ({
-        ...prev,
-        [selectedCard.id]: {
-          ...(prev[selectedCard.id] ?? {}),
-          icon: data,
-        },
-      }))
+      setInstanceVisualMeta((prev) => {
+        const next = {
+          ...prev,
+          [selectedCard.id]: {
+            ...(prev[selectedCard.id] ?? {}),
+            mediaDataUrl: data,
+            mediaMime: file.type,
+          },
+        }
+        if (selectedCard.instanceRoot) {
+          void invoke('save_instance_visual_meta', {
+            instanceRoot: selectedCard.instanceRoot,
+            meta: next[selectedCard.id],
+          })
+        }
+        return next
+      })
     }
     reader.readAsDataURL(file)
     event.target.value = ''
@@ -1815,6 +1875,25 @@ function App() {
     }
   }
 
+  const exportInstancePackage = async (format: InstanceExportFormat) => {
+    if (!selectedCard?.instanceRoot) return
+    const backendFormat = format === 'mrpack' ? 'mrpack' : format === 'curseforge-zip' ? 'curseforge' : 'prism'
+    try {
+      const result = await invoke<{ outputPath: string }>('export_instance_package', {
+        request: {
+          instanceRoot: selectedCard.instanceRoot,
+          instanceName: selectedCard.name,
+          exportFormat: backendFormat,
+        },
+      })
+      setCreationConsoleLogs((prev) => [...prev, `Exportación completada: ${result.outputPath}`])
+      setShowExportMenu(false)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setCreationConsoleLogs((prev) => [...prev, `No se pudo exportar la instancia: ${message}`])
+    }
+  }
+
 
   const openEditor = () => {
     if (!selectedCard) {
@@ -1842,7 +1921,7 @@ function App() {
     }
 
     if (action === 'Exportar') {
-      await exportRuntimeLog()
+      setShowExportMenu((prev) => !prev)
       return
     }
 
@@ -2334,7 +2413,8 @@ function App() {
                           ? '🧶 Quilt'
                           : '🟩 Vanilla'
                   const cardLoaderVersion = metadata?.loaderVersion ?? ''
-                  const icon = visual?.icon
+                  const mediaDataUrl = visual?.mediaDataUrl
+                  const mediaType = mediaTypeFromMime(visual?.mediaMime)
 
                   return (
                     <motion.article
@@ -2344,8 +2424,8 @@ function App() {
                       whileHover={{ y: -2, scale: 1.01 }}
                       transition={{ duration: 0.14 }}
                     >
-                      <div className="instance-card-icon hero" style={icon ? { backgroundImage: `url(${icon})` } : undefined} aria-hidden="true">
-                        {!icon ? '🧱' : ''}
+                      <div className="instance-card-icon hero" aria-hidden="true">
+                        {!mediaDataUrl ? '🧱' : mediaType === 'video' ? <video src={mediaDataUrl} muted loop autoPlay playsInline /> : <img src={mediaDataUrl} alt="" loading="lazy" />}
                       </div>
                       {metadata?.state?.toUpperCase() === 'REDIRECT' && <span className="instance-tag atajo">Atajo</span>}
                       <strong className="instance-card-title">{card.name}</strong>
@@ -2390,9 +2470,14 @@ function App() {
               <aside className="instance-right-panel">
                 {selectedCard ? (
                   <>
-                  <input ref={selectedCardIconInputRef} type="file" accept="image/*" hidden onChange={(event) => void uploadSelectedCardIcon(event)} />
-                  <div className="instance-right-hero clickable" onClick={() => selectedCardIconInputRef.current?.click()} style={instanceVisualMeta[selectedCard.id]?.icon ? { backgroundImage: `url(${instanceVisualMeta[selectedCard.id]?.icon})` } : undefined} aria-hidden="true">
-                    {!instanceVisualMeta[selectedCard.id]?.icon ? '🧱' : ''}
+                  <input ref={selectedCardIconInputRef} type="file" accept="image/*,video/*" hidden onChange={(event) => void uploadSelectedCardIcon(event)} />
+                  <div className="instance-right-hero clickable" onClick={() => selectedCardIconInputRef.current?.click()} aria-hidden="true">
+                    {(() => {
+                      const media = instanceVisualMeta[selectedCard.id]?.mediaDataUrl
+                      const type = mediaTypeFromMime(instanceVisualMeta[selectedCard.id]?.mediaMime)
+                      if (!media) return '🧱'
+                      return type === 'video' ? <video src={media} muted loop autoPlay playsInline /> : <img src={media} alt="" loading="lazy" />
+                    })()}
                   </div>
                   <header>
                     <h3>{selectedCard.name}</h3>
@@ -2403,6 +2488,14 @@ function App() {
                         <button className={action === 'Editar' ? 'primary' : ''} onClick={() => handleInstanceAction(action)}>
                           {action}
                         </button>
+                        {action === 'Exportar' && showExportMenu && (
+                          <div className="instance-export-menu">
+                            <button onClick={() => void exportInstancePackage('prism-zip')}>Prism Launcher (.zip)</button>
+                            <button onClick={() => void exportInstancePackage('curseforge-zip')}>CurseForge (.zip)</button>
+                            <button onClick={() => void exportInstancePackage('mrpack')}>Modrinth (.mrpack)</button>
+                            <button className="ghost-btn" onClick={() => void exportRuntimeLog()}>Exportar log (.log)</button>
+                          </div>
+                        )}
                         {action === 'Editar' && (
                           <button className="danger" onClick={() => handleInstanceAction('Eliminar')}>
                             Eliminar
@@ -2656,18 +2749,27 @@ function App() {
                   <div className="network-controls">
                     <button onClick={() => {
                       const name = newThemeName.trim()
-                      if (!name) return
+                      if (!name) {
+                        setAppearanceMessage('Debes ingresar un nombre para guardar el tema.')
+                        return
+                      }
                       const theme: UserAppearanceTheme = { id: `user-${Date.now()}`, name, vars: { ...customAppearanceVars } }
-                      setUserAppearanceThemes((prev) => [...prev, theme])
+                      setUserAppearanceThemes((prev) => {
+                        const withoutSameName = prev.filter((item) => item.name.toLowerCase() !== name.toLowerCase())
+                        return [...withoutSameName, theme]
+                      })
                       setSelectedAppearancePreset(theme.id)
                       setNewThemeName('')
+                      setAppearanceMessage(`Tema guardado: ${name}`)
                     }}>Guardar ajuste</button>
                     <button className="danger" onClick={() => {
                       if (!selectedAppearancePreset.startsWith('user-')) return
                       setUserAppearanceThemes((prev) => prev.filter((theme) => theme.id !== selectedAppearancePreset))
                       setSelectedAppearancePreset('custom')
+                      setAppearanceMessage('Tema eliminado correctamente.')
                     }} disabled={!selectedAppearancePreset.startsWith('user-')}>Eliminar ajuste</button>
                   </div>
+                  {appearanceMessage && <small>{appearanceMessage}</small>}
                 </div>
 
                 <div className="appearance-preview detailed">

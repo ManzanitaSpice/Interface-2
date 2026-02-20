@@ -11,8 +11,16 @@ pub struct SkinSummary {
 }
 
 fn root_dir() -> Result<PathBuf, String> {
-    let base = std::env::current_dir().map_err(|err| format!("No se pudo leer cwd: {err}"))?;
-    let dir = base.join("skin-storage");
+    let base = if cfg!(target_os = "windows") {
+        std::env::var("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+    } else {
+        std::env::var("HOME")
+            .map(|home| PathBuf::from(home).join(".local/share"))
+            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+    };
+    let dir = base.join("InterfaceLauncher").join("assets").join("skins");
     fs::create_dir_all(&dir).map_err(|err| format!("No se pudo crear skin-storage: {err}"))?;
     Ok(dir)
 }

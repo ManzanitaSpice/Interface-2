@@ -135,14 +135,17 @@ export function ExplorerPage() {
         <div className={`explorer-results ${view}`}>
           {visibleItems.map((item) => (
             <article key={`${item.source}-${item.id}`} className="instance-card explorer-card">
-              <div className="instance-card-icon hero" style={item.image ? { backgroundImage: `url(${item.image})` } : undefined} />
-              <strong className="instance-card-title">{item.title}</strong>
+              <div className="instance-card-icon hero">
+                {item.image ? <img src={item.image} alt={item.title} loading="lazy" /> : null}
+              </div>
+              <strong className="instance-card-title" title={item.title}>{item.title}</strong>
               {view !== 'titulos' && (
                 <>
-                  <small>{item.description}</small>
+                  <small className="explorer-description" title={item.description}>{item.description}</small>
                   <div className="instance-card-meta">
-                    <small>{item.source}</small><small>Autor: {item.author}</small><small>Actualizado: {item.updatedAt}</small><small>Descargas: {numberFormatter.format(item.downloads)}</small>
+                    <small>{item.source}</small><small>Autor: {item.author}</small><small>{item.projectType}</small><small>Descargas: {numberFormatter.format(item.downloads)}</small>
                   </div>
+                  <div className="explorer-tags">{item.tags.slice(0, 4).map((tag) => <span key={tag}>{tag}</span>)}</div>
                 </>
               )}
             </article>

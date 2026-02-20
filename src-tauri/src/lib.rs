@@ -52,12 +52,15 @@ pub fn run() {
             commands::import::execute_import_action_batch,
             commands::import::cancel_import,
             commands::catalog::search_catalogs,
+            commands::exports::export_instance_package,
             commands::skin_processor::optimize_skin_png,
             commands::file_manager::list_skins,
             commands::file_manager::import_skin,
             commands::file_manager::delete_skin,
             commands::file_manager::load_skin_binary,
-            commands::file_manager::save_skin_binary
+            commands::file_manager::save_skin_binary,
+            commands::visual_meta::save_instance_visual_meta,
+            commands::visual_meta::load_instance_visual_meta
         ])
         .setup(|app| {
             let _ = app::redirect_launch::cleanup_redirect_cache_on_startup(app.handle());
