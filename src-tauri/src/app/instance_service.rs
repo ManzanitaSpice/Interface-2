@@ -232,6 +232,7 @@ pub fn validate_and_prepare_launch(
     let selected_version_id = resolve_effective_version_id(&mc_root, &metadata)?;
     logs.push(format!("VERSION JSON efectivo: {selected_version_id}"));
     let version_json = load_merged_version_json(&mc_root, &selected_version_id)?;
+    log_merged_json_summary(&version_json, &mut logs);
     validate_merged_has_auth_args(&version_json)?;
 
     let executable_version_id = version_json
@@ -1325,6 +1326,96 @@ fn validate_merged_has_auth_args(merged: &Value) -> Result<(), String> {
     Ok(())
 }
 
+fn log_merged_json_summary(merged: &serde_json::Value, logs: &mut Vec<String>) {
+    let main_class = merged
+        .get("mainClass")
+        .and_then(|v| v.as_str())
+        .unwrap_or("(ausente)");
+
+    let has_modern_args = merged.get("arguments").is_some();
+    let has_legacy_args = merged.get("minecraftArguments").is_some();
+
+    let game_args_count = merged
+        .get("arguments")
+        .and_then(|a| a.get("game"))
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+
+    let jvm_args_count = merged
+        .get("arguments")
+        .and_then(|a| a.get("jvm"))
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+
+    let libs_count = merged
+        .get("libraries")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+
+    let has_username = if has_modern_args {
+        merged
+            .get("arguments")
+            .and_then(|a| a.get("game"))
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter().any(|v| {
+                    v.as_str()
+                        .map(|s| s.contains("auth_player_name"))
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false)
+    } else {
+        merged
+            .get("minecraftArguments")
+            .and_then(|v| v.as_str())
+            .map(|s| s.contains("auth_player_name"))
+            .unwrap_or(false)
+    };
+
+    let asset_index = merged
+        .get("assetIndex")
+        .and_then(|v| v.get("id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("(ausente)");
+
+    logs.push("── Resumen version.json mergeado ──────────────".to_string());
+    logs.push(format!("  mainClass:          {}", main_class));
+    logs.push(format!(
+        "  formato args:       {}",
+        if has_modern_args {
+            "moderno (arguments)"
+        } else if has_legacy_args {
+            "legacy (minecraftArguments)"
+        } else {
+            "NINGUNO — ERROR"
+        }
+    ));
+    logs.push(format!("  game args count:    {}", game_args_count));
+    logs.push(format!("  jvm args count:     {}", jvm_args_count));
+    logs.push(format!("  libraries count:    {}", libs_count));
+    logs.push(format!("  assetIndex id:      {}", asset_index));
+    logs.push(format!("  tiene auth_player_name: {}", has_username));
+    logs.push("────────────────────────────────────────────────".to_string());
+
+    if !has_username {
+        logs.push(
+            "  ⚠ ADVERTENCIA: auth_player_name no encontrado en game args tras el merge. El launch fallará."
+                .to_string(),
+        );
+    }
+
+    if game_args_count == 0 && !has_legacy_args {
+        logs.push(
+            "  ⚠ ADVERTENCIA: game_args_count es 0 y no hay minecraftArguments. El version.json mergeado está vacío de argumentos de juego."
+                .to_string(),
+        );
+    }
+}
+
 fn validate_required_online_launch_flags(
     game_args: &[String],
     launch_context: &LaunchContext,
@@ -1526,45 +1617,154 @@ fn resolve_effective_version_id(
         .unwrap_or_else(|| base.to_string()))
 }
 
-fn load_merged_version_json(mc_root: &Path, version_id: &str) -> Result<Value, String> {
-    fn load_version_json(mc_root: &Path, version_id: &str) -> Result<Value, String> {
-        let path = mc_root
-            .join("versions")
-            .join(version_id)
-            .join(format!("{version_id}.json"));
-        let raw = fs::read_to_string(&path)
-            .map_err(|err| format!("No se pudo leer version json {}: {err}", path.display()))?;
-        serde_json::from_str(&raw)
-            .map_err(|err| format!("No se pudo parsear version json {}: {err}", path.display()))
-    }
+fn load_single_version_json(mc_root: &Path, version_id: &str) -> Result<serde_json::Value, String> {
+    let path = mc_root
+        .join("versions")
+        .join(version_id)
+        .join(format!("{version_id}.json"));
 
-    fn merge_values(base: Value, child: Value) -> Value {
-        match (base, child) {
-            (Value::Object(mut b), Value::Object(c)) => {
-                for (key, child_value) in c {
-                    let merged = match b.remove(&key) {
-                        Some(base_value)
-                            if key == "arguments" || key == "downloads" || key == "assetIndex" =>
-                        {
-                            merge_values(base_value, child_value)
-                        }
-                        _ => child_value,
-                    };
-                    b.insert(key, merged);
-                }
-                Value::Object(b)
+    let raw = std::fs::read_to_string(&path)
+        .map_err(|e| format!("No se pudo leer version.json '{}': {}", path.display(), e))?;
+
+    serde_json::from_str(&raw).map_err(|e| {
+        format!(
+            "No se pudo parsear version.json '{}': {}",
+            path.display(),
+            e
+        )
+    })
+}
+
+fn merge_version_jsons(parent: serde_json::Value, child: serde_json::Value) -> serde_json::Value {
+    use serde_json::{Map, Value};
+
+    let mut result: Map<String, Value> = parent.as_object().cloned().unwrap_or_default();
+
+    let child_obj: Map<String, Value> = match child.as_object() {
+        Some(o) => o.clone(),
+        None => return Value::Object(result),
+    };
+
+    for (key, child_val) in child_obj {
+        match key.as_str() {
+            "inheritsFrom" => {}
+            "libraries" => {
+                let parent_libs = result
+                    .get("libraries")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                let child_libs = child_val.as_array().cloned().unwrap_or_default();
+
+                let mut merged = parent_libs;
+                merged.extend(child_libs);
+                result.insert("libraries".to_string(), Value::Array(merged));
             }
-            (_, child) => child,
+            "arguments" => {
+                let parent_arguments = result
+                    .get("arguments")
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .unwrap_or_default();
+
+                let child_arguments = match child_val.as_object() {
+                    Some(o) => o.clone(),
+                    None => {
+                        continue;
+                    }
+                };
+
+                let mut merged_arguments = parent_arguments.clone();
+
+                {
+                    let parent_game = parent_arguments
+                        .get("game")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+                    let child_game = child_arguments
+                        .get("game")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+
+                    let mut merged_game = parent_game;
+                    merged_game.extend(child_game);
+                    merged_arguments.insert("game".to_string(), Value::Array(merged_game));
+                }
+
+                {
+                    let parent_jvm = parent_arguments
+                        .get("jvm")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+                    let child_jvm = child_arguments
+                        .get("jvm")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+
+                    let mut merged_jvm = parent_jvm;
+                    merged_jvm.extend(child_jvm);
+                    merged_arguments.insert("jvm".to_string(), Value::Array(merged_jvm));
+                }
+
+                result.insert("arguments".to_string(), Value::Object(merged_arguments));
+            }
+            "assetIndex" | "assets" | "downloads" => {
+                if !result.contains_key(&key) {
+                    result.insert(key, child_val);
+                }
+            }
+            "javaVersion" => {
+                let parent_major = result
+                    .get("javaVersion")
+                    .and_then(|v| v.get("majorVersion"))
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0);
+                let child_major = child_val
+                    .get("majorVersion")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0);
+
+                if child_major > parent_major {
+                    result.insert("javaVersion".to_string(), child_val);
+                }
+            }
+            "minecraftArguments" => {
+                result.insert(key, child_val);
+            }
+            _ => {
+                result.insert(key, child_val);
+            }
         }
     }
 
-    let child = load_version_json(mc_root, version_id)?;
-    if let Some(parent_id) = child.get("inheritsFrom").and_then(Value::as_str) {
-        let parent = load_merged_version_json(mc_root, parent_id)?;
-        Ok(merge_values(parent, child))
-    } else {
-        Ok(child)
-    }
+    Value::Object(result)
+}
+
+pub fn load_merged_version_json(
+    mc_root: &Path,
+    version_id: &str,
+) -> Result<serde_json::Value, String> {
+    let child = load_single_version_json(mc_root, version_id)?;
+
+    let parent_id = match child.get("inheritsFrom").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => {
+            return Ok(child);
+        }
+    };
+
+    let parent = load_merged_version_json(mc_root, &parent_id).map_err(|e| {
+        format!(
+            "No se pudo cargar parent '{}' requerido por '{}': {}",
+            parent_id, version_id, e
+        )
+    })?;
+
+    Ok(merge_version_jsons(parent, child))
 }
 
 fn ensure_main_class_present_in_jar(jar_path: &Path, main_class: &str) -> Result<(), String> {
@@ -1894,8 +2094,8 @@ fn persist_instance_java_path(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_maven_library_path, contains_classpath_switch, parse_runtime_from_metadata,
-        parse_runtime_major,
+        build_maven_library_path, contains_classpath_switch, merge_version_jsons,
+        parse_runtime_from_metadata, parse_runtime_major,
     };
     use crate::domain::models::{instance::InstanceMetadata, java::JavaRuntime};
     use serde_json::json;
@@ -1948,5 +2148,163 @@ mod tests {
             parse_runtime_from_metadata(&metadata),
             Some(JavaRuntime::Java17)
         );
+    }
+
+    #[test]
+    fn merge_concatenates_game_args_not_overrides() {
+        let parent = json!({
+            "id": "1.21.1",
+            "mainClass": "net.minecraft.client.main.Main",
+            "arguments": {
+                "game": [
+                    "--username", "${auth_player_name}",
+                    "--uuid",     "${auth_uuid}",
+                    "--accessToken", "${auth_access_token}"
+                ],
+                "jvm": [
+                    "-Djava.library.path=${natives_directory}"
+                ]
+            },
+            "libraries": [
+                { "name": "com.mojang:minecraft:1.21.1" }
+            ],
+            "assetIndex": { "id": "17", "url": "https://..." },
+            "assets": "17"
+        });
+
+        let child = json!({
+            "id": "neoforge-21.1.219",
+            "inheritsFrom": "1.21.1",
+            "mainClass": "cpw.mods.bootstraplauncher.BootstrapLauncher",
+            "arguments": {
+                "jvm": [
+                    "-DignoreList=bootstraplauncher",
+                    "-DlibraryDirectory=${library_directory}"
+                ]
+            },
+            "libraries": [
+                { "name": "cpw.mods:bootstraplauncher:1.1.2" }
+            ]
+        });
+
+        let merged = merge_version_jsons(parent, child);
+
+        assert_eq!(
+            merged["mainClass"].as_str().unwrap_or_default(),
+            "cpw.mods.bootstraplauncher.BootstrapLauncher"
+        );
+
+        let game_args = merged["arguments"]["game"]
+            .as_array()
+            .expect("arguments.game debe existir");
+        let has_username = game_args.iter().any(|v| {
+            v.as_str()
+                .map(|s| s.contains("auth_player_name"))
+                .unwrap_or(false)
+        });
+        assert!(
+            has_username,
+            "auth_player_name debe estar en game args tras merge"
+        );
+
+        let jvm_args = merged["arguments"]["jvm"]
+            .as_array()
+            .expect("arguments.jvm debe existir");
+        assert!(
+            jvm_args.len() >= 3,
+            "jvm debe tener parent(1) + child(2) = mínimo 3, tiene {}",
+            jvm_args.len()
+        );
+
+        let libs = merged["libraries"]
+            .as_array()
+            .expect("libraries debe existir");
+        assert_eq!(
+            libs.len(),
+            2,
+            "libraries debe tener 2 (1 parent + 1 child), tiene {}",
+            libs.len()
+        );
+
+        assert_eq!(
+            merged["assetIndex"]["id"].as_str().unwrap_or_default(),
+            "17"
+        );
+
+        assert!(
+            merged.get("inheritsFrom").is_none(),
+            "inheritsFrom no debe estar en el JSON mergeado"
+        );
+    }
+
+    #[test]
+    fn merge_legacy_minecraft_arguments_preserved() {
+        let parent = json!({
+            "id": "1.12.2",
+            "mainClass": "net.minecraft.launchwrapper.Launch",
+            "minecraftArguments": "--username ${auth_player_name} --uuid ${auth_uuid} --accessToken ${auth_access_token} --userType ${user_type}",
+            "libraries": []
+        });
+
+        let child = json!({
+            "id": "1.12.2-forge-14.23.5.2860",
+            "inheritsFrom": "1.12.2",
+            "mainClass": "net.minecraft.launchwrapper.Launch",
+            "libraries": [
+                { "name": "net.minecraftforge:forge:1.12.2-14.23.5.2860" }
+            ]
+        });
+
+        let merged = merge_version_jsons(parent, child);
+
+        let mc_args = merged["minecraftArguments"]
+            .as_str()
+            .expect("minecraftArguments debe existir");
+        assert!(
+            mc_args.contains("auth_player_name"),
+            "minecraftArguments debe contener auth_player_name"
+        );
+    }
+
+    #[test]
+    fn merge_child_jvm_args_added_to_parent() {
+        let parent = json!({
+            "arguments": {
+                "game": ["--username", "${auth_player_name}"],
+                "jvm": ["-Djava.library.path=${natives_directory}"]
+            },
+            "libraries": []
+        });
+
+        let child = json!({
+            "inheritsFrom": "1.21.1",
+            "arguments": {
+                "jvm": ["-DignoreList=bootstraplauncher"]
+            },
+            "libraries": []
+        });
+
+        let merged = merge_version_jsons(parent, child);
+        let jvm = merged["arguments"]["jvm"]
+            .as_array()
+            .unwrap_or(&vec![])
+            .clone();
+
+        let has_natives = jvm.iter().any(|v| {
+            v.as_str()
+                .map(|s| s.contains("natives_directory"))
+                .unwrap_or(false)
+        });
+        let has_ignore = jvm.iter().any(|v| {
+            v.as_str()
+                .map(|s| s.contains("ignoreList"))
+                .unwrap_or(false)
+        });
+
+        assert!(
+            has_natives,
+            "jvm debe tener arg de parent (natives_directory)"
+        );
+        assert!(has_ignore, "jvm debe tener arg de child (ignoreList)");
     }
 }
