@@ -23,13 +23,11 @@ fn account_dir(account_id: &str) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-
 fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     format!("{:x}", hasher.finalize())
 }
-
 
 #[tauri::command]
 pub fn list_skins(account_id: String) -> Result<Vec<SkinSummary>, String> {
@@ -58,7 +56,11 @@ pub fn list_skins(account_id: String) -> Result<Vec<SkinSummary>, String> {
             })
             .unwrap_or_else(|| "-".into());
 
-        skins.push(SkinSummary { id, name, updated_at });
+        skins.push(SkinSummary {
+            id,
+            name,
+            updated_at,
+        });
     }
 
     skins.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
@@ -66,7 +68,11 @@ pub fn list_skins(account_id: String) -> Result<Vec<SkinSummary>, String> {
 }
 
 #[tauri::command]
-pub fn import_skin(account_id: String, name: String, bytes: Vec<u8>) -> Result<SkinSummary, String> {
+pub fn import_skin(
+    account_id: String,
+    name: String,
+    bytes: Vec<u8>,
+) -> Result<SkinSummary, String> {
     crate::commands::validator::validate_skin_png(&bytes)?;
     let optimized = crate::commands::skin_processor::optimize_skin_png(bytes)?;
 
@@ -77,7 +83,11 @@ pub fn import_skin(account_id: String, name: String, bytes: Vec<u8>) -> Result<S
         .chars()
         .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_' || *ch == '-')
         .collect::<String>();
-    let final_name = if safe_name.is_empty() { "skin".to_string() } else { safe_name };
+    let final_name = if safe_name.is_empty() {
+        "skin".to_string()
+    } else {
+        safe_name
+    };
 
     let path = account_dir(&account_id)?.join(format!("{id}__{final_name}.png"));
     fs::write(&path, optimized).map_err(|err| format!("No se pudo guardar la skin: {err}"))?;
@@ -95,7 +105,9 @@ pub fn delete_skin(account_id: String, skin_id: String) -> Result<(), String> {
     let entries = fs::read_dir(&dir).map_err(|err| format!("No se pudo leer carpeta: {err}"))?;
     for entry in entries.flatten() {
         let path = entry.path();
-        let Some(file_name) = path.file_name().and_then(|v| v.to_str()) else { continue; };
+        let Some(file_name) = path.file_name().and_then(|v| v.to_str()) else {
+            continue;
+        };
         if file_name.starts_with(&skin_id) && file_name.ends_with(".png") {
             fs::remove_file(path).map_err(|err| format!("No se pudo eliminar skin: {err}"))?;
             return Ok(());
@@ -110,7 +122,9 @@ pub fn load_skin_binary(account_id: String, skin_id: String) -> Result<Vec<u8>, 
     let entries = fs::read_dir(&dir).map_err(|err| format!("No se pudo leer carpeta: {err}"))?;
     for entry in entries.flatten() {
         let path = entry.path();
-        let Some(file_name) = path.file_name().and_then(|v| v.to_str()) else { continue; };
+        let Some(file_name) = path.file_name().and_then(|v| v.to_str()) else {
+            continue;
+        };
         if file_name.starts_with(&skin_id) && file_name.ends_with(".png") {
             return fs::read(path).map_err(|err| format!("No se pudo abrir skin: {err}"));
         }
@@ -119,7 +133,11 @@ pub fn load_skin_binary(account_id: String, skin_id: String) -> Result<Vec<u8>, 
 }
 
 #[tauri::command]
-pub fn save_skin_binary(account_id: String, skin_id: String, bytes: Vec<u8>) -> Result<SkinSummary, String> {
+pub fn save_skin_binary(
+    account_id: String,
+    skin_id: String,
+    bytes: Vec<u8>,
+) -> Result<SkinSummary, String> {
     crate::commands::validator::validate_skin_png(&bytes)?;
     let optimized = crate::commands::skin_processor::optimize_skin_png(bytes)?;
 
@@ -127,16 +145,24 @@ pub fn save_skin_binary(account_id: String, skin_id: String, bytes: Vec<u8>) -> 
     let entries = fs::read_dir(&dir).map_err(|err| format!("No se pudo leer carpeta: {err}"))?;
     for entry in entries.flatten() {
         let path = entry.path();
-        let Some(file_name) = path.file_name().and_then(|v| v.to_str()) else { continue; };
+        let Some(file_name) = path.file_name().and_then(|v| v.to_str()) else {
+            continue;
+        };
         if file_name.starts_with(&skin_id) && file_name.ends_with(".png") {
-            let current = fs::read(&path).map_err(|err| format!("No se pudo leer skin existente: {err}"))?;
+            let current =
+                fs::read(&path).map_err(|err| format!("No se pudo leer skin existente: {err}"))?;
             let incoming_hash = sha256_hex(&optimized);
             let current_hash = sha256_hex(&current);
             if incoming_hash != current_hash {
-                fs::write(&path, optimized).map_err(|err| format!("No se pudo guardar cambios: {err}"))?;
+                fs::write(&path, optimized)
+                    .map_err(|err| format!("No se pudo guardar cambios: {err}"))?;
             }
             let stem = path.file_stem().and_then(|v| v.to_str()).unwrap_or("skin");
-            let name = stem.splitn(2, "__").nth(1).unwrap_or("skin").replace('_', " ");
+            let name = stem
+                .splitn(2, "__")
+                .nth(1)
+                .unwrap_or("skin")
+                .replace('_', " ");
             return Ok(SkinSummary {
                 id: skin_id,
                 name,

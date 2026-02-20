@@ -1,10 +1,11 @@
-use image::{ColorType, ImageEncoder, codecs::png::PngEncoder};
+use image::{codecs::png::PngEncoder, ColorType, ImageEncoder};
 
 #[tauri::command]
 pub fn optimize_skin_png(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
     crate::commands::validator::validate_skin_png(&bytes)?;
 
-    let image = image::load_from_memory(&bytes).map_err(|err| format!("No se pudo leer imagen: {err}"))?;
+    let image =
+        image::load_from_memory(&bytes).map_err(|err| format!("No se pudo leer imagen: {err}"))?;
     let rgba = image.to_rgba8();
     let (width, height) = rgba.dimensions();
 

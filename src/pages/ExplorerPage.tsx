@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core'
 import { useEffect, useMemo, useState } from 'react'
 
 type Category = 'All' | 'Modpacks' | 'Mods' | 'DataPacks' | 'Resource Packs' | 'Shaders' | 'Worlds' | 'Addons' | 'Customizacion'
@@ -22,7 +23,6 @@ type ExplorerItem = {
   tags: string[]
 }
 
-const curseforgeApiKey = '$2a$10$jK7YyZHdUNTDlcME9Egd6.Zt5RananLQKn/tpIhmRDezd2.wHGU9G'
 const categoryToProjectType: Record<Category, string | null> = {
   All: null,
   Modpacks: 'modpack',
@@ -59,11 +59,20 @@ export function ExplorerPage() {
       setLoading(true)
       setError('')
       try {
-        const [modrinthItems, curseforgeItems] = await Promise.all([
-          platform === 'Curseforge' ? Promise.resolve([]) : fetchModrinth(search, category, sort, mcVersion, loader),
-          platform === 'Modrinth' ? Promise.resolve([]) : fetchCurseforge(search, category, sort, mcVersion),
-        ])
-        if (!cancelled) setItems(sortItems([...modrinthItems, ...curseforgeItems], sort))
+        const payload = await invoke<ExplorerItem[]>('search_catalogs', {
+          request: {
+            search,
+            category: categoryToProjectType[category],
+            curseforgeClassId: categoryToClassId[category] ?? null,
+            platform,
+            mcVersion: mcVersion || null,
+            loader: loader === 'Todos' ? null : loader.toLowerCase(),
+            modrinthSort: mapModrinthSort(sort),
+            curseforgeSortField: mapCurseSortField(sort),
+            limit: 30,
+          },
+        })
+        if (!cancelled) setItems(sortItems(payload, sort))
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err))
       } finally {
@@ -117,7 +126,7 @@ export function ExplorerPage() {
 
         <div className="catalog-panel-header">
           <strong>Catálogo completo de CurseForge y Modrinth</strong>
-          <small>Controlado por los botones de la barra superior.</small>
+          <small>Conectado al backend con rutas reales y filtros avanzados.</small>
         </div>
 
         {loading && <p>Cargando catálogo...</p>}
@@ -142,40 +151,6 @@ export function ExplorerPage() {
       </section>
     </main>
   )
-}
-
-async function fetchModrinth(search: string, category: Category, sort: SortMode, mcVersion: string, loader: LoaderFilter): Promise<ExplorerItem[]> {
-  const projectType = categoryToProjectType[category]
-  const facets: string[][] = []
-  if (projectType) facets.push([`project_type:${projectType}`])
-  if (mcVersion) facets.push([`versions:${mcVersion}`])
-  if (loader !== 'Todos') facets.push([`categories:${loader.toLowerCase()}`])
-  const params = new URLSearchParams({ query: search, limit: '30', index: mapModrinthSort(sort), facets: JSON.stringify(facets) })
-  const response = await fetch(`https://api.modrinth.com/v2/search?${params.toString()}`)
-  if (!response.ok) throw new Error(`Modrinth respondió con ${response.status}`)
-  const payload = await response.json() as { hits: Array<Record<string, unknown>> }
-  return payload.hits.map((hit) => {
-    const categories = Array.isArray(hit.categories) ? hit.categories.filter((item): item is string => typeof item === 'string') : []
-    const versions = Array.isArray(hit.versions) ? hit.versions.filter((item): item is string => typeof item === 'string') : []
-    return { id: String(hit.project_id ?? crypto.randomUUID()), source: 'Modrinth', title: String(hit.title ?? 'Sin título'), description: String(hit.description ?? ''), image: String(hit.icon_url ?? ''), author: String(hit.author ?? '-'), downloads: Number(hit.downloads ?? 0), updatedAt: String(hit.date_modified ?? ''), size: '-', minecraftVersions: versions, loaders: categories, projectType: String(hit.project_type ?? '-'), tags: categories }
-  })
-}
-
-async function fetchCurseforge(search: string, category: Category, sort: SortMode, mcVersion: string): Promise<ExplorerItem[]> {
-  const params = new URLSearchParams({ gameId: '432', pageSize: '30', sortField: String(mapCurseSortField(sort)), sortOrder: 'desc' })
-  if (search) params.set('searchFilter', search)
-  if (mcVersion) params.set('gameVersion', mcVersion)
-  const classId = categoryToClassId[category]
-  if (classId) params.set('classId', String(classId))
-  const response = await fetch(`https://api.curseforge.com/v1/mods/search?${params.toString()}`, { headers: { 'x-api-key': curseforgeApiKey } })
-  if (!response.ok) throw new Error(`CurseForge respondió con ${response.status}`)
-  const payload = await response.json() as { data: Array<Record<string, unknown>> }
-  return payload.data.map((entry) => {
-    const latestIndexes = Array.isArray(entry.latestFilesIndexes) ? entry.latestFilesIndexes as Array<Record<string, unknown>> : []
-    const gameVersions = latestIndexes.map((item) => String(item.gameVersion ?? '')).filter(Boolean)
-    const loaders = latestIndexes.map((item) => String(item.modLoader ?? '')).filter(Boolean)
-    return { id: String(entry.id ?? crypto.randomUUID()), source: 'CurseForge', title: String(entry.name ?? 'Sin título'), description: String(entry.summary ?? ''), image: String((entry.logo as { thumbnailUrl?: string } | null)?.thumbnailUrl ?? ''), author: String((entry.authors as Array<{ name?: string }> | undefined)?.[0]?.name ?? '-'), downloads: Number(entry.downloadCount ?? 0), updatedAt: String(entry.dateReleased ?? ''), size: '-', minecraftVersions: gameVersions, loaders, projectType: String((entry.class as { name?: string } | null)?.name ?? '-'), tags: Array.isArray(entry.categories) ? (entry.categories as Array<{ name?: string }>).map((item) => item.name ?? '').filter(Boolean) : [] }
-  })
 }
 
 function sortItems(items: ExplorerItem[], sort: SortMode): ExplorerItem[] {

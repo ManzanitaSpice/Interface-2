@@ -17,9 +17,20 @@ const resolveIcon = (iconPath?: string | null) => {
   }
 }
 
+const normalizeLoader = (loader: string) => {
+  const value = loader.trim().toLowerCase()
+  if (!value || value === 'vanilla') return { id: 'vanilla', label: 'Vanilla', icon: '🟩' }
+  if (value.includes('fabric')) return { id: 'fabric', label: 'Fabric', icon: '🧵' }
+  if (value.includes('neoforge')) return { id: 'neoforge', label: 'NeoForge', icon: '🔶' }
+  if (value.includes('forge')) return { id: 'forge', label: 'Forge', icon: '⚒️' }
+  if (value.includes('quilt') || value.includes('quilit')) return { id: 'quilt', label: 'Quilt', icon: '🧶' }
+  return { id: value, label: loader, icon: '📦' }
+}
+
 export function DetectedInstanceCard({ item, selected, onToggle }: Props) {
   const icon = resolveIcon(item.iconPath)
-  const loaderLabel = `${item.loader || 'vanilla'} ${item.loaderVersion || ''}`.trim()
+  const loaderInfo = normalizeLoader(item.loader || 'vanilla')
+  const loaderLabel = `${loaderInfo.label} ${item.loaderVersion || ''}`.trim()
   const sizeLabel = item.sizeMb && item.sizeMb > 0 ? `${item.sizeMb} MB` : 'Tamaño no detectado'
 
   return (
@@ -35,7 +46,7 @@ export function DetectedInstanceCard({ item, selected, onToggle }: Props) {
       <div className="instance-card-meta">
         <small>Origen: {item.sourceLauncher}</small>
         <small>MC {item.minecraftVersion}</small>
-        <small>Loader: {loaderLabel}</small>
+        <small>Loader: {loaderInfo.icon} {loaderLabel}</small>
         <small>Peso real: {sizeLabel}</small>
         <small>{item.modsCount ?? 0} mods</small>
       </div>
