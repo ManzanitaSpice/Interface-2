@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     fs,
+    io::{BufRead, BufReader},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{Mutex, OnceLock},
@@ -49,6 +50,14 @@ pub struct RedirectLaunchContext {
     pub assets_dir: PathBuf,
     pub minecraft_jar: PathBuf,
     pub launcher_name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeOutputEvent {
+    instance_root: String,
+    stream: String,
+    line: String,
 }
 
 #[derive(Debug, Clone)]
@@ -758,7 +767,18 @@ pub fn build_classpath(
     }
     entries.push(main_jar.display().to_string());
 
-    Ok(entries.join(sep))
+    let normalized = entries
+        .into_iter()
+        .map(|entry| {
+            if cfg!(target_os = "windows") {
+                entry.replace('/', "\\")
+            } else {
+                entry
+            }
+        })
+        .collect::<Vec<_>>();
+
+    Ok(normalized.join(sep))
 }
 
 fn native_classifier(lib: &Value) -> Option<String> {
@@ -834,6 +854,16 @@ pub fn extract_natives(
     }
 
     Ok(())
+}
+
+fn has_any_file(root: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(root) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let path = entry.path();
+        path.is_file() || (path.is_dir() && has_any_file(&path))
+    })
 }
 
 fn emit_redirect_cache_status(app: &AppHandle, payload: serde_json::Value) {
@@ -1576,6 +1606,12 @@ pub async fn launch_redirect_instance(
         }),
     );
     extract_natives(&ctx.version_json, &ctx.libraries_dir, &natives_dir)?;
+    if !has_any_file(&natives_dir) {
+        return Err(
+            "La carpeta de natives quedó vacía tras la extracción para la instancia REDIRECT."
+                .to_string(),
+        );
+    }
 
     let asset_index = ctx
         .version_json
@@ -1653,10 +1689,43 @@ pub async fn launch_redirect_instance(
         .args(&jvm_args)
         .arg(resolved.main_class.clone())
         .args(&resolved.game)
+        .env(
+            "JAVA_HOME",
+            java_exec
+                .parent()
+                .and_then(Path::parent)
+                .unwrap_or_else(|| Path::new(""))
+                .display()
+                .to_string(),
+        )
+        .env("APPDATA", std::env::var("APPDATA").unwrap_or_default())
+        .env("HOME", std::env::var("HOME").unwrap_or_default())
+        .env(
+            "XDG_DATA_HOME",
+            std::env::var("XDG_DATA_HOME").unwrap_or_default(),
+        )
+        .env_remove("_JAVA_OPTIONS")
+        .env_remove("JAVA_TOOL_OPTIONS")
+        .env_remove("JDK_JAVA_OPTIONS")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::null())
         .current_dir(&ctx.game_dir);
+
+    #[cfg(debug_assertions)]
+    {
+        log::debug!("[REDIRECT] Comando de lanzamiento:");
+        log::debug!("  Java: {}", java_exec.display());
+        log::debug!("  working_dir: {}", ctx.game_dir.display());
+        log::debug!("  natives_dir: {}", natives_dir.display());
+        for arg in jvm_args
+            .iter()
+            .chain(std::iter::once(&resolved.main_class))
+            .chain(resolved.game.iter())
+        {
+            log::debug!("  arg: {arg}");
+        }
+    }
 
     #[cfg(unix)]
     {
@@ -1680,6 +1749,8 @@ pub async fn launch_redirect_instance(
     })?;
 
     let pid = child.id();
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
     let _ = app.emit(
         "redirect_launch_status",
         json!({
@@ -1698,6 +1769,54 @@ pub async fn launch_redirect_instance(
     let instance_root_for_thread = instance_root.clone();
     let registry_instance_root = instance_root.clone();
     thread::spawn(move || {
+        let mut stream_threads = Vec::new();
+
+        if let Some(stdout_pipe) = stdout {
+            let app_for_stdout = app_for_thread.clone();
+            let instance_for_stdout = instance_root_for_thread.clone();
+            stream_threads.push(thread::spawn(move || {
+                let reader = BufReader::new(stdout_pipe);
+                for line in reader.lines().map_while(Result::ok) {
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+                    let _ = app_for_stdout.emit(
+                        "instance_runtime_output",
+                        RuntimeOutputEvent {
+                            instance_root: instance_for_stdout.clone(),
+                            stream: "stdout".to_string(),
+                            line,
+                        },
+                    );
+                }
+            }));
+        }
+
+        if let Some(stderr_pipe) = stderr {
+            let app_for_stderr = app_for_thread.clone();
+            let instance_for_stderr = instance_root_for_thread.clone();
+            stream_threads.push(thread::spawn(move || {
+                let reader = BufReader::new(stderr_pipe);
+                for line in reader.lines().map_while(Result::ok) {
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+                    let _ = app_for_stderr.emit(
+                        "instance_runtime_output",
+                        RuntimeOutputEvent {
+                            instance_root: instance_for_stderr.clone(),
+                            stream: "stderr".to_string(),
+                            line,
+                        },
+                    );
+                }
+            }));
+        }
+
+        for handle in stream_threads {
+            let _ = handle.join();
+        }
+
         let exit_code = child.wait().ok().and_then(|status| status.code());
         let _ = app_for_thread.emit(
             "redirect_launch_status",

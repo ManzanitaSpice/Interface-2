@@ -9,6 +9,7 @@ use std::{
     time::SystemTime,
 };
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use tauri::{AppHandle, Emitter, Manager};
 use uuid::Uuid;
 
@@ -706,6 +707,49 @@ fn detect_dir(path: &Path, launcher: &str) -> Option<DetectedInstance> {
     })
 }
 
+fn guess_icon_mime(icon_path: &Path) -> &'static str {
+    match icon_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        "svg" => "image/svg+xml",
+        _ => "image/png",
+    }
+}
+
+fn persist_shortcut_visual_meta(instance_root: &Path, source_path: &Path) {
+    let icon_candidates = ["icon.png", "instance.png", ".minecraft/icon.png"];
+    let Some(icon_path) = icon_candidates
+        .iter()
+        .map(|candidate| source_path.join(candidate))
+        .find(|candidate| candidate.exists())
+    else {
+        return;
+    };
+
+    let Ok(icon_bytes) = fs::read(&icon_path) else {
+        return;
+    };
+
+    let mime = guess_icon_mime(&icon_path);
+    let media_data_url = format!("data:{mime};base64,{}", STANDARD.encode(icon_bytes));
+    let visual_meta = serde_json::json!({
+        "mediaDataUrl": media_data_url,
+        "mediaMime": mime,
+    });
+    let _ = fs::write(
+        instance_root.join(".interface-visual.json"),
+        serde_json::to_string_pretty(&visual_meta).unwrap_or_else(|_| "{}".to_string()),
+    );
+}
+
 fn dedupe_instances(instances: Vec<DetectedInstance>) -> Vec<DetectedInstance> {
     let mut by_path = HashSet::new();
     let mut by_signature = HashSet::new();
@@ -1165,10 +1209,7 @@ pub fn execute_import_action(
             minecraft_version: request.minecraft_version.clone(),
             version_id: request.minecraft_version.clone(),
             loader: request.loader.clone(),
-            loader_version: format!(
-                "{} · {} · Re Direccion",
-                request.loader_version, request.source_launcher
-            ),
+            loader_version: request.loader_version.clone(),
             ram_mb: 4096,
             java_args: vec!["-XX:+UnlockExperimentalVMOptions".to_string()],
             java_path: "".to_string(),
@@ -1196,6 +1237,8 @@ pub fn execute_import_action(
             .map_err(|err| format!("No se pudo serializar redirección de atajo: {err}"))?;
         fs::write(&redirect_path, redirect_raw)
             .map_err(|err| format!("No se pudo guardar redirección de atajo: {err}"))?;
+
+        persist_shortcut_visual_meta(&instance_root, Path::new(&request.source_path));
 
         return Ok(ImportActionResult {
             success: true,
