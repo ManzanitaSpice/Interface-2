@@ -35,10 +35,24 @@ struct MigrationProgressEvent {
 }
 
 fn ensure_valid_destination(source: &Path, target: &Path) -> Result<(), String> {
-    if source == target {
+    if target.as_os_str().is_empty() {
+        return Err("Debes seleccionar una carpeta válida.".to_string());
+    }
+
+    if target.exists() && !target.is_dir() {
+        return Err("La ruta destino existe pero no es una carpeta.".to_string());
+    }
+
+    fs::create_dir_all(target)
+        .map_err(|e| format!("No se pudo preparar la carpeta destino {}: {e}", target.display()))?;
+
+    let source_norm = source.canonicalize().unwrap_or_else(|_| source.to_path_buf());
+    let target_norm = target.canonicalize().unwrap_or_else(|_| target.to_path_buf());
+
+    if source_norm == target_norm {
         return Err("La carpeta destino no puede ser la misma que la actual.".to_string());
     }
-    if target.starts_with(source) {
+    if target_norm.starts_with(&source_norm) {
         return Err("La carpeta destino no puede estar dentro de la carpeta origen.".to_string());
     }
     Ok(())
@@ -167,6 +181,15 @@ pub fn migrate_launcher_root(
     ensure_valid_destination(&old_root, &new_root)?;
 
     if migrate_files {
+        let _ = app.emit(
+            "migration_progress",
+            MigrationProgressEvent {
+                step: "preparing_launcher_migration".to_string(),
+                completed: 0,
+                total: 1,
+                message: "Preparando migración del launcher...".to_string(),
+            },
+        );
         let required = dir_size(&old_root)?.saturating_add(500 * 1024 * 1024);
         let free = available_space(&new_root)
             .or_else(|_| available_space(new_root.parent().unwrap_or(&new_root)))
@@ -207,9 +230,6 @@ pub fn change_instances_folder(
     let current = resolve_instances_root(&app)?;
     let target = PathBuf::from(new_path.trim());
     ensure_valid_destination(&current, &target)?;
-
-    fs::create_dir_all(&target)
-        .map_err(|e| format!("No se pudo crear destino {}: {e}", target.display()))?;
 
     if migrate_files && current.exists() {
         let entries: Vec<_> = fs::read_dir(&current)

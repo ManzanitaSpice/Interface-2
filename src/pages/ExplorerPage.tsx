@@ -23,6 +23,8 @@ type ExplorerItem = {
   tags: string[]
 }
 
+type Props = { uiLanguage: 'es' | 'en' | 'pt' }
+
 const categoryToProjectType: Record<Category, string | null> = {
   All: null,
   Modpacks: 'modpack',
@@ -35,13 +37,19 @@ const categoryToProjectType: Record<Category, string | null> = {
   Customizacion: 'mod',
 }
 const categoryToClassId: Partial<Record<Category, number>> = { Modpacks: 4471, Mods: 6, 'Resource Packs': 12, Worlds: 17, Shaders: 6552, Addons: 4559 }
-const numberFormatter = new Intl.NumberFormat('es-ES')
 const officialVersions = ['1.21.4', '1.21.3', '1.21.1', '1.21', '1.20.6', '1.20.4', '1.20.1', '1.19.4', '1.18.2', '1.16.5']
 
 const mapModrinthSort = (sort: SortMode) => sort === 'Popularidad' ? 'follows' : sort === 'Ultima Actualizacion' ? 'updated' : sort === 'Mas Descargas' ? 'downloads' : sort === 'Nombre' ? 'newest' : 'relevance'
 const mapCurseSortField = (sort: SortMode) => sort === 'Popularidad' ? 2 : sort === 'Ultima Actualizacion' ? 3 : sort === 'Mas Descargas' ? 6 : sort === 'Nombre' ? 4 : sort === 'Actualizacion Estable' ? 11 : 1
 
-export function ExplorerPage() {
+const uiText = {
+  es: { search: 'Buscar en catálogo', categories: 'Categorías', sort: 'Orden', platform: 'Plataforma', view: 'Vista', advanced: 'Filtro avanzado', mcVersion: 'Versión Minecraft', loader: 'Loader', all: 'Todas', headerTitle: 'Catálogo completo de CurseForge y Modrinth', headerSub: 'Resultados reales del backend, con filtros estables y vista profesional.', loading: 'Cargando catálogo...', author: 'Autor', downloads: 'Descargas' },
+  en: { search: 'Search catalog', categories: 'Categories', sort: 'Sort', platform: 'Platform', view: 'View', advanced: 'Advanced filter', mcVersion: 'Minecraft version', loader: 'Loader', all: 'All', headerTitle: 'Complete CurseForge and Modrinth catalog', headerSub: 'Real backend results with stable filters and a professional layout.', loading: 'Loading catalog...', author: 'Author', downloads: 'Downloads' },
+  pt: { search: 'Buscar no catálogo', categories: 'Categorias', sort: 'Ordenar', platform: 'Plataforma', view: 'Visualização', advanced: 'Filtro avançado', mcVersion: 'Versão do Minecraft', loader: 'Loader', all: 'Todas', headerTitle: 'Catálogo completo de CurseForge e Modrinth', headerSub: 'Resultados reais do backend com filtros estáveis e visual profissional.', loading: 'Carregando catálogo...', author: 'Autor', downloads: 'Downloads' },
+} as const
+
+export function ExplorerPage({ uiLanguage }: Props) {
+  const t = uiText[uiLanguage]
   const [category, setCategory] = useState<Category>('All')
   const [sort, setSort] = useState<SortMode>('Relevancia')
   const [view, setView] = useState<ViewMode>('tablero')
@@ -89,65 +97,67 @@ export function ExplorerPage() {
     return mcOk && loaderOk
   }), [items, loader, mcVersion])
 
+  const numberFormatter = useMemo(() => new Intl.NumberFormat(uiLanguage === 'en' ? 'en-US' : uiLanguage === 'pt' ? 'pt-BR' : 'es-ES'), [uiLanguage])
+
   return (
     <main className="content content-padded">
       <section className="instances-panel huge-panel explorer-page">
         <header className="panel-actions explorer-actions-compact">
-          <input className="instance-search-compact" placeholder="Buscar en catálogo" value={search} onChange={(e) => setSearch(e.target.value)} />
-          <label>Categorías
+          <input className="instance-search-compact" placeholder={t.search} value={search} onChange={(e) => setSearch(e.target.value)} />
+          <label>{t.categories}
             <select value={category} onChange={(e) => setCategory(e.target.value as Category)}>{Object.keys(categoryToProjectType).map((value) => <option key={value} value={value}>{value}</option>)}</select>
           </label>
-          <label>Orden
+          <label>{t.sort}
             <select value={sort} onChange={(e) => setSort(e.target.value as SortMode)}>{['Relevancia', 'Popularidad', 'Ultima Actualizacion', 'Actualizacion Estable', 'Mas Descargas', 'Nombre', 'Autor'].map((value) => <option key={value} value={value}>{value}</option>)}</select>
           </label>
-          <label>Plataforma
+          <label>{t.platform}
             <select value={platform} onChange={(e) => setPlatform(e.target.value as Platform)}>{['Todas', 'Curseforge', 'Modrinth'].map((value) => <option key={value} value={value}>{value}</option>)}</select>
           </label>
-          <label>Vista
+          <label>{t.view}
             <select value={view} onChange={(e) => setView(e.target.value as ViewMode)}>{['lista', 'tablero', 'titulos'].map((value) => <option key={value} value={value}>{value}</option>)}</select>
           </label>
           <details className="advanced-filter-menu">
-            <summary>Filtro Avanzado</summary>
+            <summary>{t.advanced}</summary>
             <div className="advanced-filter-body">
-              <label>Versión Minecraft
+              <label>{t.mcVersion}
                 <select value={mcVersion} onChange={(e) => setMcVersion(e.target.value)}>
-                  <option value="">Todas</option>
-                  {officialVersions.map((version) => <option key={version} value={version}>{version}</option>)}
-                </select>
+                  <option value="">{t.all}</option>
+                  {officialVersions.map((version) => <option key={version} value={version}>{version}</option>)}</select>
               </label>
-              <label>Loader
+              <label>{t.loader}
                 <select value={loader} onChange={(e) => setLoader(e.target.value as LoaderFilter)}>
-                  {['Todos', 'Fabric', 'Forge', 'Neoforge', 'Quilt'].map((value) => <option key={value} value={value}>{value}</option>)}
-                </select>
+                  {['Todos', 'Fabric', 'Forge', 'Neoforge', 'Quilt'].map((value) => <option key={value} value={value}>{value}</option>)}</select>
               </label>
             </div>
           </details>
         </header>
 
         <div className="catalog-panel-header">
-          <strong>Catálogo completo de CurseForge y Modrinth</strong>
-          <small>Conectado al backend con rutas reales y filtros avanzados.</small>
+          <strong>{t.headerTitle}</strong>
+          <small>{t.headerSub}</small>
         </div>
 
-        {loading && <p>Cargando catálogo...</p>}
+        {loading && <p>{t.loading}</p>}
         {error && <p className="error-banner">{error}</p>}
 
         <div className={`explorer-results ${view}`}>
           {visibleItems.map((item) => (
             <article key={`${item.source}-${item.id}`} className="instance-card explorer-card">
-              <div className="instance-card-icon hero">
+              <div className="instance-card-icon hero explorer-card-media">
                 {item.image ? <img src={item.image} alt={item.title} loading="lazy" /> : null}
               </div>
-              <strong className="instance-card-title" title={item.title}>{item.title}</strong>
-              {view !== 'titulos' && (
-                <>
-                  <small className="explorer-description" title={item.description}>{item.description}</small>
-                  <div className="instance-card-meta">
-                    <small>{item.source}</small><small>Autor: {item.author}</small><small>{item.projectType}</small><small>Descargas: {numberFormatter.format(item.downloads)}</small>
-                  </div>
-                  <div className="explorer-tags">{item.tags.slice(0, 4).map((tag) => <span key={tag}>{tag}</span>)}</div>
-                </>
-              )}
+              <div className="explorer-card-body">
+                <strong className="instance-card-title" title={item.title}>{item.title}</strong>
+                {view !== 'titulos' && (
+                  <>
+                    <small className="explorer-description" title={item.description}>{item.description}</small>
+                    <div className="instance-card-meta">
+                      <small>{item.source}</small><small>{t.author}: {item.author}</small><small>{item.projectType}</small><small>{t.downloads}: {numberFormatter.format(item.downloads)}</small>
+                    </div>
+                    <div className="explorer-tags">{item.tags.slice(0, 4).map((tag) => <span key={tag}>{tag}</span>)}</div>
+                  </>
+                )}
+              </div>
             </article>
           ))}
         </div>
