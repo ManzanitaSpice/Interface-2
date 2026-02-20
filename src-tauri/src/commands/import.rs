@@ -382,6 +382,60 @@ fn read_json(path: &Path) -> Option<serde_json::Value> {
     serde_json::from_str(&raw).ok()
 }
 
+fn detect_loader_from_version_id(version_id: &str) -> Option<(String, String)> {
+    let normalized = version_id.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return None;
+    }
+
+    let patterns: [(&str, &str); 4] = [
+        ("fabric-loader-", "fabric"),
+        ("quilt-loader-", "quilt"),
+        ("neoforge-", "neoforge"),
+        ("forge-", "forge"),
+    ];
+
+    for (token, loader_name) in patterns {
+        if let Some(pos) = normalized.find(token) {
+            let raw = &normalized[(pos + token.len())..];
+            let version = raw.split(['+', '-', '_']).next().unwrap_or("").trim();
+            return Some((
+                loader_name.to_string(),
+                if version.is_empty() {
+                    "-".to_string()
+                } else {
+                    version.to_string()
+                },
+            ));
+        }
+    }
+
+    None
+}
+
+fn detect_loader_from_versions_dir(path: &Path) -> Option<(String, String)> {
+    let versions_candidates = [path.join("versions"), path.join(".minecraft/versions")];
+    for versions_dir in versions_candidates {
+        if !versions_dir.is_dir() {
+            continue;
+        }
+        let mut best: Option<(String, String)> = None;
+        if let Ok(entries) = fs::read_dir(&versions_dir) {
+            for entry in entries.flatten() {
+                let version_id = entry.file_name().to_string_lossy().to_string();
+                if let Some(loader) = detect_loader_from_version_id(&version_id) {
+                    best = Some(loader);
+                    break;
+                }
+            }
+        }
+        if best.is_some() {
+            return best;
+        }
+    }
+    None
+}
+
 fn detect_from_manifest(path: &Path) -> DetectionMeta {
     let mut meta = DetectionMeta::default();
 
@@ -458,6 +512,34 @@ fn detect_from_manifest(path: &Path) -> DetectionMeta {
                         }
                     })
                 });
+        if let Some((loader, version)) =
+            json.get("components")
+                .and_then(|c| c.as_array())
+                .and_then(|components| {
+                    components.iter().find_map(|component| {
+                        let uid = component.get("uid")?.as_str()?.to_lowercase();
+                        let version = component
+                            .get("version")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("-")
+                            .to_string();
+                        if uid.contains("fabric") {
+                            Some(("fabric".to_string(), version))
+                        } else if uid.contains("forge") && !uid.contains("neoforge") {
+                            Some(("forge".to_string(), version))
+                        } else if uid.contains("neoforge") {
+                            Some(("neoforge".to_string(), version))
+                        } else if uid.contains("quilt") {
+                            Some(("quilt".to_string(), version))
+                        } else {
+                            None
+                        }
+                    })
+                })
+        {
+            meta.loader = Some(loader);
+            meta.loader_version = Some(version);
+        }
         return meta;
     }
 
@@ -543,7 +625,13 @@ fn detect_dir(path: &Path, launcher: &str) -> Option<DetectedInstance> {
         return None;
     }
 
-    let meta = detect_from_manifest(path);
+    let mut meta = detect_from_manifest(path);
+    if meta.loader.is_none() {
+        if let Some((loader, loader_version)) = detect_loader_from_versions_dir(path) {
+            meta.loader = Some(loader);
+            meta.loader_version = Some(loader_version);
+        }
+    }
     let name = path
         .file_name()
         .map(|v| v.to_string_lossy().to_string())

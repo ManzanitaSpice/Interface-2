@@ -44,10 +44,10 @@
 }
 
 .instances-workspace.with-right-panel {
-  grid-template-columns: minmax(0, 1fr) 240px;
+  grid-template-columns: minmax(0, 1fr) 300px;
   align-items: stretch;
   margin: 0;
-  gap: 0;
+  gap: 0.6rem;
 }
 
 .cards-grid {
@@ -1841,22 +1841,6 @@
   margin: .5rem 0 .65rem;
 }
 
-.modpack-card-layout {
-  display: grid;
-  grid-template-rows: 140px auto;
-  min-height: 220px;
-}
-
-.modpack-card-layout .instance-card-icon.hero {
-  width: 100%;
-  height: 132px;
-  border-radius: 12px;
-}
-
-.modpack-card-layout .instance-card-title,
-.modpack-card-layout .instance-card-meta {
-  margin-top: .35rem;
-}
 
 .creator-footer-actions.lowered {
   margin-top: 0.5rem;

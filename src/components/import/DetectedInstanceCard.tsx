@@ -19,6 +19,8 @@ const resolveIcon = (iconPath?: string | null) => {
 
 export function DetectedInstanceCard({ item, selected, onToggle }: Props) {
   const icon = resolveIcon(item.iconPath)
+  const loaderLabel = `${item.loader || 'vanilla'} ${item.loaderVersion || ''}`.trim()
+  const sizeLabel = item.sizeMb && item.sizeMb > 0 ? `${item.sizeMb} MB` : 'Tamaño no detectado'
 
   return (
     <article
@@ -31,9 +33,10 @@ export function DetectedInstanceCard({ item, selected, onToggle }: Props) {
       </div>
       <strong className="instance-card-title">{item.name}</strong>
       <div className="instance-card-meta">
-        <small>{item.sourceLauncher}</small>
+        <small>Origen: {item.sourceLauncher}</small>
         <small>MC {item.minecraftVersion}</small>
-        <small>{item.loader} {item.loaderVersion}</small>
+        <small>Loader: {loaderLabel}</small>
+        <small>Peso real: {sizeLabel}</small>
         <small>{item.modsCount ?? 0} mods</small>
       </div>
     </article>

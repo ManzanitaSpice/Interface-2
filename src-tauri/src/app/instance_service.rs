@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, VecDeque},
     fs,
+    hash::{Hash, Hasher},
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -243,16 +244,23 @@ fn prepare_runtime_instance_root(app: &AppHandle, instance_root: &str) -> Result
         )
     })?;
 
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    redirect.source_path.hash(&mut hasher);
+    let cache_bucket = format!("shortcut-{:x}", hasher.finish());
+
     let cache_root = app
         .path()
         .app_cache_dir()
         .map_err(|err| format!("No se pudo resolver cache dir para atajo: {err}"))?
         .join("import-runtime-cache")
-        .join(uuid::Uuid::new_v4().to_string());
+        .join(cache_bucket);
 
-    fs::create_dir_all(&cache_root)
-        .map_err(|err| format!("No se pudo crear cache temporal de atajo: {err}"))?;
-    copy_dir_recursive(Path::new(&redirect.source_path), &cache_root)?;
+    let needs_refresh = !cache_root.exists();
+    if needs_refresh {
+        fs::create_dir_all(&cache_root)
+            .map_err(|err| format!("No se pudo crear cache temporal de atajo: {err}"))?;
+        copy_dir_recursive(Path::new(&redirect.source_path), &cache_root)?;
+    }
 
     let source_mc = cache_root.join(".minecraft");
     let target_mc = cache_root.join("minecraft");
@@ -301,8 +309,13 @@ fn prepare_runtime_instance_root(app: &AppHandle, instance_root: &str) -> Result
             instance_root: instance_root.to_string(),
             stream: "system".to_string(),
             line: format!(
-                "Atajo de {}: runtime temporal preparado en {}",
+                "Atajo de {}: runtime temporal {} en {}",
                 redirect.source_launcher,
+                if needs_refresh {
+                    "preparado"
+                } else {
+                    "reutilizado"
+                },
                 cache_root.display()
             ),
         },
@@ -2967,6 +2980,11 @@ fn parse_runtime_major(input: &str) -> Option<JavaRuntime> {
 
 fn parse_runtime_from_metadata(metadata: &InstanceMetadata) -> Option<JavaRuntime> {
     let normalized = metadata.java_runtime.to_lowercase();
+    if normalized.contains("shortcut") || normalized.contains("import") {
+        return Some(guess_runtime_from_minecraft_version(
+            &metadata.minecraft_version,
+        ));
+    }
     if normalized.contains("21") {
         return Some(JavaRuntime::Java21);
     }
@@ -2978,6 +2996,25 @@ fn parse_runtime_from_metadata(metadata: &InstanceMetadata) -> Option<JavaRuntim
     }
 
     parse_runtime_major(&metadata.java_version).or_else(|| parse_runtime_major(&metadata.java_path))
+}
+
+fn guess_runtime_from_minecraft_version(version: &str) -> JavaRuntime {
+    let mut parts = version.split('.');
+    let _major = parts
+        .next()
+        .and_then(|item| item.parse::<u32>().ok())
+        .unwrap_or(1);
+    let minor = parts
+        .next()
+        .and_then(|item| item.parse::<u32>().ok())
+        .unwrap_or(20);
+    if minor >= 20 {
+        JavaRuntime::Java21
+    } else if minor >= 17 {
+        JavaRuntime::Java17
+    } else {
+        JavaRuntime::Java8
+    }
 }
 
 fn persist_instance_java_path(
