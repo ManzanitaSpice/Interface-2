@@ -456,6 +456,25 @@ const defaultFolderRoutes: FolderRouteItem[] = [
   { key: 'downloads', label: 'Ruta de Descargas', description: 'Descargas temporales y caché de instaladores.', value: 'InterfaceLauncher/downloads' },
 ]
 
+const normalizeRoutePath = (value: string) => value.trim().replace(/\\/g, '/')
+
+const ensureAbsoluteRoutePath = (value: string, launcherRoot: string) => {
+  const normalized = normalizeRoutePath(value)
+  if (!normalized) return normalizeRoutePath(launcherRoot)
+  if (/^[a-zA-Z]:\//.test(normalized) || normalized.startsWith('/')) return normalized
+  return `${normalizeRoutePath(launcherRoot).replace(/\/$/, '')}/${normalized.replace(/^\//, '')}`
+}
+
+const sanitizeFolderRoutes = (routes: FolderRouteItem[]) => {
+  const launcherRoot = normalizeRoutePath(routes.find((item) => item.key === 'launcher')?.value ?? defaultFolderRoutes[0].value)
+  return routes.map((route) => {
+    const value = route.key === 'launcher'
+      ? launcherRoot
+      : ensureAbsoluteRoutePath(route.value, launcherRoot)
+    return { ...route, value }
+  })
+}
+
 const launcherUpdatesFeed: LauncherUpdateItem[] = [
   { version: 'v0.3.0', releaseDate: '2026-02-19', channel: 'Stable', summary: 'Nuevo panel de updates, perfiles de apariencia pastel y mejoras de carpetas globales.', status: 'Disponible' },
   { version: 'v0.2.5', releaseDate: '2026-02-10', channel: 'Stable', summary: 'Correcciones en gestión de cuentas, mejora de logs y estabilidad de inicio.', status: 'Instalada' },
@@ -695,9 +714,10 @@ function App() {
   }
 
   const updateAndPersistFolderRoutes = async (nextRoutes: FolderRouteItem[]) => {
-    setFolderRoutes(nextRoutes)
-    persistFolderRoutes(nextRoutes)
-    await invoke('save_folder_routes', { routes: { routes: nextRoutes } })
+    const sanitized = sanitizeFolderRoutes(nextRoutes)
+    setFolderRoutes(sanitized)
+    persistFolderRoutes(sanitized)
+    await invoke('save_folder_routes', { routes: { routes: sanitized } })
   }
 
   const pickFolderRoute = async (route: FolderRouteItem) => {
@@ -731,10 +751,14 @@ function App() {
 
   const openRouteFolder = async (route: FolderRouteItem) => {
     try {
-      await invoke('open_folder_path', { path: route.value })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      setUpdatesStatus(`No se pudo abrir carpeta: ${message}`)
+      await invoke('open_folder_route', { key: route.key })
+    } catch {
+      try {
+        await invoke('open_folder_path', { path: route.value })
+      } catch (fallbackError) {
+        const message = fallbackError instanceof Error ? fallbackError.message : String(fallbackError)
+        setUpdatesStatus(`No se pudo abrir carpeta: ${message}`)
+      }
     }
   }
 
@@ -1933,8 +1957,9 @@ function App() {
           const found = fromBackend.routes.find((entry) => entry?.key === item.key)
           return found && typeof found.value === 'string' ? { ...item, value: found.value } : item
         })
-        setFolderRoutes(valid)
-        persistFolderRoutes(valid)
+        const sanitized = sanitizeFolderRoutes(valid)
+        setFolderRoutes(sanitized)
+        persistFolderRoutes(sanitized)
         return
       } catch {
         // Fallback local cuando Tauri no está disponible.
@@ -1949,9 +1974,9 @@ function App() {
           const found = parsed.find((entry) => entry?.key === item.key)
           return found && typeof found.value === 'string' ? { ...item, value: found.value } : item
         })
-        setFolderRoutes(valid)
+        setFolderRoutes(sanitizeFolderRoutes(valid))
       } catch {
-        setFolderRoutes(defaultFolderRoutes)
+        setFolderRoutes(sanitizeFolderRoutes(defaultFolderRoutes))
       }
     }
 
@@ -2224,7 +2249,7 @@ function App() {
             </header>
 
             <h2>Panel de Instancias</h2>
-            <div className={`instances-workspace ${selectedCard ? 'with-right-panel' : ''}`}>
+            <div className="instances-workspace with-right-panel">
               <div className="cards-grid instances-grid-area">
                 {filteredCards.length === 0 && <article className="instance-card placeholder">No hay instancias para mostrar.</article>}
                 {filteredCards.map((card) => {
@@ -2249,7 +2274,6 @@ function App() {
                       <div className="instance-card-meta">
                         <small>Version: {cardVersion}</small>
                         <small>Loader: {cardLoader}</small>
-                        <small title={card.instanceRoot}>Ruta real: {card.instanceRoot ?? '-'}</small>
                       </div>
                       <div className="instance-card-hover-info">
                         {(() => {
@@ -2285,8 +2309,9 @@ function App() {
                 })}
               </div>
 
-              {selectedCard && (
-                <aside className="instance-right-panel">
+              <aside className="instance-right-panel">
+                {selectedCard ? (
+                  <>
                   <input ref={selectedCardIconInputRef} type="file" accept="image/*" hidden onChange={(event) => void uploadSelectedCardIcon(event)} />
                   <div className="instance-right-hero clickable" onClick={() => selectedCardIconInputRef.current?.click()} style={instanceVisualMeta[selectedCard.id]?.icon ? { backgroundImage: `url(${instanceVisualMeta[selectedCard.id]?.icon})` } : undefined} aria-hidden="true">
                     {!instanceVisualMeta[selectedCard.id]?.icon ? '🧱' : ''}
@@ -2309,8 +2334,14 @@ function App() {
                       </div>
                     ))}
                   </div>
-                </aside>
-              )}
+                  </>
+                ) : (
+                  <div className="instance-right-panel-empty">
+                    <h3>Panel de instancia</h3>
+                    <p>Selecciona una instancia para ver acciones sin que cambie el layout.</p>
+                  </div>
+                )}
+              </aside>
             </div>
           </section>
           <section className="instances-summary-panel">

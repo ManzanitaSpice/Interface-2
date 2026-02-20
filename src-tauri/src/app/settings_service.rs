@@ -232,8 +232,7 @@ pub fn save_folder_routes(app: AppHandle, routes: serde_json::Value) -> Result<(
     })
 }
 
-#[tauri::command]
-pub fn open_folder_path(path: String) -> Result<(), String> {
+fn open_folder_path_internal(path: String) -> Result<(), String> {
     let target = PathBuf::from(normalize_path(&path));
     if target.as_os_str().is_empty() {
         return Err("Ruta de carpeta vacía".to_string());
@@ -277,6 +276,25 @@ pub fn open_folder_path(path: String) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn open_folder_route(app: AppHandle, key: String) -> Result<(), String> {
+    let route_path = resolve_folder_route(&app, key.as_str(), |launcher_root| match key.as_str() {
+        "launcher" => launcher_root.to_path_buf(),
+        "instances" => launcher_root.join("instances"),
+        "icons" => launcher_root.join("assets").join("icons"),
+        "java" => launcher_root.join("runtime"),
+        "skins" => launcher_root.join("assets").join("skins"),
+        "downloads" => launcher_root.join("downloads"),
+        _ => launcher_root.to_path_buf(),
+    })?;
+    open_folder_path_internal(route_path.display().to_string())
+}
+
+#[tauri::command]
+pub fn open_folder_path(path: String) -> Result<(), String> {
+    open_folder_path_internal(path)
 }
 
 #[tauri::command]

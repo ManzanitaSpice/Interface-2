@@ -11,7 +11,7 @@
 
 .huge-panel {
   min-height: 0;
-  height: min(100%, calc(100vh - 245px));
+  height: min(100%, calc(100vh - 285px));
 }
 
 .panel-actions {
@@ -39,7 +39,7 @@
 
 .instances-workspace.with-right-panel {
   grid-template-columns: minmax(0, 1fr) 260px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .cards-grid {
@@ -150,9 +150,8 @@
   border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
   border-radius: 0;
   padding: 0.62rem;
-  position: sticky;
-  top: 0.2rem;
-  max-height: calc(100vh - 255px);
+  min-height: calc(100vh - 360px);
+  max-height: calc(100vh - 320px);
   overflow: auto;
 }
 
@@ -189,6 +188,25 @@
 
 .instance-right-actions button {
   text-align: left;
+}
+
+.instance-right-panel-empty {
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.45rem;
+  color: var(--text-muted);
+}
+
+.instance-right-panel-empty h3 {
+  margin: 0;
+  color: var(--text-main);
+}
+
+.instance-right-panel-empty p {
+  margin: 0;
+  font-size: 0.82rem;
 }
 
 .floating-modal-overlay {
@@ -352,6 +370,7 @@
   flex-direction: column;
   gap: 0.5rem;
   min-height: 0;
+  height: 100%;
   overflow: auto;
 }
 
@@ -683,9 +702,10 @@
   border-bottom: 1px solid var(--border);
   padding: 0.6rem;
   overflow: auto;
-  height: clamp(180px, 34vh, 420px);
-  min-height: 180px;
-  max-height: 42vh;
+  height: clamp(280px, 52vh, 640px);
+  min-height: 280px;
+  max-height: 66vh;
+  margin-bottom: 0.45rem;
   font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.78rem;
 }
@@ -748,16 +768,18 @@
   background: color-mix(in srgb, var(--bg-surface) 95%, black);
   padding: 0.5rem;
   opacity: 0;
-  transform: translateY(4px);
+  transform: translateY(8px) scale(0.98);
   pointer-events: none;
   border-radius: 0.2rem;
   box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
-  transition: opacity 0.2s ease 0.55s, transform 0.2s ease 0.55s;
+  transition: opacity 0.22s ease, transform 0.28s cubic-bezier(0.2, 0.7, 0.2, 1), filter 0.24s ease;
+  filter: blur(1px);
 }
 
 .instance-card:hover .instance-card-hover-info {
   opacity: 1;
-  transform: translateY(0);
+  transform: translateY(0) scale(1);
+  filter: blur(0);
 }
 
 .instance-card-hover-info p {
