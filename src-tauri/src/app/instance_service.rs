@@ -238,35 +238,35 @@ pub fn validate_and_prepare_launch(
         .and_then(Value::as_str)
         .unwrap_or(&selected_version_id)
         .to_string();
-    let executable_jar = mc_root
+    let vanilla_jar = mc_root
+        .join("versions")
+        .join(&metadata.minecraft_version)
+        .join(format!("{}.jar", &metadata.minecraft_version));
+
+    let loader_jar = mc_root
         .join("versions")
         .join(&executable_version_id)
         .join(format!("{executable_version_id}.jar"));
 
-    let client_jar = if executable_jar.exists() {
-        executable_jar
+    let client_jar = if loader_jar.exists() {
+        logs.push(format!("✔ usando loader jar: {}", loader_jar.display()));
+        loader_jar
+    } else if vanilla_jar.exists() {
+        logs.push(format!(
+            "✔ loader '{}' no genera JAR propio, usando vanilla jar: {}",
+            metadata.loader,
+            vanilla_jar.display()
+        ));
+        vanilla_jar
     } else {
-        let fallback = mc_root
-            .join("versions")
-            .join(&metadata.minecraft_version)
-            .join(format!("{}.jar", &metadata.minecraft_version));
-        if !fallback.exists() {
-            return Err(format!(
-                "Jar ejecutable no existe ni en versión efectiva ni fallback: {} | {}",
-                mc_root
-                    .join("versions")
-                    .join(&executable_version_id)
-                    .join(format!("{executable_version_id}.jar"))
-                    .display(),
-                fallback.display()
-            ));
-        }
-        fallback
+        return Err(format!(
+            "No se encontró JAR ejecutable.\n\nBuscado loader jar: {}\n\nBuscado vanilla jar: {}",
+            loader_jar.display(),
+            vanilla_jar.display()
+        ));
     };
-    logs.push(format!(
-        "✔ jar ejecutable presente: {}",
-        client_jar.display()
-    ));
+
+    logs.push(format!("✔ jar ejecutable: {}", client_jar.display()));
 
     let resolved_main_class = version_json
         .get("mainClass")
@@ -286,11 +286,6 @@ pub fn validate_and_prepare_launch(
     logs.push(format!(
         "VERSION JSON USADO: {}",
         executable_version_json.display()
-    ));
-
-    ensure_main_class_present_in_jar(&client_jar, &resolved_main_class)?;
-    logs.push(format!(
-        "✔ clase principal {resolved_main_class} verificada en jar"
     ));
 
     let rule_context = RuleContext::current();
@@ -328,6 +323,83 @@ pub fn validate_and_prepare_launch(
         "✔ libraries evaluadas: {} (faltantes: 0)",
         resolved_libraries.classpath_entries.len()
     ));
+
+    let loader = metadata.loader.trim().to_ascii_lowercase();
+    if loader == "vanilla" || loader.is_empty() {
+        ensure_main_class_present_in_jar(&client_jar, &resolved_main_class).map_err(|err| {
+            format!("{err}. (instancia vanilla, mainClass debe estar en client.jar)")
+        })?;
+        logs.push(format!(
+            "✔ mainClass {resolved_main_class} verificada en client.jar"
+        ));
+    } else {
+        let class_entry = format!("{}.class", resolved_main_class.replace('.', "/"));
+
+        let found_in = resolved_libraries
+            .classpath_entries
+            .iter()
+            .find(|jar_path| {
+                std::fs::File::open(jar_path)
+                    .ok()
+                    .and_then(|file| zip::ZipArchive::new(file).ok())
+                    .and_then(|mut archive| archive.by_name(&class_entry).ok().map(|_| true))
+                    .unwrap_or(false)
+            });
+
+        match found_in {
+            Some(jar_path) => {
+                logs.push(format!(
+                    "✔ mainClass {resolved_main_class} verificada en library: {}",
+                    Path::new(jar_path)
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                ));
+            }
+            None => {
+                let bootstraplauncher_present = resolved_libraries
+                    .classpath_entries
+                    .iter()
+                    .any(|path| path.to_ascii_lowercase().contains("bootstraplauncher"));
+
+                let diagnostic = if resolved_main_class
+                    .to_ascii_lowercase()
+                    .contains("bootstraplauncher")
+                    && !bootstraplauncher_present
+                {
+                    "El JAR bootstraplauncher no está en el classpath. \
+Las libraries de NeoForge pueden no haberse descargado \
+correctamente durante la instalación."
+                        .to_string()
+                } else {
+                    format!(
+                        "Classpath contiene {} JARs pero ninguno tiene la clase. \
+Primeros 5: {}",
+                        resolved_libraries.classpath_entries.len(),
+                        resolved_libraries
+                            .classpath_entries
+                            .iter()
+                            .take(5)
+                            .map(|path| {
+                                Path::new(path)
+                                    .file_name()
+                                    .unwrap_or_default()
+                                    .to_string_lossy()
+                                    .to_string()
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                };
+
+                return Err(format!(
+                    "La mainClass '{resolved_main_class}' no se encontró \
+en ningún JAR del classpath del loader '{}'.\n{}",
+                    metadata.loader, diagnostic
+                ));
+            }
+        }
+    }
 
     let has_bootstrap = resolved_main_class
         .to_ascii_lowercase()
@@ -420,7 +492,8 @@ pub fn validate_and_prepare_launch(
         resolved_libraries
             .native_jars
             .iter()
-            .map(|native| PathBuf::from(&native.path)),
+            .map(|native| PathBuf::from(&native.path))
+            .filter(|path| path.exists()),
     );
     validate_jars_as_zip(&jars_to_validate)?;
     logs.push(format!(
