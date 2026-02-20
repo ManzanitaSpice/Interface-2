@@ -4,7 +4,7 @@
   }
 
   .instances-grid-area {
-    max-height: calc(100vh - 250px);
+    max-height: calc(100vh - 320px);
   }
 }
 

@@ -275,6 +275,13 @@ type FolderRouteMigrationResult = {
   targetPath: string
 }
 
+type FolderRoutesPayload = {
+  routes: Array<{
+    key: FolderRouteKey
+    value: string
+  }>
+}
+
 type LauncherUpdateItem = {
   version: string
   releaseDate: string
@@ -441,12 +448,12 @@ const languageSettingsKey = 'launcher_language_settings_v1'
 const authCodeRegenerateCooldownMs = 10_000
 
 const defaultFolderRoutes: FolderRouteItem[] = [
-  { key: 'launcher', label: 'Ruta de Launcher', description: 'Raíz principal de configuración del launcher.', value: 'C:/InterfaceLauncher' },
-  { key: 'instances', label: 'Ruta de Instancias', description: 'Ubicación de creación y almacenamiento de instancias.', value: 'C:/InterfaceLauncher/instances' },
-  { key: 'icons', label: 'Ruta de Íconos', description: 'Biblioteca de iconos personalizados para perfiles.', value: 'C:/InterfaceLauncher/assets/icons' },
-  { key: 'java', label: 'Ruta de Java', description: 'Runtimes embebidos o selección manual de Java.', value: 'C:/InterfaceLauncher/runtime' },
-  { key: 'skins', label: 'Ruta de Skins', description: 'Skins importadas y exportadas por el launcher.', value: 'C:/InterfaceLauncher/assets/skins' },
-  { key: 'downloads', label: 'Ruta de Descargas', description: 'Descargas temporales y caché de instaladores.', value: 'C:/InterfaceLauncher/downloads' },
+  { key: 'launcher', label: 'Ruta de Launcher', description: 'Raíz principal de configuración del launcher.', value: 'InterfaceLauncher' },
+  { key: 'instances', label: 'Ruta de Instancias', description: 'Ubicación de creación y almacenamiento de instancias.', value: 'InterfaceLauncher/instances' },
+  { key: 'icons', label: 'Ruta de Íconos', description: 'Biblioteca de iconos personalizados para perfiles.', value: 'InterfaceLauncher/assets/icons' },
+  { key: 'java', label: 'Ruta de Java', description: 'Runtimes embebidos o selección manual de Java.', value: 'InterfaceLauncher/runtime' },
+  { key: 'skins', label: 'Ruta de Skins', description: 'Skins importadas y exportadas por el launcher.', value: 'InterfaceLauncher/assets/skins' },
+  { key: 'downloads', label: 'Ruta de Descargas', description: 'Descargas temporales y caché de instaladores.', value: 'InterfaceLauncher/downloads' },
 ]
 
 const launcherUpdatesFeed: LauncherUpdateItem[] = [
@@ -1919,19 +1926,36 @@ function App() {
   )
 
   useEffect(() => {
-    const raw = localStorage.getItem(folderRoutesKey)
-    if (!raw) return
-    try {
-      const parsed = JSON.parse(raw) as FolderRouteItem[]
-      if (!Array.isArray(parsed)) return
-      const valid = defaultFolderRoutes.map((item) => {
-        const found = parsed.find((entry) => entry?.key === item.key)
-        return found && typeof found.value === 'string' ? { ...item, value: found.value } : item
-      })
-      setFolderRoutes(valid)
-    } catch {
-      setFolderRoutes(defaultFolderRoutes)
+    const loadRoutes = async () => {
+      try {
+        const fromBackend = await invoke<FolderRoutesPayload>('load_folder_routes')
+        const valid = defaultFolderRoutes.map((item) => {
+          const found = fromBackend.routes.find((entry) => entry?.key === item.key)
+          return found && typeof found.value === 'string' ? { ...item, value: found.value } : item
+        })
+        setFolderRoutes(valid)
+        persistFolderRoutes(valid)
+        return
+      } catch {
+        // Fallback local cuando Tauri no está disponible.
+      }
+
+      const raw = localStorage.getItem(folderRoutesKey)
+      if (!raw) return
+      try {
+        const parsed = JSON.parse(raw) as FolderRouteItem[]
+        if (!Array.isArray(parsed)) return
+        const valid = defaultFolderRoutes.map((item) => {
+          const found = parsed.find((entry) => entry?.key === item.key)
+          return found && typeof found.value === 'string' ? { ...item, value: found.value } : item
+        })
+        setFolderRoutes(valid)
+      } catch {
+        setFolderRoutes(defaultFolderRoutes)
+      }
     }
+
+    void loadRoutes()
   }, [])
 
 
