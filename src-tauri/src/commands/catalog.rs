@@ -35,26 +35,60 @@ pub struct CatalogItem {
     pub tags: Vec<String>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogSearchResponse {
+    pub items: Vec<CatalogItem>,
+    pub page: u32,
+    pub limit: u32,
+    pub has_more: bool,
+}
+
 #[tauri::command]
-pub fn search_catalogs(request: CatalogSearchRequest) -> Result<Vec<CatalogItem>, String> {
+pub fn search_catalogs(request: CatalogSearchRequest) -> Result<CatalogSearchResponse, String> {
     let client = Client::builder()
         .user_agent("Interface-2/0.1")
+        .timeout(std::time::Duration::from_secs(12))
         .build()
         .map_err(|err| format!("No se pudo inicializar cliente HTTP: {err}"))?;
 
     let limit = request.limit.unwrap_or(30).clamp(1, 50);
     let page = request.page.unwrap_or(1).max(1);
+    let search = request.search.trim().chars().take(80).collect::<String>();
     let offset = (page - 1) * limit;
     let mut output = Vec::new();
+    let mut has_more = false;
 
-    if request.platform != "Curseforge" {
-        output.extend(fetch_modrinth(&client, &request, limit, offset)?);
+    let per_source_limit = if request.platform == "Todas" {
+        (limit / 2).max(1)
+    } else {
+        limit
+    };
+
+    let mut normalized_request = request;
+    normalized_request.search = search;
+
+    if normalized_request.platform != "Curseforge" {
+        let (items, source_has_more) = fetch_modrinth(&client, &normalized_request, per_source_limit, offset)?;
+        has_more = has_more || source_has_more;
+        output.extend(items);
     }
-    if request.platform != "Modrinth" {
-        output.extend(fetch_curseforge(&client, &request, limit, offset)?);
+    if normalized_request.platform != "Modrinth" {
+        let (items, source_has_more) = fetch_curseforge(&client, &normalized_request, per_source_limit, offset)?;
+        has_more = has_more || source_has_more;
+        output.extend(items);
     }
 
-    Ok(output)
+    if output.len() > limit as usize {
+        output.truncate(limit as usize);
+    }
+
+    Ok(CatalogSearchResponse {
+        items: output,
+        page,
+        limit,
+        has_more,
+    })
 }
 
 fn fetch_modrinth(
@@ -62,7 +96,7 @@ fn fetch_modrinth(
     request: &CatalogSearchRequest,
     limit: u32,
     offset: u32,
-) -> Result<Vec<CatalogItem>, String> {
+) -> Result<(Vec<CatalogItem>, bool), String> {
     let mut facets: Vec<Vec<String>> = Vec::new();
     if let Some(project_type) = request.category.as_ref().filter(|v| !v.is_empty()) {
         facets.push(vec![format!("project_type:{project_type}")]);
@@ -106,7 +140,13 @@ fn fetch_modrinth(
         .cloned()
         .unwrap_or_default();
 
-    Ok(hits
+    let total_hits = payload
+        .get("total_hits")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    let has_more = (offset as u64 + hits.len() as u64) < total_hits;
+
+    Ok((hits
         .iter()
         .map(|hit| {
             let categories = hit
@@ -174,7 +214,7 @@ fn fetch_modrinth(
                 tags: categories,
             }
         })
-        .collect())
+        .collect(), has_more))
 }
 
 fn fetch_curseforge(
@@ -182,7 +222,7 @@ fn fetch_curseforge(
     request: &CatalogSearchRequest,
     limit: u32,
     offset: u32,
-) -> Result<Vec<CatalogItem>, String> {
+) -> Result<(Vec<CatalogItem>, bool), String> {
     let api_key = std::env::var("CURSEFORGE_API_KEY").unwrap_or_else(|_| {
         "$2a$10$jK7YyZHdUNTDlcME9Egd6.Zt5RananLQKn/tpIhmRDezd2.wHGU9G".to_string()
     });
@@ -226,7 +266,14 @@ fn fetch_curseforge(
         .cloned()
         .unwrap_or_default();
 
-    Ok(data
+    let total_count = payload
+        .get("pagination")
+        .and_then(|value| value.get("totalCount"))
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    let has_more = (offset as u64 + data.len() as u64) < total_count;
+
+    Ok((data
         .iter()
         .map(|entry| {
             let latest_indexes = entry
@@ -307,5 +354,5 @@ fn fetch_curseforge(
                 tags,
             }
         })
-        .collect())
+        .collect(), has_more))
 }

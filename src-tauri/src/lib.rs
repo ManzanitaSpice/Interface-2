@@ -61,6 +61,7 @@ pub fn run() {
             commands::file_manager::load_skin_binary,
             commands::file_manager::save_skin_binary,
             commands::visual_meta::save_instance_visual_meta,
+            commands::visual_meta::save_instance_visual_media,
             commands::visual_meta::load_instance_visual_meta
         ])
         .setup(|app| {

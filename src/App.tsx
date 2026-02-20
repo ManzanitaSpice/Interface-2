@@ -1,3 +1,4 @@
+import { convertFileSrc } from '@tauri-apps/api/core'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -34,6 +35,7 @@ type InstanceCard = {
 
 type InstanceVisualMeta = {
   mediaDataUrl?: string
+  mediaPath?: string
   mediaMime?: string
   minecraftVersion?: string
   loader?: string
@@ -577,6 +579,18 @@ function sortLoaderVersions(items: LoaderVersionItem[]): LoaderVersionItem[] {
   })
 }
 
+
+function resolveVisualMedia(meta?: InstanceVisualMeta): string {
+  if (meta?.mediaPath) {
+    try {
+      return convertFileSrc(meta.mediaPath)
+    } catch {
+      return meta.mediaPath
+    }
+  }
+  return meta?.mediaDataUrl ?? ''
+}
+
 function mediaTypeFromMime(mime?: string): 'video' | 'image' {
   if (!mime) return 'image'
   return mime.startsWith('video/') ? 'video' : 'image'
@@ -1018,6 +1032,7 @@ function App() {
         try {
           const result = await invoke<{
             mediaDataUrl?: string
+            mediaPath?: string
             mediaMime?: string
             minecraftVersion?: string
             loader?: string
@@ -1725,15 +1740,19 @@ function App() {
       setCards((prev) => [...prev, created])
       setInstanceDrafts((prev) => ({ ...prev, [created.id]: created }))
       setSelectedCard(created)
+      const visualMeta: InstanceVisualMeta = {
+        mediaDataUrl: instanceIconPreview.startsWith('data:image') ? instanceIconPreview : undefined,
+        mediaMime: instanceIconPreview.startsWith('data:image') ? 'image/*' : undefined,
+        minecraftVersion: selectedMinecraftVersion.id,
+        loader: selectedLoader === 'none' ? 'Vanilla' : `${selectedLoader} ${selectedLoaderVersion?.version ?? ''}`.trim(),
+      }
       setInstanceVisualMeta((prev) => ({
         ...prev,
-        [created.id]: {
-          mediaDataUrl: instanceIconPreview.startsWith('data:image') ? instanceIconPreview : undefined,
-          mediaMime: instanceIconPreview.startsWith('data:image') ? 'image/*' : undefined,
-          minecraftVersion: selectedMinecraftVersion.id,
-          loader: selectedLoader === 'none' ? 'Vanilla' : `${selectedLoader} ${selectedLoaderVersion?.version ?? ''}`.trim(),
-        },
+        [created.id]: visualMeta,
       }))
+      if (created.instanceRoot) {
+        void invoke('save_instance_visual_meta', { instanceRoot: created.instanceRoot, meta: visualMeta })
+      }
       setCreationConsoleLogs((prev) => [...prev, ...result.logs, '✅ Instancia creada correctamente.'])
       setInstanceName('')
       setGroupName(defaultGroup)
@@ -1755,30 +1774,37 @@ function App() {
     if (!file || !selectedCard) return
     if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) return
 
-    const reader = new FileReader()
-    reader.onload = () => {
-      const data = typeof reader.result === 'string' ? reader.result : ''
-      if (!data) return
-      setInstanceVisualMeta((prev) => {
-        const next = {
-          ...prev,
-          [selectedCard.id]: {
-            ...(prev[selectedCard.id] ?? {}),
-            mediaDataUrl: data,
-            mediaMime: file.type,
-          },
-        }
-        if (selectedCard.instanceRoot) {
-          void invoke('save_instance_visual_meta', {
-            instanceRoot: selectedCard.instanceRoot,
-            meta: next[selectedCard.id],
-          })
-        }
-        return next
+    try {
+      const bytes = Array.from(new Uint8Array(await file.arrayBuffer()))
+      let mediaPath: string | undefined
+      if (selectedCard.instanceRoot) {
+        mediaPath = await invoke<string>('save_instance_visual_media', {
+          instanceRoot: selectedCard.instanceRoot,
+          fileName: file.name,
+          bytes,
+        })
+      }
+      const data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+        reader.onerror = () => reject(new Error('No se pudo leer el archivo visual.'))
+        reader.readAsDataURL(file)
       })
+      setInstanceVisualMeta((prev) => ({
+        ...prev,
+        [selectedCard.id]: {
+          ...(prev[selectedCard.id] ?? {}),
+          mediaDataUrl: data || prev[selectedCard.id]?.mediaDataUrl,
+          mediaPath: mediaPath ?? prev[selectedCard.id]?.mediaPath,
+          mediaMime: file.type,
+        },
+      }))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setCreationConsoleLogs((prev) => [...prev, `Error subiendo media de instancia: ${message}`])
+    } finally {
+      event.target.value = ''
     }
-    reader.readAsDataURL(file)
-    event.target.value = ''
   }
 
   const uploadInstanceIcon = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -2449,7 +2475,7 @@ function App() {
                           ? '🧶 Quilt'
                           : '🟩 Vanilla'
                   const cardLoaderVersion = metadata?.loaderVersion ?? ''
-                  const mediaDataUrl = visual?.mediaDataUrl
+                  const mediaDataUrl = resolveVisualMedia(visual)
                   const mediaType = mediaTypeFromMime(visual?.mediaMime)
 
                   return (
@@ -2509,7 +2535,7 @@ function App() {
                   <input ref={selectedCardIconInputRef} type="file" accept="image/*,video/*" hidden onChange={(event) => void uploadSelectedCardIcon(event)} />
                   <div className="instance-right-hero clickable" onClick={() => selectedCardIconInputRef.current?.click()} aria-hidden="true">
                     {(() => {
-                      const media = instanceVisualMeta[selectedCard.id]?.mediaDataUrl
+                      const media = resolveVisualMedia(instanceVisualMeta[selectedCard.id])
                       const type = mediaTypeFromMime(instanceVisualMeta[selectedCard.id]?.mediaMime)
                       if (!media) return '🧱'
                       return type === 'video' ? <video src={media} muted loop autoPlay playsInline /> : <img src={media} alt="" loading="lazy" />
