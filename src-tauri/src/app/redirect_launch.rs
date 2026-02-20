@@ -22,8 +22,15 @@ use crate::{
         },
         models::{instance::LaunchAuthSession, java::JavaRuntime},
     },
+    infrastructure::downloader::queue::{build_official_client, download_with_retry},
     services::java_installer::ensure_embedded_java,
 };
+
+const DEFAULT_CACHE_EXPIRY_DAYS: u32 = 7;
+const MAX_CACHE_SIZE_MB: u64 = 2048;
+const MAX_CACHE_ENTRIES: usize = 10;
+const MOJANG_MANIFEST_URL: &str =
+    "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
 
 #[derive(Debug, Clone)]
 pub struct RedirectLaunchContext {
@@ -66,6 +73,62 @@ pub struct RedirectValidationResult {
     pub errors: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RedirectCacheEntry {
+    pub instance_uuid: String,
+    pub version_id: String,
+    pub source_path: String,
+    pub source_launcher: String,
+    pub created_at: String,
+    pub last_used_at: String,
+    pub expires_after_days: u32,
+    pub size_bytes: u64,
+    pub complete: bool,
+    pub version_json_cached: bool,
+    pub jar_cached: bool,
+    pub libraries_cached: bool,
+    pub assets_cached: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RedirectCacheIndex {
+    pub entries: Vec<RedirectCacheEntry>,
+    pub total_size_bytes: u64,
+    pub last_cleanup_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheCleanupResult {
+    pub entries_removed: usize,
+    pub bytes_freed: u64,
+    pub entries_remaining: usize,
+    pub total_size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedirectCacheInfo {
+    pub entries: Vec<RedirectCacheEntryInfo>,
+    pub total_size_bytes: u64,
+    pub total_size_mb: u64,
+    pub max_size_mb: u64,
+    pub entry_count: usize,
+    pub max_entries: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedirectCacheEntryInfo {
+    pub instance_uuid: String,
+    pub version_id: String,
+    pub source_launcher: String,
+    pub last_used_at: String,
+    pub expires_in_days: i64,
+    pub size_mb: u64,
+    pub complete: bool,
+}
+
 static REDIRECT_CTX_CACHE: OnceLock<Mutex<HashMap<String, CachedRedirectContext>>> =
     OnceLock::new();
 
@@ -78,6 +141,148 @@ fn now_millis() -> u128 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0)
+}
+
+fn now_rfc3339() -> String {
+    chrono::Utc::now().to_rfc3339()
+}
+
+fn parse_rfc3339(raw: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    chrono::DateTime::parse_from_rfc3339(raw)
+        .ok()
+        .map(|d| d.with_timezone(&chrono::Utc))
+}
+
+fn redirect_cache_root(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_cache_dir()
+        .map_err(|err| format!("No se pudo resolver app_cache_dir: {err}"))?
+        .join("redirect-cache"))
+}
+
+fn redirect_cache_index_path(cache_root: &Path) -> PathBuf {
+    cache_root.join("meta.json")
+}
+
+fn load_redirect_cache_index(cache_root: &Path) -> RedirectCacheIndex {
+    let path = redirect_cache_index_path(cache_root);
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<RedirectCacheIndex>(&raw).ok())
+        .unwrap_or_default()
+}
+
+fn save_redirect_cache_index(cache_root: &Path, index: &RedirectCacheIndex) -> Result<(), String> {
+    fs::create_dir_all(cache_root).map_err(|err| format!("No se pudo crear cache root: {err}"))?;
+    let raw = serde_json::to_string_pretty(index)
+        .map_err(|err| format!("No se pudo serializar índice redirect-cache: {err}"))?;
+    fs::write(redirect_cache_index_path(cache_root), raw)
+        .map_err(|err| format!("No se pudo guardar índice redirect-cache: {err}"))
+}
+
+fn entry_cache_dir(cache_root: &Path, instance_uuid: &str) -> PathBuf {
+    cache_root.join(instance_uuid)
+}
+
+fn folder_size_bytes(root: &Path) -> u64 {
+    let mut total = 0_u64;
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(current) = stack.pop() {
+        let Ok(read) = fs::read_dir(&current) else {
+            continue;
+        };
+        for entry in read.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if let Ok(meta) = entry.metadata() {
+                total = total.saturating_add(meta.len());
+            }
+        }
+    }
+    total
+}
+
+fn recalc_cache_totals(index: &mut RedirectCacheIndex) {
+    index.total_size_bytes = index.entries.iter().map(|e| e.size_bytes).sum::<u64>();
+}
+
+fn remove_cache_entry(cache_root: &Path, index: &mut RedirectCacheIndex, instance_uuid: &str) {
+    let dir = entry_cache_dir(cache_root, instance_uuid);
+    let _ = fs::remove_dir_all(dir);
+    index
+        .entries
+        .retain(|entry| entry.instance_uuid != instance_uuid);
+}
+
+fn entry_expired(entry: &RedirectCacheEntry) -> bool {
+    let Some(last_used) = parse_rfc3339(&entry.last_used_at) else {
+        return true;
+    };
+    let age = chrono::Utc::now() - last_used;
+    age.num_days() > entry.expires_after_days as i64
+}
+
+fn run_redirect_cache_cleanup(
+    cache_root: &Path,
+    index: &mut RedirectCacheIndex,
+) -> CacheCleanupResult {
+    let before_size = index.total_size_bytes;
+    let before_count = index.entries.len();
+
+    let expired_or_invalid: Vec<String> = index
+        .entries
+        .iter()
+        .filter(|entry| {
+            entry_expired(entry)
+                || !Path::new(&entry.source_path).exists()
+                || !entry.complete
+                || !entry_cache_dir(cache_root, &entry.instance_uuid).exists()
+        })
+        .map(|entry| entry.instance_uuid.clone())
+        .collect();
+
+    for instance_uuid in expired_or_invalid {
+        remove_cache_entry(cache_root, index, &instance_uuid);
+    }
+
+    index.entries.sort_by_key(|entry| {
+        parse_rfc3339(&entry.last_used_at)
+            .map(|d| d.timestamp())
+            .unwrap_or(i64::MIN)
+    });
+
+    let max_bytes = MAX_CACHE_SIZE_MB * 1024 * 1024;
+    recalc_cache_totals(index);
+    while index.total_size_bytes > max_bytes || index.entries.len() > MAX_CACHE_ENTRIES {
+        let Some(oldest) = index.entries.first().cloned() else {
+            break;
+        };
+        remove_cache_entry(cache_root, index, &oldest.instance_uuid);
+        recalc_cache_totals(index);
+    }
+
+    index.last_cleanup_at = now_rfc3339();
+    recalc_cache_totals(index);
+
+    CacheCleanupResult {
+        entries_removed: before_count.saturating_sub(index.entries.len()),
+        bytes_freed: before_size.saturating_sub(index.total_size_bytes),
+        entries_remaining: index.entries.len(),
+        total_size_bytes: index.total_size_bytes,
+    }
+}
+
+pub fn cleanup_redirect_cache_on_startup(app: &AppHandle) -> Result<(), String> {
+    let cache_root = redirect_cache_root(app)?;
+    let mut index = load_redirect_cache_index(&cache_root);
+    run_redirect_cache_cleanup(&cache_root, &mut index);
+    save_redirect_cache_index(&cache_root, &index)
+}
+
+pub fn cleanup_redirect_cache_after_launch(app: &AppHandle) -> Result<(), String> {
+    cleanup_redirect_cache_on_startup(app)
 }
 
 fn read_redirect_file(instance_root: &Path) -> Result<ShortcutRedirect, String> {
@@ -624,6 +829,449 @@ pub fn extract_natives(
     Ok(())
 }
 
+fn emit_redirect_cache_status(app: &AppHandle, payload: serde_json::Value) {
+    let _ = app.emit("redirect_cache_status", payload);
+}
+
+fn link_or_copy(existing: &Path, target: &Path) -> Result<(), String> {
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|err| {
+            format!(
+                "No se pudo crear carpeta de destino {}: {err}",
+                parent.display()
+            )
+        })?;
+    }
+
+    #[cfg(unix)]
+    {
+        if std::os::unix::fs::symlink(existing, target).is_ok() {
+            return Ok(());
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        if std::os::windows::fs::symlink_file(existing, target).is_ok() {
+            return Ok(());
+        }
+    }
+
+    fs::copy(existing, target).map(|_| ()).map_err(|err| {
+        format!(
+            "No se pudo copiar {} -> {}: {err}",
+            existing.display(),
+            target.display()
+        )
+    })
+}
+
+fn load_manifest_version_url(version_id: &str) -> Result<String, String> {
+    let client = build_official_client()?;
+    let manifest: Value = client
+        .get(MOJANG_MANIFEST_URL)
+        .send()
+        .and_then(|res| res.error_for_status())
+        .map_err(|err| format!("No se pudo descargar manifest oficial: {err}"))?
+        .json()
+        .map_err(|err| format!("No se pudo parsear manifest oficial: {err}"))?;
+
+    manifest
+        .get("versions")
+        .and_then(Value::as_array)
+        .and_then(|versions| {
+            versions
+                .iter()
+                .find(|entry| entry.get("id").and_then(Value::as_str) == Some(version_id))
+                .and_then(|entry| entry.get("url").and_then(Value::as_str))
+        })
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| format!("No se encontró la versión {version_id} en manifest oficial."))
+}
+
+fn download_redirect_runtime(
+    app: &AppHandle,
+    source_path: &Path,
+    instance_uuid: &str,
+    version_id: &str,
+    source_launcher: &str,
+) -> Result<RedirectCacheEntry, String> {
+    let cache_root = redirect_cache_root(app)?;
+    let entry_dir = entry_cache_dir(&cache_root, instance_uuid);
+    let versions_dir = entry_dir.join("versions").join(version_id);
+    let libs_dir = entry_dir.join("libraries");
+    let assets_indexes_dir = entry_dir.join("assets").join("indexes");
+    fs::create_dir_all(&versions_dir)
+        .map_err(|err| format!("No se pudo crear versions cache: {err}"))?;
+    fs::create_dir_all(&libs_dir)
+        .map_err(|err| format!("No se pudo crear libraries cache: {err}"))?;
+    fs::create_dir_all(&assets_indexes_dir)
+        .map_err(|err| format!("No se pudo crear assets/indexes cache: {err}"))?;
+
+    emit_redirect_cache_status(
+        app,
+        json!({
+            "stage": "downloading",
+            "instance_uuid": instance_uuid,
+            "version_id": version_id,
+            "message": format!("Descargando metadata de versión {version_id}..."),
+            "progress_percent": 10,
+            "downloaded_bytes": 0,
+            "total_bytes": 0,
+            "current_file": format!("{version_id}.json")
+        }),
+    );
+
+    let version_url = load_manifest_version_url(version_id)?;
+    let client = build_official_client()?;
+    let version_json_path = versions_dir.join(format!("{version_id}.json"));
+    if !version_json_path.exists() {
+        let raw = client
+            .get(&version_url)
+            .send()
+            .and_then(|res| res.error_for_status())
+            .map_err(|err| format!("No se pudo descargar version json {version_url}: {err}"))?
+            .bytes()
+            .map_err(|err| format!("No se pudo leer version json: {err}"))?;
+        fs::write(&version_json_path, &raw)
+            .map_err(|err| format!("No se pudo guardar {}: {err}", version_json_path.display()))?;
+    }
+
+    let version_json: Value = serde_json::from_str(
+        &fs::read_to_string(&version_json_path)
+            .map_err(|err| format!("No se pudo leer {}: {err}", version_json_path.display()))?,
+    )
+    .map_err(|err| {
+        format!(
+            "version json inválido {}: {err}",
+            version_json_path.display()
+        )
+    })?;
+
+    emit_redirect_cache_status(
+        app,
+        json!({
+            "stage": "downloading",
+            "instance_uuid": instance_uuid,
+            "version_id": version_id,
+            "message": format!("Descargando client jar {version_id}..."),
+            "progress_percent": 30,
+            "downloaded_bytes": 0,
+            "total_bytes": 0,
+            "current_file": format!("{version_id}.jar")
+        }),
+    );
+
+    let jar_path = versions_dir.join(format!("{version_id}.jar"));
+    if let Some(downloads) = version_json.get("downloads").and_then(|v| v.get("client")) {
+        let url = downloads
+            .get("url")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "downloads.client.url faltante".to_string())?;
+        let sha1 = downloads
+            .get("sha1")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        download_with_retry(&client, url, &jar_path, sha1, false)?;
+    } else {
+        return Err("version json no contiene downloads.client".to_string());
+    }
+
+    emit_redirect_cache_status(
+        app,
+        json!({
+            "stage": "downloading",
+            "instance_uuid": instance_uuid,
+            "version_id": version_id,
+            "message": format!("Sincronizando libraries para {version_id}..."),
+            "progress_percent": 60,
+            "downloaded_bytes": 0,
+            "total_bytes": 0,
+            "current_file": "libraries"
+        }),
+    );
+
+    let rule_context = RuleContext::current();
+    let system_libs = system_minecraft_root().map(|p| p.join("libraries"));
+    for lib in version_json
+        .get("libraries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        if let Some(rules) = lib.get("rules").and_then(Value::as_array) {
+            if !evaluate_rules(rules, &rule_context) {
+                continue;
+            }
+        }
+
+        let artifact = lib.get("downloads").and_then(|d| d.get("artifact"));
+        let rel = artifact
+            .and_then(|a| a.get("path"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if rel.is_empty() {
+            continue;
+        }
+
+        let target = libs_dir.join(rel);
+        if target.exists() {
+            continue;
+        }
+
+        if let Some(system_root) = &system_libs {
+            let global_file = system_root.join(rel);
+            if global_file.exists() {
+                let _ = link_or_copy(&global_file, &target);
+                if target.exists() {
+                    continue;
+                }
+            }
+        }
+
+        let sha1 = artifact
+            .and_then(|a| a.get("sha1"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let url = artifact
+            .and_then(|a| a.get("url"))
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| format!("https://libraries.minecraft.net/{rel}"));
+        download_with_retry(&client, &url, &target, sha1, false)?;
+    }
+
+    emit_redirect_cache_status(
+        app,
+        json!({
+            "stage": "downloading",
+            "instance_uuid": instance_uuid,
+            "version_id": version_id,
+            "message": format!("Descargando índice de assets de {version_id}..."),
+            "progress_percent": 85,
+            "downloaded_bytes": 0,
+            "total_bytes": 0,
+            "current_file": "assets-index"
+        }),
+    );
+
+    if let Some(asset_index) = version_json.get("assetIndex") {
+        let id = asset_index
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("legacy");
+        let url = asset_index
+            .get("url")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if !url.is_empty() {
+            let bytes = client
+                .get(url)
+                .send()
+                .and_then(|res| res.error_for_status())
+                .map_err(|err| format!("No se pudo descargar assets index {url}: {err}"))?
+                .bytes()
+                .map_err(|err| format!("No se pudo leer assets index: {err}"))?;
+            let asset_path = assets_indexes_dir.join(format!("{id}.json"));
+            fs::write(&asset_path, &bytes)
+                .map_err(|err| format!("No se pudo guardar {}: {err}", asset_path.display()))?;
+        }
+    }
+
+    let created_at = now_rfc3339();
+    Ok(RedirectCacheEntry {
+        instance_uuid: instance_uuid.to_string(),
+        version_id: version_id.to_string(),
+        source_path: source_path.display().to_string(),
+        source_launcher: source_launcher.to_string(),
+        created_at: created_at.clone(),
+        last_used_at: created_at,
+        expires_after_days: DEFAULT_CACHE_EXPIRY_DAYS,
+        size_bytes: folder_size_bytes(&entry_dir),
+        complete: true,
+        version_json_cached: version_json_path.exists(),
+        jar_cached: jar_path.exists(),
+        libraries_cached: libs_dir.exists(),
+        assets_cached: assets_indexes_dir.exists(),
+    })
+}
+
+fn resolve_from_cache(
+    app: &AppHandle,
+    instance_uuid: &str,
+    version_id: &str,
+) -> Result<RedirectLaunchContext, String> {
+    let cache_root = redirect_cache_root(app)?;
+    let base = entry_cache_dir(&cache_root, instance_uuid);
+    let version_json_path = base
+        .join("versions")
+        .join(version_id)
+        .join(format!("{version_id}.json"));
+    let minecraft_jar = base
+        .join("versions")
+        .join(version_id)
+        .join(format!("{version_id}.jar"));
+    if !version_json_path.exists() || !minecraft_jar.exists() {
+        return Err("Entrada redirect-cache incompleta.".to_string());
+    }
+
+    let version_json: Value = serde_json::from_str(
+        &fs::read_to_string(&version_json_path)
+            .map_err(|err| format!("No se pudo leer {}: {err}", version_json_path.display()))?,
+    )
+    .map_err(|err| format!("No se pudo parsear {}: {err}", version_json_path.display()))?;
+
+    Ok(RedirectLaunchContext {
+        version_json_path,
+        version_json,
+        game_dir: base.clone(),
+        versions_dir: base.join("versions"),
+        libraries_dir: base.join("libraries"),
+        assets_dir: system_minecraft_root()
+            .map(|p| p.join("assets"))
+            .filter(|p| p.exists())
+            .unwrap_or_else(|| base.join("assets")),
+        minecraft_jar,
+        launcher_name: "REDIRECT_CACHE".to_string(),
+    })
+}
+
+fn ensure_redirect_cache_context(
+    app: &AppHandle,
+    source_path: &Path,
+    source_launcher: &str,
+    instance_uuid: &str,
+    version_id: &str,
+) -> Result<RedirectLaunchContext, String> {
+    let cache_root = redirect_cache_root(app)?;
+    let mut index = load_redirect_cache_index(&cache_root);
+
+    if let Some(entry) = index.entries.iter().find(|entry| {
+        entry.instance_uuid == instance_uuid
+            && entry.version_id == version_id
+            && entry.complete
+            && !entry_expired(entry)
+    }) {
+        let _ = app.emit(
+            "redirect_cache_status",
+            json!({
+                "stage":"ready",
+                "instance_uuid": instance_uuid,
+                "version_id": version_id,
+                "message":"Usando caché temporal REDIRECT existente.",
+                "progress_percent":100,
+                "downloaded_bytes":entry.size_bytes,
+                "total_bytes":entry.size_bytes,
+                "current_file":"cached"
+            }),
+        );
+        return resolve_from_cache(app, instance_uuid, version_id);
+    }
+
+    remove_cache_entry(&cache_root, &mut index, instance_uuid);
+    index.entries.push(RedirectCacheEntry {
+        instance_uuid: instance_uuid.to_string(),
+        version_id: version_id.to_string(),
+        source_path: source_path.display().to_string(),
+        source_launcher: source_launcher.to_string(),
+        created_at: now_rfc3339(),
+        last_used_at: now_rfc3339(),
+        expires_after_days: DEFAULT_CACHE_EXPIRY_DAYS,
+        size_bytes: 0,
+        complete: false,
+        version_json_cached: false,
+        jar_cached: false,
+        libraries_cached: false,
+        assets_cached: false,
+    });
+    save_redirect_cache_index(&cache_root, &index)?;
+
+    let downloaded =
+        download_redirect_runtime(app, source_path, instance_uuid, version_id, source_launcher)?;
+
+    index
+        .entries
+        .retain(|entry| entry.instance_uuid != instance_uuid);
+    index.entries.push(downloaded.clone());
+    recalc_cache_totals(&mut index);
+    save_redirect_cache_index(&cache_root, &index)?;
+
+    emit_redirect_cache_status(
+        app,
+        json!({
+            "stage": "ready",
+            "instance_uuid": instance_uuid,
+            "version_id": version_id,
+            "message": format!("Caché temporal REDIRECT listo para {version_id}."),
+            "progress_percent": 100,
+            "downloaded_bytes": downloaded.size_bytes,
+            "total_bytes": downloaded.size_bytes,
+            "current_file": "done"
+        }),
+    );
+
+    resolve_from_cache(app, instance_uuid, version_id)
+}
+
+fn touch_cache_entry_last_used(app: &AppHandle, instance_uuid: &str) {
+    if let Ok(cache_root) = redirect_cache_root(app) {
+        let mut index = load_redirect_cache_index(&cache_root);
+        if let Some(entry) = index
+            .entries
+            .iter_mut()
+            .find(|entry| entry.instance_uuid == instance_uuid)
+        {
+            entry.last_used_at = now_rfc3339();
+        }
+        recalc_cache_totals(&mut index);
+        let _ = save_redirect_cache_index(&cache_root, &index);
+    }
+}
+
+#[tauri::command]
+pub fn force_cleanup_redirect_cache(app: AppHandle) -> Result<CacheCleanupResult, String> {
+    let cache_root = redirect_cache_root(&app)?;
+    let mut index = load_redirect_cache_index(&cache_root);
+    let result = run_redirect_cache_cleanup(&cache_root, &mut index);
+    save_redirect_cache_index(&cache_root, &index)?;
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn get_redirect_cache_info(app: AppHandle) -> Result<RedirectCacheInfo, String> {
+    let cache_root = redirect_cache_root(&app)?;
+    let mut index = load_redirect_cache_index(&cache_root);
+    recalc_cache_totals(&mut index);
+    let now = chrono::Utc::now();
+    let entries = index
+        .entries
+        .iter()
+        .map(|entry| {
+            let expires_in_days = parse_rfc3339(&entry.last_used_at)
+                .map(|last| entry.expires_after_days as i64 - (now - last).num_days())
+                .unwrap_or(-1);
+            RedirectCacheEntryInfo {
+                instance_uuid: entry.instance_uuid.clone(),
+                version_id: entry.version_id.clone(),
+                source_launcher: entry.source_launcher.clone(),
+                last_used_at: entry.last_used_at.clone(),
+                expires_in_days,
+                size_mb: entry.size_bytes / (1024 * 1024),
+                complete: entry.complete,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    Ok(RedirectCacheInfo {
+        entries,
+        total_size_bytes: index.total_size_bytes,
+        total_size_mb: index.total_size_bytes / (1024 * 1024),
+        max_size_mb: MAX_CACHE_SIZE_MB,
+        entry_count: index.entries.len(),
+        max_entries: MAX_CACHE_ENTRIES,
+    })
+}
+
 #[tauri::command]
 pub fn validate_redirect_instance(
     instance_path: String,
@@ -723,12 +1371,35 @@ pub fn launch_redirect_instance(
             "error": Value::Null
         }),
     );
+    emit_redirect_cache_status(
+        &app,
+        json!({
+            "stage": "checking",
+            "instance_uuid": metadata.internal_uuid,
+            "version_id": metadata.version_id,
+            "message": "Verificando caché REDIRECT...",
+            "progress_percent": 0,
+            "downloaded_bytes": 0,
+            "total_bytes": 0,
+            "current_file": "checking"
+        }),
+    );
 
-    let ctx = resolve_redirect_launch_context(
+    let ctx = match resolve_redirect_launch_context(
         &source_path,
         &metadata.version_id,
         &redirect.source_launcher,
-    )?;
+    ) {
+        Ok(ctx) => ctx,
+        Err(_) => ensure_redirect_cache_context(
+            &app,
+            &source_path,
+            &redirect.source_launcher,
+            &metadata.internal_uuid,
+            &metadata.version_id,
+        )?,
+    };
+    touch_cache_entry_last_used(&app, &metadata.internal_uuid);
     let runtime = parse_java_runtime_for_redirect(&ctx.version_json, &metadata.version_id);
 
     let launcher_root = instance_path
@@ -896,6 +1567,8 @@ pub fn launch_redirect_instance(
             }),
         );
         let _ = fs::remove_dir_all(&natives_dir);
+        touch_cache_entry_last_used(&app_for_thread, &instance_uuid);
+        let _ = cleanup_redirect_cache_after_launch(&app_for_thread);
     });
 
     Ok(StartInstanceResult {
