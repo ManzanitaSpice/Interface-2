@@ -67,7 +67,7 @@ struct DetectionMeta {
 
 static CANCEL_IMPORT: OnceLock<Arc<AtomicBool>> = OnceLock::new();
 
-const INSTANCE_MARKER_FILES: &[&str] = &[
+const INSTANCE_IDENTIFIER_FILES: &[&str] = &[
     "minecraftinstance.json",
     "mmc-pack.json",
     "profile.json",
@@ -75,7 +75,7 @@ const INSTANCE_MARKER_FILES: &[&str] = &[
     ".curseclient",
 ];
 
-const INSTANCE_MARKER_DIRS: &[&str] = &[".minecraft", "versions"];
+const INSTANCE_MINECRAFT_DIRS: &[&str] = &[".minecraft", "minecraft"];
 const INSTANCE_HINT_KEYWORDS: &[&str] = &[
     "instancias",
     "instances",
@@ -179,12 +179,18 @@ fn known_paths() -> Vec<(String, PathBuf)> {
 }
 
 fn has_instance_markers(path: &Path) -> bool {
-    INSTANCE_MARKER_FILES
+    INSTANCE_IDENTIFIER_FILES
         .iter()
         .any(|file| path.join(file).is_file())
-        || INSTANCE_MARKER_DIRS
-            .iter()
-            .any(|dir| path.join(dir).is_dir())
+}
+
+fn has_required_instance_layout(path: &Path) -> bool {
+    let has_minecraft_folder = INSTANCE_MINECRAFT_DIRS
+        .iter()
+        .any(|dir| path.join(dir).is_dir());
+    let has_identifier = has_instance_markers(path);
+
+    has_minecraft_folder && has_identifier
 }
 
 fn directory_name_looks_like_container(path: &Path) -> bool {
@@ -472,7 +478,7 @@ fn dir_size(path: &Path) -> u64 {
 }
 
 fn detect_dir(path: &Path, launcher: &str) -> Option<DetectedInstance> {
-    if !path.is_dir() {
+    if !path.is_dir() || !has_required_instance_layout(path) {
         return None;
     }
 
