@@ -799,13 +799,112 @@ fn native_classifier(lib: &Value) -> Option<String> {
     Some(raw.replace("${arch}", arch))
 }
 
-pub fn extract_natives(
-    version_json: &serde_json::Value,
-    libraries_dir: &Path,
+fn current_native_os() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "osx"
+    } else {
+        "linux"
+    }
+}
+
+fn library_applies_to_current_os(library: &Value, current_os: &str) -> bool {
+    let rules = library
+        .get("rules")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if rules.is_empty() {
+        return true;
+    }
+
+    evaluate_rules(
+        &rules,
+        &RuleContext {
+            os_name: current_os.to_string(),
+            arch: std::env::consts::ARCH.to_string(),
+            features: RuleFeatures::default(),
+        },
+    )
+}
+
+fn extract_native_jar(
+    jar_path: &Path,
     natives_dir: &Path,
-) -> Result<(), String> {
+    library: &Value,
+) -> Result<usize, String> {
+    let file = fs::File::open(jar_path)
+        .map_err(|err| format!("No se pudo abrir native {}: {err}", jar_path.display()))?;
+    let mut zip = ZipArchive::new(file)
+        .map_err(|err| format!("Native ZIP inválido {}: {err}", jar_path.display()))?;
+    let mut extracted_count = 0usize;
+    let excludes = library
+        .get("extract")
+        .and_then(|v| v.get("exclude"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+
+    for i in 0..zip.len() {
+        let mut entry = zip
+            .by_index(i)
+            .map_err(|err| format!("No se pudo leer entrada native: {err}"))?;
+        let name = entry.name().to_string();
+        if name.contains("META-INF") || name.ends_with('/') {
+            continue;
+        }
+        if excludes.iter().any(|prefix| name.starts_with(prefix)) {
+            continue;
+        }
+
+        let out = natives_dir.join(Path::new(&name).file_name().unwrap_or_default());
+        let mut out_file = fs::File::create(&out)
+            .map_err(|err| format!("No se pudo crear archivo native {}: {err}", out.display()))?;
+        std::io::copy(&mut entry, &mut out_file)
+            .map_err(|err| format!("No se pudo extraer native {}: {err}", out.display()))?;
+        extracted_count = extracted_count.saturating_add(1);
+    }
+    Ok(extracted_count)
+}
+
+fn find_native_jar(
+    source_path: &Path,
+    libraries_dir: &Path,
+    relative_path: &str,
+    source_launcher: &str,
+) -> Option<PathBuf> {
+    let normalized = relative_path.replace('/', std::path::MAIN_SEPARATOR_STR);
+    let mut candidates = vec![libraries_dir.join(&normalized)];
+    for candidate in libraries_dir_candidates(source_path, source_launcher) {
+        candidates.push(candidate.join(&normalized));
+    }
+    unique_paths(candidates)
+        .into_iter()
+        .find(|path| path.exists())
+}
+
+pub async fn extract_natives(
+    version_json: &serde_json::Value,
+    source_path: &Path,
+    source_launcher: &str,
+    libraries_dir: &Path,
+    fallback_libraries_dir: &Path,
+    natives_dir: &Path,
+) -> Result<usize, String> {
     fs::create_dir_all(natives_dir)
         .map_err(|err| format!("No se pudo crear carpeta natives temporal: {err}"))?;
+
+    let current_os = current_native_os();
+    let client = build_async_official_client()?;
+    let mut extracted_count = 0usize;
+    log::info!(
+        "[REDIRECT] Extrayendo natives para OS={current_os} en {}",
+        natives_dir.display()
+    );
 
     for library in version_json
         .get("libraries")
@@ -813,47 +912,71 @@ pub fn extract_natives(
         .cloned()
         .unwrap_or_default()
     {
+        if !library_applies_to_current_os(&library, current_os) {
+            continue;
+        }
         let Some(name) = library.get("name").and_then(Value::as_str) else {
             continue;
         };
-
         let Some(classifier) = native_classifier(&library) else {
             continue;
         };
 
-        let native_name = format!("{name}:{classifier}");
-        let Some(rel) = maven_library_path(&native_name) else {
+        let relative_path = library
+            .get("downloads")
+            .and_then(|v| v.get("classifiers"))
+            .and_then(|v| v.get(&classifier))
+            .and_then(|v| v.get("path"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| maven_library_path(&format!("{name}:{classifier}")));
+        let Some(relative_path) = relative_path else {
             continue;
         };
-        let native_jar = libraries_dir.join(rel);
-        if !native_jar.exists() {
-            continue;
-        }
 
-        let file = fs::File::open(&native_jar)
-            .map_err(|err| format!("No se pudo abrir native {}: {err}", native_jar.display()))?;
-        let mut zip = ZipArchive::new(file)
-            .map_err(|err| format!("Native ZIP inválido {}: {err}", native_jar.display()))?;
-
-        for i in 0..zip.len() {
-            let mut entry = zip
-                .by_index(i)
-                .map_err(|err| format!("No se pudo leer entrada native: {err}"))?;
-            let name = entry.name().to_string();
-            if name.contains("META-INF") || name.ends_with('/') {
+        let native_jar = if let Some(found) =
+            find_native_jar(source_path, libraries_dir, &relative_path, source_launcher)
+        {
+            found
+        } else {
+            let Some(classifier_info) = library
+                .get("downloads")
+                .and_then(|v| v.get("classifiers"))
+                .and_then(|v| v.get(&classifier))
+            else {
+                log::warn!(
+                    "[REDIRECT] Native no encontrado y sin classifier download para {}",
+                    relative_path
+                );
                 continue;
-            }
+            };
 
-            let out = natives_dir.join(Path::new(&name).file_name().unwrap_or_default());
-            let mut out_file = fs::File::create(&out).map_err(|err| {
-                format!("No se pudo crear archivo native {}: {err}", out.display())
-            })?;
-            std::io::copy(&mut entry, &mut out_file)
-                .map_err(|err| format!("No se pudo extraer native {}: {err}", out.display()))?;
-        }
+            let Some(url) = classifier_info.get("url").and_then(Value::as_str) else {
+                log::warn!(
+                    "[REDIRECT] Native no encontrado y sin URL para {}",
+                    relative_path
+                );
+                continue;
+            };
+            let sha1 = classifier_info
+                .get("sha1")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let cache_jar = fallback_libraries_dir
+                .join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+            log::warn!(
+                "[REDIRECT] Native faltante: {}. Descargando...",
+                relative_path
+            );
+            let _ = download_async_with_retry(&client, url, &cache_jar, sha1, false).await?;
+            cache_jar
+        };
+
+        extracted_count =
+            extracted_count.saturating_add(extract_native_jar(&native_jar, natives_dir, &library)?);
     }
 
-    Ok(())
+    Ok(extracted_count)
 }
 
 fn has_any_file(root: &Path) -> bool {
@@ -1605,12 +1728,35 @@ pub async fn launch_redirect_instance(
             "error": Value::Null
         }),
     );
-    extract_natives(&ctx.version_json, &ctx.libraries_dir, &natives_dir)?;
-    if !has_any_file(&natives_dir) {
-        return Err(
-            "La carpeta de natives quedó vacía tras la extracción para la instancia REDIRECT."
-                .to_string(),
-        );
+    let redirect_cache_libraries = redirect_cache_root(&app)?
+        .join(&metadata.internal_uuid)
+        .join("libraries");
+    let extracted_count = extract_natives(
+        &ctx.version_json,
+        &source_path,
+        &redirect.source_launcher,
+        &ctx.libraries_dir,
+        &redirect_cache_libraries,
+        &natives_dir,
+    )
+    .await?;
+    if extracted_count == 0 || !has_any_file(&natives_dir) {
+        log::warn!("[REDIRECT] No se extrajeron natives localmente, reintentando desde caché...");
+        let downloaded = extract_natives(
+            &ctx.version_json,
+            &source_path,
+            &redirect.source_launcher,
+            &redirect_cache_libraries,
+            &redirect_cache_libraries,
+            &natives_dir,
+        )
+        .await?;
+        if downloaded == 0 || !has_any_file(&natives_dir) {
+            return Err(format!(
+                "No se encontraron ni pudieron descargarse los natives para {} en {}. Verifica que la versión esté instalada en el launcher de origen.",
+                metadata.version_id, redirect.source_launcher
+            ));
+        }
     }
 
     let asset_index = ctx

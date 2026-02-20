@@ -1,11 +1,11 @@
 import { invoke } from '@tauri-apps/api/core'
 import { useEffect, useMemo, useState } from 'react'
 
-type Category = 'All' | 'Modpacks' | 'Mods' | 'DataPacks' | 'Resource Packs' | 'Shaders' | 'Worlds' | 'Addons' | 'Customizacion'
-type SortMode = 'Relevancia' | 'Popularidad' | 'Ultima Actualizacion' | 'Actualizacion Estable' | 'Mas Descargas' | 'Nombre' | 'Autor'
-type ViewMode = 'lista' | 'tablero' | 'titulos'
-type Platform = 'Todas' | 'Curseforge' | 'Modrinth'
-type LoaderFilter = 'Todos' | 'Fabric' | 'Forge' | 'Neoforge' | 'Quilt'
+type Category = 'all' | 'modpacks' | 'mods' | 'datapacks' | 'resourcepacks' | 'shaders' | 'worlds' | 'addons' | 'customization'
+type SortMode = 'relevance' | 'popularity' | 'updated' | 'stable' | 'downloads' | 'name' | 'author'
+type ViewMode = 'list' | 'grid' | 'titles'
+type Platform = 'all' | 'curseforge' | 'modrinth'
+type LoaderFilter = 'all' | 'fabric' | 'forge' | 'neoforge' | 'quilt'
 
 type ExplorerItem = {
   id: string
@@ -26,40 +26,65 @@ type ExplorerItem = {
 type Props = { uiLanguage: 'es' | 'en' | 'pt' }
 
 const categoryToProjectType: Record<Category, string | null> = {
-  All: null,
-  Modpacks: 'modpack',
-  Mods: 'mod',
-  DataPacks: 'datapack',
-  'Resource Packs': 'resourcepack',
-  Shaders: 'shader',
-  Worlds: 'world',
-  Addons: 'plugin',
-  Customizacion: 'mod',
+  all: null,
+  modpacks: 'modpack',
+  mods: 'mod',
+  datapacks: 'datapack',
+  resourcepacks: 'resourcepack',
+  shaders: 'shader',
+  worlds: 'world',
+  addons: 'plugin',
+  customization: 'mod',
 }
-const categoryToClassId: Partial<Record<Category, number>> = { Modpacks: 4471, Mods: 6, 'Resource Packs': 12, Worlds: 17, Shaders: 6552, Addons: 4559 }
+const categoryToClassId: Partial<Record<Category, number>> = { modpacks: 4471, mods: 6, resourcepacks: 12, worlds: 17, shaders: 6552, addons: 4559 }
 const officialVersions = ['1.21.4', '1.21.3', '1.21.1', '1.21', '1.20.6', '1.20.4', '1.20.1', '1.19.4', '1.18.2', '1.16.5']
+const PAGE_SIZE = 24
 
-const mapModrinthSort = (sort: SortMode) => sort === 'Popularidad' ? 'follows' : sort === 'Ultima Actualizacion' ? 'updated' : sort === 'Mas Descargas' ? 'downloads' : sort === 'Nombre' ? 'newest' : 'relevance'
-const mapCurseSortField = (sort: SortMode) => sort === 'Popularidad' ? 2 : sort === 'Ultima Actualizacion' ? 3 : sort === 'Mas Descargas' ? 6 : sort === 'Nombre' ? 4 : sort === 'Actualizacion Estable' ? 11 : 1
+const mapModrinthSort = (sort: SortMode) => sort === 'popularity' ? 'follows' : sort === 'updated' ? 'updated' : sort === 'downloads' ? 'downloads' : sort === 'name' ? 'newest' : 'relevance'
+const mapCurseSortField = (sort: SortMode) => sort === 'popularity' ? 2 : sort === 'updated' ? 3 : sort === 'downloads' ? 6 : sort === 'name' ? 4 : sort === 'stable' ? 11 : 1
 
 const uiText = {
-  es: { search: 'Buscar en catálogo', categories: 'Categorías', sort: 'Orden', platform: 'Plataforma', view: 'Vista', advanced: 'Filtro avanzado', mcVersion: 'Versión Minecraft', loader: 'Loader', all: 'Todas', headerTitle: 'Catálogo completo de CurseForge y Modrinth', headerSub: 'Resultados reales del backend, con filtros estables y vista profesional.', loading: 'Cargando catálogo...', author: 'Autor', downloads: 'Descargas' },
-  en: { search: 'Search catalog', categories: 'Categories', sort: 'Sort', platform: 'Platform', view: 'View', advanced: 'Advanced filter', mcVersion: 'Minecraft version', loader: 'Loader', all: 'All', headerTitle: 'Complete CurseForge and Modrinth catalog', headerSub: 'Real backend results with stable filters and a professional layout.', loading: 'Loading catalog...', author: 'Author', downloads: 'Downloads' },
-  pt: { search: 'Buscar no catálogo', categories: 'Categorias', sort: 'Ordenar', platform: 'Plataforma', view: 'Visualização', advanced: 'Filtro avançado', mcVersion: 'Versão do Minecraft', loader: 'Loader', all: 'Todas', headerTitle: 'Catálogo completo de CurseForge e Modrinth', headerSub: 'Resultados reais do backend com filtros estáveis e visual profissional.', loading: 'Carregando catálogo...', author: 'Autor', downloads: 'Downloads' },
+  es: { search: 'Buscar en catálogo', categories: 'Categorías', sort: 'Orden', platform: 'Plataforma', view: 'Vista', advanced: 'Filtro avanzado', hideAdvanced: 'Ocultar filtros', mcVersion: 'Versión Minecraft', loader: 'Loader', all: 'Todas', headerTitle: 'Catálogo completo de CurseForge y Modrinth', headerSub: 'Resultados reales del backend, optimizados con filtros y paginación.', loading: 'Cargando catálogo...', author: 'Autor', downloads: 'Descargas', noResults: 'No hay resultados para los filtros actuales.', page: 'Página', previous: 'Anterior', next: 'Siguiente' },
+  en: { search: 'Search catalog', categories: 'Categories', sort: 'Sort', platform: 'Platform', view: 'View', advanced: 'Advanced filter', hideAdvanced: 'Hide filters', mcVersion: 'Minecraft version', loader: 'Loader', all: 'All', headerTitle: 'Complete CurseForge and Modrinth catalog', headerSub: 'Real backend results with optimized filters and pagination.', loading: 'Loading catalog...', author: 'Author', downloads: 'Downloads', noResults: 'No results for current filters.', page: 'Page', previous: 'Previous', next: 'Next' },
+  pt: { search: 'Buscar no catálogo', categories: 'Categorias', sort: 'Ordenar', platform: 'Plataforma', view: 'Visualização', advanced: 'Filtro avançado', hideAdvanced: 'Ocultar filtros', mcVersion: 'Versão do Minecraft', loader: 'Loader', all: 'Todas', headerTitle: 'Catálogo completo de CurseForge e Modrinth', headerSub: 'Resultados reais do backend com filtros otimizados e paginação.', loading: 'Carregando catálogo...', author: 'Autor', downloads: 'Downloads', noResults: 'Nenhum resultado para os filtros atuais.', page: 'Página', previous: 'Anterior', next: 'Próxima' },
+} as const
+
+const labels = {
+  category: {
+    all: { es: 'Todas', en: 'All', pt: 'Todas' },
+    modpacks: { es: 'Modpacks', en: 'Modpacks', pt: 'Modpacks' },
+    mods: { es: 'Mods', en: 'Mods', pt: 'Mods' },
+    datapacks: { es: 'Data Packs', en: 'Data Packs', pt: 'Data Packs' },
+    resourcepacks: { es: 'Resource Packs', en: 'Resource Packs', pt: 'Resource Packs' },
+    shaders: { es: 'Shaders', en: 'Shaders', pt: 'Shaders' },
+    worlds: { es: 'Mundos', en: 'Worlds', pt: 'Mundos' },
+    addons: { es: 'Addons', en: 'Addons', pt: 'Addons' },
+    customization: { es: 'Customización', en: 'Customization', pt: 'Customização' },
+  },
 } as const
 
 export function ExplorerPage({ uiLanguage }: Props) {
   const t = uiText[uiLanguage]
-  const [category, setCategory] = useState<Category>('All')
-  const [sort, setSort] = useState<SortMode>('Relevancia')
-  const [view, setView] = useState<ViewMode>('tablero')
-  const [platform, setPlatform] = useState<Platform>('Todas')
+  const [category, setCategory] = useState<Category>('all')
+  const [sort, setSort] = useState<SortMode>('relevance')
+  const [view, setView] = useState<ViewMode>('grid')
+  const [platform, setPlatform] = useState<Platform>('all')
   const [mcVersion, setMcVersion] = useState('')
-  const [loader, setLoader] = useState<LoaderFilter>('Todos')
+  const [loader, setLoader] = useState<LoaderFilter>('all')
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [items, setItems] = useState<ExplorerItem[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [page, setPage] = useState(1)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 260)
+    return () => window.clearTimeout(timer)
+  }, [search])
+
+  useEffect(() => { setPage(1) }, [debouncedSearch, category, sort, platform, mcVersion, loader])
 
   useEffect(() => {
     let cancelled = false
@@ -69,15 +94,16 @@ export function ExplorerPage({ uiLanguage }: Props) {
       try {
         const payload = await invoke<ExplorerItem[]>('search_catalogs', {
           request: {
-            search,
+            search: debouncedSearch,
             category: categoryToProjectType[category],
             curseforgeClassId: categoryToClassId[category] ?? null,
-            platform,
+            platform: platform === 'all' ? 'Todas' : platform === 'curseforge' ? 'Curseforge' : 'Modrinth',
             mcVersion: mcVersion || null,
-            loader: loader === 'Todos' ? null : loader.toLowerCase(),
+            loader: loader === 'all' ? null : loader.toLowerCase(),
             modrinthSort: mapModrinthSort(sort),
             curseforgeSortField: mapCurseSortField(sort),
-            limit: 30,
+            limit: PAGE_SIZE,
+            page,
           },
         })
         if (!cancelled) setItems(sortItems(payload, sort))
@@ -89,11 +115,11 @@ export function ExplorerPage({ uiLanguage }: Props) {
     }
     void fetchData()
     return () => { cancelled = true }
-  }, [search, category, sort, platform, mcVersion, loader])
+  }, [debouncedSearch, category, sort, platform, mcVersion, loader, page])
 
   const visibleItems = useMemo(() => items.filter((item) => {
     const mcOk = !mcVersion || item.minecraftVersions.some((v) => v.includes(mcVersion))
-    const loaderOk = loader === 'Todos' || item.loaders.some((l) => l.toLowerCase().includes(loader.toLowerCase()))
+    const loaderOk = loader === 'all' || item.loaders.some((l) => l.toLowerCase().includes(loader.toLowerCase()))
     return mcOk && loaderOk
   }), [items, loader, mcVersion])
 
@@ -105,20 +131,20 @@ export function ExplorerPage({ uiLanguage }: Props) {
         <header className="panel-actions explorer-actions-compact">
           <input className="instance-search-compact" placeholder={t.search} value={search} onChange={(e) => setSearch(e.target.value)} />
           <label>{t.categories}
-            <select value={category} onChange={(e) => setCategory(e.target.value as Category)}>{Object.keys(categoryToProjectType).map((value) => <option key={value} value={value}>{value}</option>)}</select>
+            <select value={category} onChange={(e) => setCategory(e.target.value as Category)}>{Object.keys(categoryToProjectType).map((value) => <option key={value} value={value}>{labels.category[value as Category][uiLanguage]}</option>)}</select>
           </label>
           <label>{t.sort}
-            <select value={sort} onChange={(e) => setSort(e.target.value as SortMode)}>{['Relevancia', 'Popularidad', 'Ultima Actualizacion', 'Actualizacion Estable', 'Mas Descargas', 'Nombre', 'Autor'].map((value) => <option key={value} value={value}>{value}</option>)}</select>
+            <select value={sort} onChange={(e) => setSort(e.target.value as SortMode)}><option value="relevance">Relevance</option><option value="popularity">Popularity</option><option value="updated">Updated</option><option value="stable">Stable Update</option><option value="downloads">Downloads</option><option value="name">Name</option><option value="author">Author</option></select>
           </label>
           <label>{t.platform}
-            <select value={platform} onChange={(e) => setPlatform(e.target.value as Platform)}>{['Todas', 'Curseforge', 'Modrinth'].map((value) => <option key={value} value={value}>{value}</option>)}</select>
+            <select value={platform} onChange={(e) => setPlatform(e.target.value as Platform)}><option value="all">{t.all}</option><option value="curseforge">CurseForge</option><option value="modrinth">Modrinth</option></select>
           </label>
           <label>{t.view}
-            <select value={view} onChange={(e) => setView(e.target.value as ViewMode)}>{['lista', 'tablero', 'titulos'].map((value) => <option key={value} value={value}>{value}</option>)}</select>
+            <select value={view} onChange={(e) => setView(e.target.value as ViewMode)}><option value="list">List</option><option value="grid">Grid</option><option value="titles">Titles</option></select>
           </label>
-          <details className="advanced-filter-menu">
-            <summary>{t.advanced}</summary>
-            <div className="advanced-filter-body">
+          <button className="secondary" onClick={() => setShowAdvanced((v) => !v)}>{showAdvanced ? t.hideAdvanced : t.advanced}</button>
+          {showAdvanced && (
+            <div className="advanced-filter-body inline">
               <label>{t.mcVersion}
                 <select value={mcVersion} onChange={(e) => setMcVersion(e.target.value)}>
                   <option value="">{t.all}</option>
@@ -126,10 +152,10 @@ export function ExplorerPage({ uiLanguage }: Props) {
               </label>
               <label>{t.loader}
                 <select value={loader} onChange={(e) => setLoader(e.target.value as LoaderFilter)}>
-                  {['Todos', 'Fabric', 'Forge', 'Neoforge', 'Quilt'].map((value) => <option key={value} value={value}>{value}</option>)}</select>
+                  <option value="all">{t.all}</option><option value="fabric">Fabric</option><option value="forge">Forge</option><option value="neoforge">NeoForge</option><option value="quilt">Quilt</option></select>
               </label>
             </div>
-          </details>
+          )}
         </header>
 
         <div className="catalog-panel-header">
@@ -137,22 +163,22 @@ export function ExplorerPage({ uiLanguage }: Props) {
           <small>{t.headerSub}</small>
         </div>
 
-        {loading && <p>{t.loading}</p>}
+        {loading && <p className="catalog-loader">{t.loading}</p>}
         {error && <p className="error-banner">{error}</p>}
 
         <div className={`explorer-results ${view}`}>
           {visibleItems.map((item) => (
             <article key={`${item.source}-${item.id}`} className="instance-card explorer-card">
               <div className="instance-card-icon hero explorer-card-media">
-                {item.image ? <img src={item.image} alt={item.title} loading="lazy" /> : null}
+                {item.image ? <img src={item.image} alt={item.title} loading="lazy" referrerPolicy="no-referrer" /> : null}
               </div>
               <div className="explorer-card-body">
                 <strong className="instance-card-title" title={item.title}>{item.title}</strong>
-                {view !== 'titulos' && (
+                {view !== 'titles' && (
                   <>
                     <small className="explorer-description" title={item.description}>{item.description}</small>
                     <div className="instance-card-meta">
-                      <small>{item.source}</small><small>{t.author}: {item.author}</small><small>{item.projectType}</small><small>{t.downloads}: {numberFormatter.format(item.downloads)}</small>
+                      <small><span className={`platform-badge ${item.source.toLowerCase()}`}>{item.source}</span></small><small>{t.author}: {item.author}</small><small>{item.projectType}</small><small>{t.downloads}: {numberFormatter.format(item.downloads)}</small>
                     </div>
                     <div className="explorer-tags">{item.tags.slice(0, 4).map((tag) => <span key={tag}>{tag}</span>)}</div>
                   </>
@@ -161,6 +187,14 @@ export function ExplorerPage({ uiLanguage }: Props) {
             </article>
           ))}
         </div>
+
+        {!loading && visibleItems.length === 0 ? <p>{t.noResults}</p> : null}
+
+        <footer className="explorer-pagination">
+          <button className="secondary" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1 || loading}>{t.previous}</button>
+          <span>{t.page} {page}</span>
+          <button className="secondary" onClick={() => setPage((p) => p + 1)} disabled={loading || items.length < PAGE_SIZE / (platform === 'all' ? 1 : 1)}>{t.next}</button>
+        </footer>
       </section>
     </main>
   )
@@ -168,9 +202,9 @@ export function ExplorerPage({ uiLanguage }: Props) {
 
 function sortItems(items: ExplorerItem[], sort: SortMode): ExplorerItem[] {
   const next = [...items]
-  if (sort === 'Mas Descargas' || sort === 'Popularidad') return next.sort((a, b) => b.downloads - a.downloads)
-  if (sort === 'Ultima Actualizacion' || sort === 'Actualizacion Estable') return next.sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt))
-  if (sort === 'Nombre') return next.sort((a, b) => a.title.localeCompare(b.title, 'es'))
-  if (sort === 'Autor') return next.sort((a, b) => a.author.localeCompare(b.author, 'es'))
+  if (sort === 'downloads' || sort === 'popularity') return next.sort((a, b) => b.downloads - a.downloads)
+  if (sort === 'updated' || sort === 'stable') return next.sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt))
+  if (sort === 'name') return next.sort((a, b) => a.title.localeCompare(b.title, 'es'))
+  if (sort === 'author') return next.sort((a, b) => a.author.localeCompare(b.author, 'es'))
   return next
 }

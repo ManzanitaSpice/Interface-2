@@ -5,7 +5,14 @@ type Props = {
   item: DetectedInstance
   selected: boolean
   onToggle: () => void
+  uiLanguage: 'es' | 'en' | 'pt'
 }
+
+const text = {
+  es: { source: 'Origen', loader: 'Loader', realSize: 'Peso real', unknownSize: 'Tamaño no detectado', mods: 'mods' },
+  en: { source: 'Source', loader: 'Loader', realSize: 'Real size', unknownSize: 'Size not detected', mods: 'mods' },
+  pt: { source: 'Origem', loader: 'Loader', realSize: 'Tamanho real', unknownSize: 'Tamanho não detectado', mods: 'mods' },
+} as const
 
 const resolveIcon = (iconPath?: string | null) => {
   if (!iconPath) return ''
@@ -27,11 +34,12 @@ const normalizeLoader = (loader: string) => {
   return { id: value, label: loader, icon: '📦' }
 }
 
-export function DetectedInstanceCard({ item, selected, onToggle }: Props) {
+export function DetectedInstanceCard({ item, selected, onToggle, uiLanguage }: Props) {
+  const t = text[uiLanguage]
   const icon = resolveIcon(item.iconPath)
   const loaderInfo = normalizeLoader(item.loader || 'vanilla')
   const loaderLabel = `${loaderInfo.label} ${item.loaderVersion || ''}`.trim()
-  const sizeLabel = item.sizeMb && item.sizeMb > 0 ? `${item.sizeMb} MB` : 'Tamaño no detectado'
+  const sizeLabel = item.sizeMb && item.sizeMb > 0 ? `${item.sizeMb} MB` : t.unknownSize
 
   return (
     <article
@@ -44,11 +52,11 @@ export function DetectedInstanceCard({ item, selected, onToggle }: Props) {
       </div>
       <strong className="instance-card-title">{item.name}</strong>
       <div className="instance-card-meta">
-        <small>Origen: {item.sourceLauncher}</small>
+        <small>{t.source}: {item.sourceLauncher}</small>
         <small>MC {item.minecraftVersion}</small>
-        <small>Loader: {loaderInfo.icon} {loaderLabel}</small>
-        <small>Peso real: {sizeLabel}</small>
-        <small>{item.modsCount ?? 0} mods</small>
+        <small>{t.loader}: {loaderInfo.icon} {loaderLabel}</small>
+        <small>{t.realSize}: {sizeLabel}</small>
+        <small>{item.modsCount ?? 0} {t.mods}</small>
       </div>
     </article>
   )

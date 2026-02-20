@@ -2561,7 +2561,7 @@ function App() {
 
 
       {authSession && activePage === 'Importar Instancias' && (
-        <ImportPage onInstancesChanged={refreshInstances} />
+        <ImportPage onInstancesChanged={refreshInstances} uiLanguage={uiLanguage} />
       )}
 
       {authSession && activePage === 'Explorador' && (

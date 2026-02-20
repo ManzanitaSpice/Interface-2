@@ -11,9 +11,17 @@ import type { ImportAction, ImportActionRequest, ImportRequest } from '../types/
 
 type Props = {
   onInstancesChanged?: () => Promise<void> | void
+  uiLanguage: 'es' | 'en' | 'pt'
 }
 
-export function ImportPage({ onInstancesChanged }: Props) {
+const text = {
+  es: { search: 'Buscar instancia detectada por nombre o launcher', searchAria: 'Buscar entre instancias detectadas', empty: 'Ninguna instancia detectada' },
+  en: { search: 'Search detected instance by name or launcher', searchAria: 'Search among detected instances', empty: 'No detected instances' },
+  pt: { search: 'Buscar instância detectada por nome ou launcher', searchAria: 'Buscar entre instâncias detectadas', empty: 'Nenhuma instância detectada' },
+} as const
+
+export function ImportPage({ onInstancesChanged, uiLanguage }: Props) {
+  const t = text[uiLanguage]
   const { instances, status, progressPercent, isScanning, keepDetected, setKeepDetected, scan, clear } = useImportScanner()
   const { running, message, progressPercent: executionProgressPercent, execute, executeActionBatch } = useImportExecution()
   const [selected, setSelected] = useState<string[]>([])
@@ -106,8 +114,8 @@ export function ImportPage({ onInstancesChanged }: Props) {
             className="instance-search-compact"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar instancia detectada por nombre o launcher"
-            aria-label="Buscar entre instancias detectadas"
+            placeholder={t.search}
+            aria-label={t.searchAria}
           />
         </div>
         <div className="instances-workspace">
@@ -117,10 +125,11 @@ export function ImportPage({ onInstancesChanged }: Props) {
                 key={item.id}
                 item={item}
                 selected={selected.includes(item.id)}
+                uiLanguage={uiLanguage}
                 onToggle={() => setSelected((prev) => prev.includes(item.id) ? prev.filter((id) => id !== item.id) : [...prev, item.id])}
               />
             ))}
-            {filteredInstances.length === 0 && <article className="instance-card placeholder">Ninguna instancia detectada</article>}
+            {filteredInstances.length === 0 && <article className="instance-card placeholder">{t.empty}</article>}
           </div>
         </div>
         {selected.length > 0 && (
