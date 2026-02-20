@@ -36,6 +36,7 @@ pub fn run() {
             app::settings_service::load_folder_routes,
             app::settings_service::save_folder_routes,
             app::settings_service::open_folder_path,
+            app::settings_service::open_folder_route,
             app::settings_service::migrate_instances_folder,
             commands::skin_processor::optimize_skin_png,
             commands::file_manager::list_skins,
