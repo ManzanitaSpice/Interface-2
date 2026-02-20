@@ -11,7 +11,7 @@
 
 .huge-panel {
   min-height: 0;
-  height: min(100%, calc(100vh - 185px));
+  height: min(100%, calc(100vh - 245px));
 }
 
 .panel-actions {
@@ -51,7 +51,7 @@
 }
 
 .instances-grid-area {
-  max-height: calc(100vh - 220px);
+  max-height: calc(100vh - 300px);
 }
 
 .instance-card {
@@ -383,7 +383,7 @@
 }
 
 .third-top-bar {
-  min-height: 72px;
+  min-height: 64px;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -644,7 +644,7 @@
   gap: 0.55rem;
   background: linear-gradient(180deg, rgba(18, 26, 38, 0.96), rgba(14, 20, 30, 0.98));
   position: sticky;
-  bottom: 0;
+  bottom: 0.35rem;
   z-index: 3;
 }
 
@@ -683,9 +683,9 @@
   border-bottom: 1px solid var(--border);
   padding: 0.6rem;
   overflow: auto;
-  height: clamp(220px, 42vh, 520px);
-  min-height: 220px;
-  max-height: 52vh;
+  height: clamp(180px, 34vh, 420px);
+  min-height: 180px;
+  max-height: 42vh;
   font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.78rem;
 }
@@ -1234,7 +1234,7 @@
 
 
 .instances-summary-panel {
-  margin-top: 0.7rem;
+  margin-top: 0.35rem;
   border: 1px solid var(--border);
   border-radius: 0.65rem;
   background: linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 94%, var(--bg-main)), color-mix(in srgb, var(--bg-surface-muted) 96%, var(--bg-main)));
@@ -1259,8 +1259,8 @@
 }
 
 .news-page .news-panel {
-  min-height: calc(100vh - 160px);
-  max-height: calc(100vh - 130px);
+  min-height: calc(100vh - 210px);
+  max-height: calc(100vh - 180px);
   display: flex;
   flex-direction: column;
   gap: 0.8rem;
@@ -1348,7 +1348,7 @@
 
 .global-settings-panel {
   min-height: 0;
-  height: min(100%, calc(100vh - 130px));
+  height: min(100%, calc(100vh - 190px));
   display: flex;
   flex-direction: column;
   gap: 0.8rem;
@@ -1531,8 +1531,8 @@
 }
 
 .updates-page .updates-panel {
-  min-height: calc(100vh - 170px);
-  max-height: calc(100vh - 130px);
+  min-height: calc(100vh - 220px);
+  max-height: calc(100vh - 180px);
   display: grid;
   grid-template-rows: auto auto 1fr auto;
   gap: 0.7rem;

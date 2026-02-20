@@ -33,6 +33,7 @@ pub fn run() {
             app::instance_service::start_instance,
             app::instance_service::get_runtime_status,
             app::settings_service::pick_folder,
+            app::settings_service::load_folder_routes,
             app::settings_service::save_folder_routes,
             app::settings_service::open_folder_path,
             app::settings_service::migrate_instances_folder,

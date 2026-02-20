@@ -24,11 +24,17 @@ pub struct FolderRouteMigrationResult {
     pub target_path: String,
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderRoutesPayload {
+    pub routes: Vec<FolderRouteInput>,
+}
+
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct FolderRouteInput {
-    key: String,
-    value: String,
+pub struct FolderRouteInput {
+    pub key: String,
+    pub value: String,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -83,7 +89,9 @@ where
 }
 
 pub fn resolve_instances_root(app: &AppHandle) -> Result<PathBuf, String> {
-    resolve_folder_route(app, "instances", |launcher_root| launcher_root.join("instances"))
+    resolve_folder_route(app, "instances", |launcher_root| {
+        launcher_root.join("instances")
+    })
 }
 
 #[tauri::command]
@@ -113,7 +121,78 @@ pub fn pick_folder(
     })
 }
 
-fn normalize_routes_payload(app: &AppHandle, routes: serde_json::Value) -> Result<serde_json::Value, String> {
+fn default_routes(app: &AppHandle) -> Result<Vec<FolderRouteInput>, String> {
+    let launcher_root = default_launcher_root(app)?;
+    Ok(vec![
+        FolderRouteInput {
+            key: "launcher".to_string(),
+            value: launcher_root.display().to_string(),
+        },
+        FolderRouteInput {
+            key: "instances".to_string(),
+            value: launcher_root.join("instances").display().to_string(),
+        },
+        FolderRouteInput {
+            key: "icons".to_string(),
+            value: launcher_root
+                .join("assets")
+                .join("icons")
+                .display()
+                .to_string(),
+        },
+        FolderRouteInput {
+            key: "java".to_string(),
+            value: launcher_root.join("runtime").display().to_string(),
+        },
+        FolderRouteInput {
+            key: "skins".to_string(),
+            value: launcher_root
+                .join("assets")
+                .join("skins")
+                .display()
+                .to_string(),
+        },
+        FolderRouteInput {
+            key: "downloads".to_string(),
+            value: launcher_root.join("downloads").display().to_string(),
+        },
+    ])
+}
+
+#[tauri::command]
+pub fn load_folder_routes(app: AppHandle) -> Result<FolderRoutesPayload, String> {
+    let mut routes = default_routes(&app)?;
+    let config_path = folder_routes_file(&app)?;
+    if !config_path.exists() {
+        return Ok(FolderRoutesPayload { routes });
+    }
+
+    let raw = fs::read_to_string(&config_path).map_err(|err| {
+        format!(
+            "No se pudo leer configuración de carpetas {}: {err}",
+            config_path.display()
+        )
+    })?;
+    let parsed: FolderRouteFile = serde_json::from_str(&raw).map_err(|err| {
+        format!(
+            "No se pudo parsear configuración de carpetas {}: {err}",
+            config_path.display()
+        )
+    })?;
+
+    for route in &mut routes {
+        if let Some(saved) = parsed.routes.iter().find(|saved| saved.key == route.key) {
+            route.value = normalize_path(&saved.value);
+        }
+    }
+
+    Ok(FolderRoutesPayload { routes })
+}
+
+fn normalize_routes_payload(
+    app: &AppHandle,
+    routes: serde_json::Value,
+) -> Result<serde_json::Value, String> {
     let launcher_root = default_launcher_root(app)?;
     let mut parsed: FolderRouteFile = serde_json::from_value(routes)
         .map_err(|err| format!("Formato inválido en rutas de carpetas: {err}"))?;
@@ -257,11 +336,17 @@ pub fn migrate_instances_folder(
                 copy_path_recursive(&from, &to)?;
                 if from.is_dir() {
                     fs::remove_dir_all(&from).map_err(|err| {
-                        format!("No se pudo limpiar carpeta original {}: {err}", from.display())
+                        format!(
+                            "No se pudo limpiar carpeta original {}: {err}",
+                            from.display()
+                        )
                     })?;
                 } else {
                     fs::remove_file(&from).map_err(|err| {
-                        format!("No se pudo limpiar archivo original {}: {err}", from.display())
+                        format!(
+                            "No se pudo limpiar archivo original {}: {err}",
+                            from.display()
+                        )
                     })?;
                 }
                 copied_entries += 1;
@@ -279,12 +364,17 @@ pub fn migrate_instances_folder(
 
 fn copy_path_recursive(from: &Path, to: &Path) -> Result<(), String> {
     if from.is_dir() {
-        fs::create_dir_all(to)
-            .map_err(|err| format!("No se pudo crear carpeta de destino {}: {err}", to.display()))?;
+        fs::create_dir_all(to).map_err(|err| {
+            format!(
+                "No se pudo crear carpeta de destino {}: {err}",
+                to.display()
+            )
+        })?;
         for entry in fs::read_dir(from)
             .map_err(|err| format!("No se pudo leer carpeta fuente {}: {err}", from.display()))?
         {
-            let entry = entry.map_err(|err| format!("No se pudo leer entrada de carpeta: {err}"))?;
+            let entry =
+                entry.map_err(|err| format!("No se pudo leer entrada de carpeta: {err}"))?;
             let child_from = entry.path();
             let child_to = to.join(entry.file_name());
             copy_path_recursive(&child_from, &child_to)?;
