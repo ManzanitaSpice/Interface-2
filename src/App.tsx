@@ -102,6 +102,7 @@ type InstanceMetadataView = {
   javaVersion: string
   createdAt?: string
   lastUsed?: string
+  state?: string
 }
 
 type LaunchValidationResult = {
@@ -2328,6 +2329,7 @@ function App() {
                       <div className="instance-card-meta">
                         <small>Version: {cardVersion}</small>
                         <small>Loader: {cardLoader}</small>
+                        {metadata?.state?.toUpperCase() === 'REDIRECT' && <small>Target: Re Direccion</small>}
                       </div>
                       <div className="instance-card-hover-info">
                         {(() => {

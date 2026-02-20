@@ -15,7 +15,7 @@ use std::{
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::Serialize;
 use serde_json::Value;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use zip::ZipArchive;
 
 use crate::domain::auth::{
@@ -78,6 +78,13 @@ pub struct RuntimeStatus {
     pub pid: Option<u32>,
     pub exit_code: Option<i32>,
     pub stderr_tail: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ShortcutRedirect {
+    source_path: String,
+    source_launcher: String,
 }
 
 #[derive(Debug, Clone)]
@@ -173,6 +180,135 @@ pub fn open_instance_folder(path: String) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn copy_dir_recursive(source: &Path, destination: &Path) -> Result<(), String> {
+    if !source.exists() {
+        return Err(format!("La carpeta origen no existe: {}", source.display()));
+    }
+
+    fs::create_dir_all(destination).map_err(|err| {
+        format!(
+            "No se pudo crear carpeta destino {}: {err}",
+            destination.display()
+        )
+    })?;
+
+    let entries = fs::read_dir(source)
+        .map_err(|err| format!("No se pudo leer carpeta origen {}: {err}", source.display()))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|err| format!("No se pudo iterar carpeta origen: {err}"))?;
+        let path = entry.path();
+        let target = destination.join(entry.file_name());
+
+        if path.is_dir() {
+            copy_dir_recursive(&path, &target)?;
+        } else {
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent).map_err(|err| {
+                    format!("No se pudo crear carpeta {}: {err}", parent.display())
+                })?;
+            }
+            fs::copy(&path, &target).map_err(|err| {
+                format!(
+                    "No se pudo copiar archivo {} -> {}: {err}",
+                    path.display(),
+                    target.display()
+                )
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
+fn prepare_runtime_instance_root(app: &AppHandle, instance_root: &str) -> Result<String, String> {
+    let metadata = get_instance_metadata(instance_root.to_string())?;
+    if !metadata.state.eq_ignore_ascii_case("redirect") {
+        return Ok(instance_root.to_string());
+    }
+
+    let redirect_path = Path::new(instance_root).join(".redirect.json");
+    let raw = fs::read_to_string(&redirect_path).map_err(|err| {
+        format!(
+            "No se pudo leer redirección de atajo en {}: {err}",
+            redirect_path.display()
+        )
+    })?;
+    let redirect: ShortcutRedirect = serde_json::from_str(&raw).map_err(|err| {
+        format!(
+            "No se pudo parsear redirección de atajo en {}: {err}",
+            redirect_path.display()
+        )
+    })?;
+
+    let cache_root = app
+        .path()
+        .app_cache_dir()
+        .map_err(|err| format!("No se pudo resolver cache dir para atajo: {err}"))?
+        .join("import-runtime-cache")
+        .join(uuid::Uuid::new_v4().to_string());
+
+    fs::create_dir_all(&cache_root)
+        .map_err(|err| format!("No se pudo crear cache temporal de atajo: {err}"))?;
+    copy_dir_recursive(Path::new(&redirect.source_path), &cache_root)?;
+
+    let source_mc = cache_root.join(".minecraft");
+    let target_mc = cache_root.join("minecraft");
+    if !target_mc.exists() && source_mc.exists() {
+        fs::rename(&source_mc, &target_mc).map_err(|err| {
+            format!(
+                "No se pudo normalizar carpeta .minecraft -> minecraft en cache temporal: {err}"
+            )
+        })?;
+    }
+
+    if !target_mc.exists() {
+        return Err(
+            "El atajo no contiene carpeta minecraft/.minecraft válida para ejecución temporal."
+                .to_string(),
+        );
+    }
+
+    let runtime_metadata = InstanceMetadata {
+        name: metadata.name,
+        group: metadata.group,
+        minecraft_version: metadata.minecraft_version,
+        version_id: metadata.version_id,
+        loader: metadata.loader,
+        loader_version: metadata.loader_version,
+        ram_mb: metadata.ram_mb,
+        java_args: metadata.java_args,
+        java_path: metadata.java_path,
+        java_runtime: metadata.java_runtime,
+        java_version: metadata.java_version,
+        required_java_major: metadata.required_java_major,
+        created_at: metadata.created_at,
+        state: "REDIRECT_RUNTIME_CACHE".to_string(),
+        last_used: metadata.last_used,
+        internal_uuid: metadata.internal_uuid,
+    };
+    let runtime_metadata_path = cache_root.join(".instance.json");
+    let runtime_metadata_raw = serde_json::to_string_pretty(&runtime_metadata)
+        .map_err(|err| format!("No se pudo serializar metadata runtime de atajo: {err}"))?;
+    fs::write(&runtime_metadata_path, runtime_metadata_raw)
+        .map_err(|err| format!("No se pudo guardar metadata runtime de atajo: {err}"))?;
+
+    let _ = app.emit(
+        "instance_runtime_output",
+        RuntimeOutputEvent {
+            instance_root: instance_root.to_string(),
+            stream: "system".to_string(),
+            line: format!(
+                "Atajo de {}: runtime temporal preparado en {}",
+                redirect.source_launcher,
+                cache_root.display()
+            ),
+        },
+    );
+
+    Ok(cache_root.display().to_string())
 }
 
 #[tauri::command]
@@ -986,7 +1122,17 @@ pub async fn start_instance(
         );
     }
 
-    let instance_root_for_prepare = instance_root.clone();
+    let runtime_instance_root = match prepare_runtime_instance_root(&app, &instance_root) {
+        Ok(value) => value,
+        Err(err) => {
+            if let Ok(mut registry) = runtime_registry().lock() {
+                registry.remove(&instance_root);
+            }
+            return Err(err);
+        }
+    };
+
+    let instance_root_for_prepare = runtime_instance_root.clone();
     let prepared = match tauri::async_runtime::spawn_blocking(move || {
         validate_and_prepare_launch(instance_root_for_prepare, auth_session)
     })
@@ -1010,7 +1156,7 @@ pub async fn start_instance(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::null())
-        .current_dir(Path::new(&instance_root).join("minecraft"));
+        .current_dir(Path::new(&runtime_instance_root).join("minecraft"));
 
     let mut child = match command
         .spawn()

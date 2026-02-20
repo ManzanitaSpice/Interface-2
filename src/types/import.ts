@@ -31,7 +31,7 @@ export type ImportRequest = {
   copyLogs: boolean
 }
 
-export type ImportAction = 'ejecutar' | 'clonar' | 'migrar'
+export type ImportAction = 'crear_atajo' | 'clonar' | 'migrar'
 
 export type ImportExecutionProgress = {
   instanceId: string
@@ -52,5 +52,6 @@ export type ImportActionRequest = {
   minecraftVersion: string
   loader: string
   loaderVersion: string
+  sourceLauncher: string
   action: ImportAction | 'abrir_carpeta'
 }

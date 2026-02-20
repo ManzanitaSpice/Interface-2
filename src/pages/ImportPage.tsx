@@ -52,6 +52,7 @@ export function ImportPage({ onInstancesChanged }: Props) {
       minecraftVersion: item.minecraftVersion,
       loader: item.loader,
       loaderVersion: item.loaderVersion,
+      sourceLauncher: item.sourceLauncher,
       action,
     }))
 
@@ -80,6 +81,7 @@ export function ImportPage({ onInstancesChanged }: Props) {
         minecraftVersion: first.minecraftVersion,
         loader: first.loader,
         loaderVersion: first.loaderVersion,
+        sourceLauncher: first.sourceLauncher,
         action: 'abrir_carpeta',
       },
     })
@@ -129,7 +131,7 @@ export function ImportPage({ onInstancesChanged }: Props) {
               onImport={() => void runImport(buildImportRequests())}
               onClone={() => void executeAction('clonar')}
               onMigrate={() => void executeAction('migrar')}
-              onRun={() => void executeAction('ejecutar')}
+              onCreateShortcut={() => void executeAction('crear_atajo')}
               onOpenFolder={() => void openSelectedFolder()}
               onClear={() => setSelected([])}
             />
