@@ -164,9 +164,11 @@ const SCAN_SKIP_DIR_NAMES: &[&str] = &[
     "System Volume Information",
 ];
 
-const MAX_DISCOVERY_VISITED_DIRS: usize = 1_200;
-const MAX_ROOT_CHILDREN_TO_SCAN: usize = 600;
+const MAX_DISCOVERY_VISITED_DIRS: usize = 320;
+const MAX_ROOT_CHILDREN_TO_SCAN: usize = 180;
 const SCAN_PROGRESS_EMIT_INTERVAL: usize = 25;
+const DISCOVERY_SCAN_DEPTH: usize = 1;
+const DISCOVERY_MAX_CANDIDATES_PER_ROOT: usize = 12;
 
 fn known_paths() -> Vec<(String, PathBuf)> {
     let mut out = Vec::new();
@@ -377,7 +379,11 @@ fn known_and_discovered_paths() -> Vec<(String, PathBuf)> {
             continue;
         }
 
-        for discovered in discover_keyword_scan_paths(&base, 2, 24) {
+        for discovered in discover_keyword_scan_paths(
+            &base,
+            DISCOVERY_SCAN_DEPTH,
+            DISCOVERY_MAX_CANDIDATES_PER_ROOT,
+        ) {
             let canonical = fs::canonicalize(&discovered).unwrap_or(discovered.clone());
             if seen.insert(canonical) {
                 out.push((detect_launcher_from_path(&discovered), discovered));
@@ -470,7 +476,11 @@ fn detect_loader_from_versions_dir(path: &Path) -> Option<(String, String)> {
     None
 }
 
-fn resolve_shortcut_version_id(minecraft_version: &str, loader: &str, loader_version: &str) -> String {
+fn resolve_shortcut_version_id(
+    minecraft_version: &str,
+    loader: &str,
+    loader_version: &str,
+) -> String {
     let mc = minecraft_version.trim();
     let loader = loader.trim().to_ascii_lowercase();
     let loader_version = loader_version.trim();
@@ -494,6 +504,68 @@ fn resolve_shortcut_version_id(minecraft_version: &str, loader: &str, loader_ver
         }
         _ => mc.to_string(),
     }
+}
+
+fn resolve_effective_version_id(
+    source_root: &Path,
+    minecraft_version: &str,
+    loader: &str,
+    loader_version: &str,
+) -> String {
+    let expected = resolve_shortcut_version_id(minecraft_version, loader, loader_version);
+    let expected_lower = expected.to_ascii_lowercase();
+    let mc_lower = minecraft_version.trim().to_ascii_lowercase();
+    let loader_lower = loader.trim().to_ascii_lowercase();
+
+    let version_roots = [
+        source_root.join("versions"),
+        source_root.join(".minecraft/versions"),
+    ];
+
+    let mut fallback_mc_match: Option<String> = None;
+
+    for versions_dir in version_roots {
+        if !versions_dir.is_dir() {
+            continue;
+        }
+        let Ok(entries) = fs::read_dir(&versions_dir) else {
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            let version_id = entry.file_name().to_string_lossy().to_string();
+            let version_lower = version_id.to_ascii_lowercase();
+            if version_lower == expected_lower {
+                return version_id;
+            }
+
+            if !mc_lower.is_empty() && !version_lower.contains(&mc_lower) {
+                continue;
+            }
+
+            if loader_lower == "vanilla" || loader_lower == "desconocido" || loader_lower.is_empty()
+            {
+                if !version_lower.contains("forge")
+                    && !version_lower.contains("fabric")
+                    && !version_lower.contains("quilt")
+                    && !version_lower.contains("neoforge")
+                {
+                    return version_id;
+                }
+                continue;
+            }
+
+            if version_lower.contains(&loader_lower) {
+                return version_id;
+            }
+
+            if fallback_mc_match.is_none() {
+                fallback_mc_match = Some(version_id);
+            }
+        }
+    }
+
+    fallback_mc_match.unwrap_or(expected)
 }
 
 fn detect_from_manifest(path: &Path) -> DetectionMeta {
@@ -1113,12 +1185,19 @@ pub fn execute_import(app: AppHandle, requests: Vec<ImportRequest>) -> Result<()
             let mut copied_files = 0usize;
             copy_recursive_limited(&source_root, &instance_root, &mut copied_files, None)?;
 
+            let effective_version_id = resolve_effective_version_id(
+                &source_root,
+                &req.minecraft_version,
+                &req.loader,
+                &req.loader_version,
+            );
+
             let internal_uuid = uuid::Uuid::new_v4().to_string();
             let metadata = InstanceMetadata {
                 name: req.target_name.clone(),
                 group: req.target_group.clone(),
                 minecraft_version: req.minecraft_version.clone(),
-                version_id: req.minecraft_version.clone(),
+                version_id: effective_version_id,
                 loader: req.loader.clone(),
                 loader_version: req.loader_version.clone(),
                 ram_mb: req.ram_mb,
@@ -1188,10 +1267,16 @@ pub fn execute_import_action(
     if action == "eliminar_instancia" {
         let source_path = PathBuf::from(&request.source_path);
         if !source_path.exists() {
-            return Err(format!("La instancia ya no existe en {}", source_path.display()));
+            return Err(format!(
+                "La instancia ya no existe en {}",
+                source_path.display()
+            ));
         }
         if !source_path.is_dir() {
-            return Err(format!("La ruta no es una carpeta válida: {}", source_path.display()));
+            return Err(format!(
+                "La ruta no es una carpeta válida: {}",
+                source_path.display()
+            ));
         }
         fs::remove_dir_all(&source_path)
             .map_err(|err| format!("No se pudo eliminar la instancia origen: {err}"))?;
@@ -1240,8 +1325,13 @@ pub fn execute_import_action(
         fs::create_dir_all(&instance_root)
             .map_err(|err| format!("No se pudo crear carpeta del atajo: {err}"))?;
 
-        let effective_version_id =
-            resolve_shortcut_version_id(&request.minecraft_version, &request.loader, &request.loader_version);
+        let source_root = PathBuf::from(&request.source_path);
+        let effective_version_id = resolve_effective_version_id(
+            &source_root,
+            &request.minecraft_version,
+            &request.loader,
+            &request.loader_version,
+        );
 
         let metadata = InstanceMetadata {
             name: request.target_name.clone(),

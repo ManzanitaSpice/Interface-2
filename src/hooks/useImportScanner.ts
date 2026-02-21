@@ -37,6 +37,11 @@ export function useImportScanner() {
   const [keepDetected, setKeepDetected] = useState(true)
   const lastProgressLogAtRef = useRef(0)
   const hydratedRef = useRef(false)
+  const instancesRef = useRef<DetectedInstance[]>([])
+
+  useEffect(() => {
+    instancesRef.current = instances
+  }, [instances])
 
   useEffect(() => {
     try {
@@ -108,7 +113,8 @@ export function useImportScanner() {
     setIsScanning(true)
     try {
       const found = await invoke<DetectedInstance[]>('detect_external_instances')
-      const uniqueFound = dedupeInstances(keepDetected ? [...instances, ...found] : found)
+      const base = keepDetected ? instancesRef.current : []
+      const uniqueFound = dedupeInstances([...base, ...found])
       setInstances(uniqueFound)
       setStatus(`Se encontraron ${uniqueFound.length} instancias`)
       setProgressPercent(100)
