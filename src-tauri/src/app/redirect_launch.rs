@@ -1751,6 +1751,120 @@ fn maven_library_path(name: &str) -> Option<PathBuf> {
     Some(path)
 }
 
+fn is_allowed_maven_url(url: &str) -> bool {
+    if url.is_empty() || !url.starts_with("https://") {
+        return false;
+    }
+
+    let allowed_domains = [
+        "libraries.minecraft.net",
+        "resources.download.minecraft.net",
+        "launchermeta.mojang.com",
+        "launcher.mojang.com",
+        "piston-data.mojang.com",
+        "piston-meta.mojang.com",
+        "maven.minecraftforge.net",
+        "maven.neoforged.net",
+        "maven.quiltmc.org",
+        "maven.fabricmc.net",
+        "meta.fabricmc.net",
+        "meta.quiltmc.org",
+        "repo.maven.apache.org",
+        "repo1.maven.org",
+        "jitpack.io",
+    ];
+
+    allowed_domains
+        .iter()
+        .any(|domain| url.contains(&format!("://{domain}")))
+}
+
+fn is_forge_installer_generated(name: &str, relative_path: &str) -> bool {
+    let name_lower = name.to_ascii_lowercase();
+    let path_lower = relative_path.to_ascii_lowercase();
+    let generated_patterns = [
+        "client-srg",
+        "client-extra",
+        "forge-client",
+        "forge-universal",
+        "neoforge-client",
+        "neoforge-universal",
+        "-mappings",
+        "-slim",
+        "-stripped",
+    ];
+
+    generated_patterns
+        .iter()
+        .any(|pattern| name_lower.contains(pattern) || path_lower.contains(pattern))
+}
+
+fn find_forge_generated_jars(
+    relative_path: &str,
+    source_path: &Path,
+    source_launcher: &str,
+) -> Option<PathBuf> {
+    let normalized = relative_path.replace('/', std::path::MAIN_SEPARATOR_STR);
+
+    let mut search_roots: Vec<PathBuf> = vec![
+        source_path.join("libraries"),
+        source_path.join(".minecraft").join("libraries"),
+        source_path.join("minecraft").join("libraries"),
+    ];
+
+    if let Some(system_root) = system_minecraft_root() {
+        search_roots.push(system_root.join("libraries"));
+    }
+
+    search_roots.extend(
+        launcher_roots_for_source(source_launcher)
+            .into_iter()
+            .map(|root| root.join("libraries")),
+    );
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let appdata = PathBuf::from(appdata);
+            search_roots.push(appdata.join("ATLauncher").join("libraries"));
+            search_roots.push(appdata.join("gdlauncher_next").join("libraries"));
+            search_roots.push(appdata.join(".technic").join("libraries"));
+        }
+
+        if let Ok(user_profile) = std::env::var("USERPROFILE") {
+            let home = PathBuf::from(user_profile);
+            search_roots.push(
+                home.join("curseforge")
+                    .join("minecraft")
+                    .join("Install")
+                    .join("libraries"),
+            );
+        }
+    }
+
+    for root in unique_paths(search_roots) {
+        let candidate = root.join(&normalized);
+        if candidate.is_file() {
+            log::info!(
+                "[REDIRECT] JAR del instalador encontrado en {}: {}",
+                root.display(),
+                candidate.display()
+            );
+            return Some(candidate);
+        }
+    }
+
+    log::warn!(
+        "[REDIRECT] JAR generado por instalador NO encontrado: {}. \
+         Este JAR es creado por el instalador de Forge/NeoForge y no se puede descargar. \
+         Verifica la instalación en {}.",
+        relative_path,
+        source_launcher
+    );
+
+    None
+}
+
 pub fn build_classpath_multi(
     merged_version_json: &serde_json::Value,
     libraries_dirs: &[PathBuf],
@@ -1990,6 +2104,13 @@ async fn find_or_download_artifact(
     let download_url = url.ok_or_else(|| {
         format!("Library no encontrada y sin URL para descargar: {relative_path}")
     })?;
+    if !is_allowed_maven_url(download_url) {
+        return Err(format!(
+            "URL de descarga no permitida para library {}: '{}'",
+            relative_path, download_url
+        ));
+    }
+
     let dest = cache_dir.join("libraries").join(&normalized);
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent)
@@ -2000,7 +2121,7 @@ async fn find_or_download_artifact(
     log::info!("[REDIRECT] Descargando native desde: {download_url}");
     log::info!("[REDIRECT] Destino descarga: {}", dest.display());
     let client = build_async_official_client()?;
-    let _ = download_async_with_retry(
+    let _ = download_async_with_retry_unchecked(
         &client,
         download_url,
         &dest,
@@ -2391,7 +2512,26 @@ async fn download_async_with_retry(
     force: bool,
 ) -> Result<bool, String> {
     ensure_official_binary_url(url)?;
+    download_async_with_retry_internal(client, url, target_path, expected_sha1, force).await
+}
 
+async fn download_async_with_retry_unchecked(
+    client: &reqwest::Client,
+    url: &str,
+    target_path: &Path,
+    expected_sha1: &str,
+    force: bool,
+) -> Result<bool, String> {
+    download_async_with_retry_internal(client, url, target_path, expected_sha1, force).await
+}
+
+async fn download_async_with_retry_internal(
+    client: &reqwest::Client,
+    url: &str,
+    target_path: &Path,
+    expected_sha1: &str,
+    force: bool,
+) -> Result<bool, String> {
     if target_path.exists() && !force {
         if expected_sha1.is_empty() {
             return Ok(false);
@@ -3035,6 +3175,7 @@ async fn download_redirect_runtime(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
+    let mut missing_generated = Vec::new();
 
     for lib in libraries_to_sync {
         if let Some(rules) = lib.get("rules").and_then(Value::as_array) {
@@ -3043,92 +3184,167 @@ async fn download_redirect_runtime(
             }
         }
 
-        if let Some(artifact) = lib.get("downloads").and_then(|d| d.get("artifact")) {
-            let rel = artifact
-                .get("path")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            if rel.is_empty() {
+        let (rel_path, download_url, sha1_expected) =
+            if let Some(artifact) = lib.get("downloads").and_then(|d| d.get("artifact")) {
+                let rel = artifact
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let url = artifact
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let sha1 = artifact
+                    .get("sha1")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                (rel, url, sha1)
+            } else if let Some(name) = lib.get("name").and_then(Value::as_str) {
+                let rel = maven_library_path(name)
+                    .map(|p| p.to_string_lossy().replace('\\', "/"))
+                    .unwrap_or_default();
+                let base = lib
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .unwrap_or("https://libraries.minecraft.net/");
+                let url = if rel.is_empty() {
+                    String::new()
+                } else {
+                    format!("{}/{}", base.trim_end_matches('/'), rel)
+                };
+                (rel, url, String::new())
+            } else {
                 continue;
-            }
+            };
 
-            let target = libs_dir.join(rel);
-            if target.exists() {
-                continue;
-            }
-
-            if let Some(system_root) = &system_libs {
-                let global_file = system_root.join(rel);
-                if global_file.exists() {
-                    let _ = link_or_copy(&global_file, &target);
-                    if target.exists() {
-                        continue;
-                    }
-                }
-            }
-
-            let sha1 = artifact
-                .get("sha1")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            let url = artifact
-                .get("url")
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned)
-                .unwrap_or_else(|| format!("https://libraries.minecraft.net/{rel}"));
-            download_async_with_retry(&client, &url, &target, sha1, false).await?;
+        if rel_path.is_empty() {
             continue;
         }
 
-        let Some(name) = lib.get("name").and_then(Value::as_str) else {
-            continue;
-        };
-        let Some(relative_path) = maven_library_path(name) else {
-            continue;
-        };
-        let rel_str = relative_path.to_string_lossy().replace('\\', "/");
-        let target = libs_dir.join(&relative_path);
-        if target.exists() {
+        let rel_normalized = rel_path.replace('/', std::path::MAIN_SEPARATOR_STR);
+        let lib_name = lib
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or(rel_path.as_str());
+        let target = libs_dir.join(&rel_normalized);
+
+        if target.is_file() {
             continue;
         }
 
-        if let Some(system_root) = &system_libs {
-            let global_file = system_root.join(&relative_path);
-            if global_file.exists() {
-                let _ = link_or_copy(&global_file, &target);
-                if target.exists() {
+        let found_locally = system_libs
+            .as_ref()
+            .map(|root| root.join(&rel_normalized))
+            .into_iter()
+            .chain(
+                launcher_roots_for_source(source_launcher)
+                    .into_iter()
+                    .map(|root| root.join("libraries").join(&rel_normalized)),
+            )
+            .chain(std::iter::once(
+                source_path.join("libraries").join(&rel_normalized),
+            ))
+            .find(|path| path.is_file());
+
+        if let Some(local_path) = found_locally {
+            let _ = link_or_copy(&local_path, &target);
+            if target.is_file() {
+                continue;
+            }
+        }
+
+        if is_forge_installer_generated(lib_name, &rel_path) {
+            if let Some(found) = find_forge_generated_jars(&rel_path, source_path, source_launcher)
+            {
+                let _ = link_or_copy(&found, &target);
+                if target.is_file() {
                     continue;
                 }
             }
-        }
 
-        for launcher_root in launcher_roots_for_source(source_launcher) {
-            let local = launcher_root.join("libraries").join(&relative_path);
-            if local.exists() {
-                let _ = link_or_copy(&local, &target);
-                if target.exists() {
-                    break;
-                }
-            }
-        }
-        if target.exists() {
+            missing_generated.push(format!("{}\n  → Ruta: {}", lib_name, rel_path));
+            log::error!(
+                "[REDIRECT] JAR crítico de Forge/NeoForge no encontrado: {} ({})",
+                lib_name,
+                rel_path
+            );
             continue;
         }
 
-        let base_url = lib
-            .get("url")
-            .and_then(Value::as_str)
-            .unwrap_or("https://libraries.minecraft.net/");
-        let url = format!("{}/{}", base_url.trim_end_matches('/'), rel_str);
-        let sha1 = lib
-            .get("downloads")
-            .and_then(|d| d.get("artifact"))
-            .and_then(|a| a.get("sha1"))
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        if let Err(err) = download_async_with_retry(&client, &url, &target, sha1, false).await {
-            log::warn!("[REDIRECT] No se pudo descargar library {name}: {err}");
+        if download_url.is_empty() {
+            log::warn!("[REDIRECT] Library sin URL y no generada: {}", lib_name);
+            continue;
         }
+
+        if !(download_url.starts_with("https://") || download_url.starts_with("http://")) {
+            log::warn!(
+                "[REDIRECT] URL inválida para library {}: '{}'",
+                lib_name,
+                download_url
+            );
+            continue;
+        }
+
+        let known_maven_repos = [
+            "https://libraries.minecraft.net/",
+            "https://maven.minecraftforge.net/",
+            "https://maven.neoforged.net/",
+            "https://maven.quiltmc.org/",
+            "https://maven.fabricmc.net/",
+            "https://repo.maven.apache.org/",
+            "https://jcenter.bintray.com/",
+            "https://plugins.gradle.org/m2/",
+        ];
+
+        if !known_maven_repos
+            .iter()
+            .any(|repo| download_url.starts_with(repo))
+        {
+            log::warn!(
+                "[REDIRECT] Repositorio no listado para library {}: {}",
+                lib_name,
+                download_url
+            );
+        }
+
+        if let Some(parent) = target.parent() {
+            let _ = tokio::fs::create_dir_all(parent).await;
+        }
+
+        if let Err(err) = download_async_with_retry_unchecked(
+            &client,
+            &download_url,
+            &target,
+            &sha1_expected,
+            false,
+        )
+        .await
+        {
+            log::warn!(
+                "[REDIRECT] No se pudo descargar library {}: {}",
+                lib_name,
+                err
+            );
+        }
+    }
+
+    if !missing_generated.is_empty() {
+        return Err(format!(
+            "Faltan {} archivos generados por el instalador de Forge/NeoForge que no se pueden descargar:
+{}
+
+SOLUCIÓN:
+1. Abre {} y verifica que Forge/NeoForge esté completamente instalado.
+2. Lanza la instancia al menos una vez desde {} para que se generen estos archivos.
+3. Vuelve a intentar crear el atajo desde este launcher.",
+            missing_generated.len(),
+            missing_generated.join("\n"),
+            source_launcher,
+            source_launcher
+        ));
     }
 
     emit_redirect_cache_status(
