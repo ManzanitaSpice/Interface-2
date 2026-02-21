@@ -1,4 +1,4 @@
-use std::{fs, path::Path};
+use std::{fs::File, io::Read, path::Path};
 
 use sha1::{Digest as Sha1Digest, Sha1};
 use sha2::Sha256;
@@ -29,11 +29,44 @@ pub fn sha1_hex(bytes: &[u8]) -> String {
 }
 
 pub fn compute_file_sha1(path: &Path) -> AppResult<String> {
-    let bytes = fs::read(path).map_err(|err| {
+    let mut file = File::open(path).map_err(|err| {
         format!(
-            "No se pudo leer archivo para SHA1 {}: {err}",
+            "No se pudo abrir archivo para SHA1 {}: {err}",
             path.display()
         )
     })?;
-    Ok(sha1_hex(&bytes))
+
+    let mut hasher = Sha1::new();
+    let mut buffer = vec![0u8; 65_536];
+    loop {
+        let bytes_read = file.read(&mut buffer).map_err(|err| {
+            format!(
+                "No se pudo leer archivo para SHA1 {}: {err}",
+                path.display()
+            )
+        })?;
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+    }
+
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+pub async fn verify_sha1_async(path: &Path, expected: &str) -> AppResult<bool> {
+    let path_buf = path.to_path_buf();
+    let expected = expected.to_string();
+
+    tokio::task::spawn_blocking(move || {
+        let actual = compute_file_sha1(&path_buf)?;
+        Ok(actual.eq_ignore_ascii_case(&expected))
+    })
+    .await
+    .map_err(|err| {
+        format!(
+            "Error en verificación SHA1 async para {}: {err}",
+            path.display()
+        )
+    })?
 }

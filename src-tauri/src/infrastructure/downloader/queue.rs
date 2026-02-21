@@ -1,6 +1,7 @@
 use std::{
     collections::VecDeque,
     fs,
+    io::{Read, Write},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     thread,
@@ -42,8 +43,8 @@ pub fn official_timeout() -> Duration {
     let configured = std::env::var("MINECRAFT_DOWNLOAD_TIMEOUT_SECS")
         .ok()
         .and_then(|raw| raw.parse::<u64>().ok())
-        .unwrap_or(25);
-    Duration::from_secs(configured.max(5))
+        .unwrap_or(300);
+    Duration::from_secs(configured.max(30))
 }
 
 pub fn official_retries() -> usize {
@@ -57,7 +58,8 @@ pub fn official_retries() -> usize {
 pub fn build_official_client() -> AppResult<Client> {
     Client::builder()
         .timeout(official_timeout())
-        .connect_timeout(official_timeout())
+        .connect_timeout(Duration::from_secs(30))
+        .tcp_keepalive(Duration::from_secs(60))
         .user_agent("InterfaceLauncher/0.1")
         .build()
         .map_err(|err| format!("No se pudo construir cliente HTTP oficial de Minecraft: {err}"))
@@ -109,13 +111,18 @@ pub fn download_with_retry(
     }
 
     let mut last_error = String::new();
-    for attempt in 1..=official_retries() {
+    let max_attempts = official_retries();
+    for attempt in 1..=max_attempts {
         match perform_download(client, url, target_path, expected_sha1) {
             Ok(()) => return Ok(true),
             Err(err) => {
                 last_error = err;
-                if attempt < official_retries() {
-                    thread::sleep(Duration::from_millis((attempt as u64) * 350));
+                let temp = temp_path_for(target_path);
+                let _ = fs::remove_file(temp);
+
+                if attempt < max_attempts {
+                    let wait_secs = 2u64.pow(attempt as u32);
+                    thread::sleep(Duration::from_secs(wait_secs));
                 }
             }
         }
@@ -123,9 +130,12 @@ pub fn download_with_retry(
 
     Err(format!(
         "Fallo al descargar recurso oficial tras {} intentos: {}",
-        official_retries(),
-        last_error
+        max_attempts, last_error
     ))
+}
+
+fn temp_path_for(target_path: &Path) -> PathBuf {
+    target_path.with_extension("tmp")
 }
 
 fn perform_download(
@@ -143,28 +153,61 @@ fn perform_download(
         return Err(format!("HTTP {} al descargar {}", status.as_u16(), url));
     }
 
-    let bytes = response
-        .bytes()
-        .map_err(|err| format!("No se pudo leer respuesta HTTP de {url}: {err}"))?;
+    let temp_path = temp_path_for(target_path);
+    let mut response = response;
+    let mut temp_file = fs::File::create(&temp_path).map_err(|err| {
+        format!(
+            "No se pudo crear archivo temporal {}: {err}",
+            temp_path.display()
+        )
+    })?;
 
-    let downloaded_sha1 = {
-        use sha1::{Digest, Sha1};
-        let mut hasher = Sha1::new();
-        hasher.update(bytes.as_ref());
+    use sha1::Digest;
+    let mut hasher = sha1::Sha1::new();
+    let mut buffer = vec![0u8; 65_536];
+    loop {
+        let bytes_read = response
+            .read(&mut buffer)
+            .map_err(|err| format!("No se pudo leer respuesta HTTP de {url}: {err}"))?;
+        if bytes_read == 0 {
+            break;
+        }
+        temp_file.write_all(&buffer[..bytes_read]).map_err(|err| {
+            format!(
+                "No se pudo escribir archivo temporal {}: {err}",
+                temp_path.display()
+            )
+        })?;
+        if !expected_sha1.is_empty() {
+            hasher.update(&buffer[..bytes_read]);
+        }
+    }
+
+    temp_file.flush().map_err(|err| {
+        format!(
+            "No se pudo hacer flush del archivo temporal {}: {err}",
+            temp_path.display()
+        )
+    })?;
+
+    let downloaded_sha1 = if expected_sha1.is_empty() {
+        String::new()
+    } else {
         format!("{:x}", hasher.finalize())
     };
 
     if !expected_sha1.is_empty() && !downloaded_sha1.eq_ignore_ascii_case(expected_sha1) {
-        let _ = fs::remove_file(target_path);
+        let _ = fs::remove_file(&temp_path);
         return Err(format!(
             "SHA1 inválido para {}. Esperado {}, obtenido {}",
             url, expected_sha1, downloaded_sha1
         ));
     }
 
-    fs::write(target_path, &bytes).map_err(|err| {
+    fs::rename(&temp_path, target_path).map_err(|err| {
         format!(
-            "No se pudo guardar archivo descargado {}: {err}",
+            "No se pudo mover {} a {}: {err}",
+            temp_path.display(),
             target_path.display()
         )
     })?;

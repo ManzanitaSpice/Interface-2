@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager};
 use zip::ZipArchive;
 
-use tokio::time::sleep;
+use tokio::{io::AsyncWriteExt, time::sleep};
 
 use crate::{
     app::instance_service::{get_instance_metadata, StartInstanceResult},
@@ -1456,7 +1456,8 @@ fn link_or_copy(existing: &Path, target: &Path) -> Result<(), String> {
 fn build_async_official_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(official_timeout())
-        .connect_timeout(official_timeout())
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .tcp_keepalive(std::time::Duration::from_secs(60))
         .user_agent("InterfaceLauncher/0.1")
         .build()
         .map_err(|err| format!("No se pudo construir cliente HTTP oficial de Minecraft: {err}"))
@@ -1493,8 +1494,9 @@ async fn download_async_with_retry(
         })?;
     }
 
+    let max_attempts = official_retries();
     let mut last_error = String::new();
-    for attempt in 1..=official_retries() {
+    for attempt in 1..=max_attempts {
         let result: Result<(), String> = async {
             let response = client
                 .get(url)
@@ -1505,32 +1507,65 @@ async fn download_async_with_retry(
             if !status.is_success() {
                 return Err(format!("HTTP {} al descargar {}", status.as_u16(), url));
             }
-            let bytes = response
-                .bytes()
-                .await
-                .map_err(|err| format!("No se pudo leer respuesta HTTP de {url}: {err}"))?;
 
-            let downloaded_sha1 = {
-                use sha1::{Digest, Sha1};
-                let mut hasher = Sha1::new();
-                hasher.update(bytes.as_ref());
+            let temp_path = target_path.with_extension("tmp");
+            let mut file = tokio::fs::File::create(&temp_path).await.map_err(|err| {
+                format!(
+                    "No se pudo crear archivo temporal {}: {err}",
+                    temp_path.display()
+                )
+            })?;
+
+            let mut stream = response.bytes_stream();
+            use sha1::Digest;
+            let mut hasher = sha1::Sha1::new();
+            use futures_util::StreamExt;
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk
+                    .map_err(|err| format!("No se pudo leer respuesta HTTP de {url}: {err}"))?;
+                file.write_all(&chunk).await.map_err(|err| {
+                    format!(
+                        "No se pudo escribir archivo temporal {}: {err}",
+                        temp_path.display()
+                    )
+                })?;
+
+                if !expected_sha1.is_empty() {
+                    hasher.update(&chunk);
+                }
+            }
+
+            file.flush().await.map_err(|err| {
+                format!(
+                    "No se pudo hacer flush del archivo temporal {}: {err}",
+                    temp_path.display()
+                )
+            })?;
+            drop(file);
+
+            let downloaded_sha1 = if expected_sha1.is_empty() {
+                String::new()
+            } else {
                 format!("{:x}", hasher.finalize())
             };
 
             if !expected_sha1.is_empty() && !downloaded_sha1.eq_ignore_ascii_case(expected_sha1) {
-                let _ = tokio::fs::remove_file(target_path).await;
+                let _ = tokio::fs::remove_file(&temp_path).await;
                 return Err(format!(
                     "SHA1 inválido para {}. Esperado {}, obtenido {}",
                     url, expected_sha1, downloaded_sha1
                 ));
             }
 
-            tokio::fs::write(target_path, &bytes).await.map_err(|err| {
-                format!(
-                    "No se pudo guardar archivo descargado {}: {err}",
-                    target_path.display()
-                )
-            })?;
+            tokio::fs::rename(&temp_path, target_path)
+                .await
+                .map_err(|err| {
+                    format!(
+                        "No se pudo mover {} a {}: {err}",
+                        temp_path.display(),
+                        target_path.display()
+                    )
+                })?;
 
             if !expected_sha1.is_empty() {
                 let disk_sha1 =
@@ -1554,8 +1589,14 @@ async fn download_async_with_retry(
             Ok(()) => return Ok(true),
             Err(err) => {
                 last_error = err;
-                if attempt < official_retries() {
-                    sleep(std::time::Duration::from_millis((attempt as u64) * 350)).await;
+                let temp_path = target_path.with_extension("tmp");
+                if tokio::fs::metadata(&temp_path).await.is_ok() {
+                    let _ = tokio::fs::remove_file(&temp_path).await;
+                }
+
+                if attempt < max_attempts {
+                    let wait_secs = 2u64.pow(attempt as u32);
+                    sleep(std::time::Duration::from_secs(wait_secs)).await;
                 }
             }
         }
@@ -1563,8 +1604,7 @@ async fn download_async_with_retry(
 
     Err(format!(
         "Fallo al descargar recurso oficial tras {} intentos: {}",
-        official_retries(),
-        last_error
+        max_attempts, last_error
     ))
 }
 
