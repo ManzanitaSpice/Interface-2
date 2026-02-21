@@ -527,6 +527,8 @@ fn known_launcher_roots() -> Vec<PathBuf> {
     #[cfg(target_os = "windows")]
     {
         if let Some(user_profile) = std::env::var_os("USERPROFILE").map(PathBuf::from) {
+            roots.push(user_profile.join("curseforge/minecraft/instances"));
+            roots.push(user_profile.join("curseforge/minecraft/install"));
             roots.push(user_profile.join("curseforge/minecraft/Install"));
         }
         if let Some(app_data) = std::env::var_os("APPDATA").map(PathBuf::from) {
@@ -542,6 +544,9 @@ fn known_launcher_roots() -> Vec<PathBuf> {
             roots.push(home.join("Library/Application Support/PrismLauncher"));
             roots.push(home.join("Library/Application Support/com.modrinth.theseus/.minecraft"));
             roots.push(home.join("Library/Application Support/MultiMC"));
+            roots.push(home.join("Library/Application Support/curseforge/minecraft/instances"));
+            roots.push(home.join("Library/Application Support/curseforge/minecraft/install"));
+            roots.push(home.join("Library/Application Support/curseforge/minecraft/Install"));
         }
     }
 
@@ -551,6 +556,8 @@ fn known_launcher_roots() -> Vec<PathBuf> {
             roots.push(home.join(".local/share/PrismLauncher"));
             roots.push(home.join(".local/share/ModrinthApp/.minecraft"));
             roots.push(home.join(".local/share/MultiMC"));
+            roots.push(home.join(".local/share/curseforge/minecraft/instances"));
+            roots.push(home.join(".local/share/curseforge/minecraft/install"));
             roots.push(home.join(".local/share/curseforge/minecraft/Install"));
         }
     }
@@ -948,7 +955,8 @@ fn resolve_redirect_game_dir(source_path: &Path) -> PathBuf {
         || source_path.join("options.txt").exists()
         || source_path.join("config").is_dir()
         || source_path.join("resourcepacks").is_dir()
-        || source_path.join("shaderpacks").is_dir();
+        || source_path.join("shaderpacks").is_dir()
+        || source_path.join("versions").is_dir();
 
     if has_instance_data {
         log::info!(
@@ -956,6 +964,49 @@ fn resolve_redirect_game_dir(source_path: &Path) -> PathBuf {
             source_path.display()
         );
         return source_path.to_path_buf();
+    }
+
+    if let Ok(entries) = fs::read_dir(source_path) {
+        let mut best: Option<(u8, PathBuf)> = None;
+        for entry in entries.flatten() {
+            let candidate = entry.path();
+            if !candidate.is_dir() {
+                continue;
+            }
+
+            let mut score = 0u8;
+            if candidate.join("versions").is_dir() {
+                score = score.saturating_add(5);
+            }
+            if candidate.join("mods").is_dir() {
+                score = score.saturating_add(2);
+            }
+            if candidate.join("assets").is_dir() {
+                score = score.saturating_add(2);
+            }
+            if candidate.join("options.txt").is_file() {
+                score = score.saturating_add(1);
+            }
+
+            if score == 0 {
+                continue;
+            }
+            if best
+                .as_ref()
+                .map(|(best_score, _)| score > *best_score)
+                .unwrap_or(true)
+            {
+                best = Some((score, candidate));
+            }
+        }
+
+        if let Some((_, path)) = best {
+            log::info!(
+                "[REDIRECT] game_dir: subcarpeta detectada por heurística: {}",
+                path.display()
+            );
+            return path;
+        }
     }
 
     log::warn!(

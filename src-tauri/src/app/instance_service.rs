@@ -253,6 +253,67 @@ fn copy_dir_recursive(source: &Path, destination: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn has_game_markers(path: &Path) -> bool {
+    path.join("versions").is_dir()
+        || path.join("mods").is_dir()
+        || path.join("assets").is_dir()
+        || path.join("options.txt").is_file()
+        || path.join("saves").is_dir()
+}
+
+fn detect_runtime_game_dir(root: &Path) -> Option<PathBuf> {
+    let direct_candidates = [root.join("minecraft"), root.join(".minecraft")];
+    if let Some(path) = direct_candidates
+        .into_iter()
+        .find(|candidate| candidate.is_dir())
+    {
+        return Some(path);
+    }
+
+    if has_game_markers(root) {
+        return Some(root.to_path_buf());
+    }
+
+    let mut best: Option<(u8, PathBuf)> = None;
+    let Ok(entries) = fs::read_dir(root) else {
+        return None;
+    };
+
+    for entry in entries.flatten() {
+        let candidate = entry.path();
+        if !candidate.is_dir() {
+            continue;
+        }
+
+        let mut score = 0u8;
+        if candidate.join("versions").is_dir() {
+            score = score.saturating_add(5);
+        }
+        if candidate.join("mods").is_dir() {
+            score = score.saturating_add(2);
+        }
+        if candidate.join("assets").is_dir() {
+            score = score.saturating_add(2);
+        }
+        if candidate.join("options.txt").is_file() {
+            score = score.saturating_add(1);
+        }
+        if score == 0 {
+            continue;
+        }
+
+        if best
+            .as_ref()
+            .map(|(best_score, _)| score > *best_score)
+            .unwrap_or(true)
+        {
+            best = Some((score, candidate));
+        }
+    }
+
+    best.map(|(_, path)| path)
+}
+
 fn prepare_runtime_instance_root(app: &AppHandle, instance_root: &str) -> Result<String, String> {
     let metadata = get_instance_metadata(instance_root.to_string())?;
     if !metadata.state.eq_ignore_ascii_case("redirect") {
@@ -291,21 +352,30 @@ fn prepare_runtime_instance_root(app: &AppHandle, instance_root: &str) -> Result
         copy_dir_recursive(Path::new(&redirect.source_path), &cache_root)?;
     }
 
-    let source_mc = cache_root.join(".minecraft");
     let target_mc = cache_root.join("minecraft");
-    if !target_mc.exists() && source_mc.exists() {
-        fs::rename(&source_mc, &target_mc).map_err(|err| {
-            format!(
-                "No se pudo normalizar carpeta .minecraft -> minecraft en cache temporal: {err}"
-            )
-        })?;
-    }
-
     if !target_mc.exists() {
-        return Err(
-            "El atajo no contiene carpeta minecraft/.minecraft válida para ejecución temporal."
-                .to_string(),
-        );
+        let Some(detected_game_dir) = detect_runtime_game_dir(&cache_root) else {
+            return Err(
+                "El atajo no contiene una carpeta de juego válida (minecraft/.minecraft o equivalente)."
+                    .to_string(),
+            );
+        };
+
+        if detected_game_dir != target_mc {
+            if detected_game_dir
+                .file_name()
+                .and_then(|value| value.to_str())
+                == Some(".minecraft")
+            {
+                fs::rename(&detected_game_dir, &target_mc).map_err(|err| {
+                    format!(
+                        "No se pudo normalizar carpeta .minecraft -> minecraft en cache temporal: {err}"
+                    )
+                })?;
+            } else {
+                copy_dir_recursive(&detected_game_dir, &target_mc)?;
+            }
+        }
     }
 
     let runtime_metadata = InstanceMetadata {
@@ -372,7 +442,6 @@ pub fn get_instance_metadata(instance_root: String) -> Result<InstanceMetadata, 
         )
     })
 }
-
 
 fn write_instance_metadata(instance_root: &str, metadata: &InstanceMetadata) -> Result<(), String> {
     let metadata_path = Path::new(instance_root).join(".instance.json");
