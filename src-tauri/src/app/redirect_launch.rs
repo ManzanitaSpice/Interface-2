@@ -596,68 +596,9 @@ fn resolve_official_version_json(
     ))
 }
 
-fn score_game_dir_candidate(path: &Path) -> usize {
-    [
-        ("mods", path.join("mods").is_dir(), 5usize),
-        ("config", path.join("config").is_dir(), 4usize),
-        ("shaderpacks", path.join("shaderpacks").is_dir(), 3usize),
-        ("resourcepacks", path.join("resourcepacks").is_dir(), 3usize),
-        ("saves", path.join("saves").is_dir(), 2usize),
-        ("options.txt", path.join("options.txt").is_file(), 2usize),
-        ("servers.dat", path.join("servers.dat").is_file(), 2usize),
-    ]
-    .iter()
-    .map(|(_, exists, weight)| if *exists { *weight } else { 0 })
-    .sum()
-}
-
 fn resolve_redirect_game_dir(source_path: &Path) -> PathBuf {
-    let root_score = score_game_dir_candidate(source_path);
-    if root_score > 0 {
-        log::info!(
-            "[REDIRECT] game_dir seleccionado (instancia completa): {} (score={})",
-            source_path.display(),
-            root_score
-        );
-        return source_path.to_path_buf();
-    }
-
-    let candidates = [
-        source_path.join(".minecraft"),
-        source_path.join("minecraft"),
-    ];
-    let mut best_nested: Option<(usize, PathBuf)> = None;
-
-    for candidate in candidates {
-        if !candidate.is_dir() {
-            continue;
-        }
-        let score = score_game_dir_candidate(&candidate);
-        log::info!(
-            "[REDIRECT] game_dir candidato anidado: {} (score={})",
-            candidate.display(),
-            score
-        );
-        if best_nested
-            .as_ref()
-            .map(|(best_score, _)| score > *best_score)
-            .unwrap_or(true)
-        {
-            best_nested = Some((score, candidate));
-        }
-    }
-
-    if let Some((score, path)) = best_nested {
-        log::info!(
-            "[REDIRECT] game_dir seleccionado (anidado): {} (score={})",
-            path.display(),
-            score
-        );
-        return path;
-    }
-
-    log::warn!(
-        "[REDIRECT] No se detectaron marcadores claros en game_dir, usando source_path: {}",
+    log::info!(
+        "[REDIRECT] game_dir seleccionado (carpeta detectada completa): {}",
         source_path.display()
     );
     source_path.to_path_buf()
@@ -2111,13 +2052,15 @@ fn resolve_from_cache(
     .map_err(|err| format!("No se pudo parsear {}: {err}", version_json_path.display()))?;
 
     let game_dir = resolve_redirect_game_dir(source_path);
+    let cached_assets_dir = base.join("assets");
     let assets_dir = find_assets_dir(source_path, source_launcher)
+        .filter(|assets_path| assets_path.join("indexes").is_dir())
         .or_else(|| {
             system_minecraft_root()
                 .map(|p| p.join("assets"))
-                .filter(|p| p.exists())
+                .filter(|p| p.join("indexes").is_dir())
         })
-        .unwrap_or_else(|| base.join("assets"));
+        .unwrap_or(cached_assets_dir);
 
     Ok(RedirectLaunchContext {
         version_json_path,

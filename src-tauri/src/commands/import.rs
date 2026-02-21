@@ -814,8 +814,13 @@ fn detect_dir(path: &Path, launcher: &str) -> Option<DetectedInstance> {
         .map(|date| date.to_rfc3339());
 
     let importable = meta.importable;
+    let canonical_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    canonical_path.hash(&mut hasher);
+    let detected_id = format!("detected-{:x}", hasher.finish());
+
     Some(DetectedInstance {
-        id: Uuid::new_v4().to_string(),
+        id: detected_id,
         name,
         source_launcher: launcher.to_string(),
         source_path: path.display().to_string(),
@@ -883,7 +888,6 @@ fn persist_shortcut_visual_meta(instance_root: &Path, source_path: &Path) {
 
 fn dedupe_instances(instances: Vec<DetectedInstance>) -> Vec<DetectedInstance> {
     let mut by_path = HashSet::new();
-    let mut by_signature = HashSet::new();
     let mut out = Vec::new();
 
     for instance in instances {
@@ -892,17 +896,6 @@ fn dedupe_instances(instances: Vec<DetectedInstance>) -> Vec<DetectedInstance> {
             .to_string_lossy()
             .to_string();
         if !by_path.insert(canonical_key) {
-            continue;
-        }
-
-        let signature = format!(
-            "{}::{}::{}",
-            instance.name.trim().to_ascii_lowercase(),
-            instance.minecraft_version.trim().to_ascii_lowercase(),
-            instance.loader.trim().to_ascii_lowercase()
-        );
-
-        if !by_signature.insert(signature) {
             continue;
         }
 
