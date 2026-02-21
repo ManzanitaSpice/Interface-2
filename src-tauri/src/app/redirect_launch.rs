@@ -487,43 +487,61 @@ fn resolve_official_version_json(
     ))
 }
 
+fn score_game_dir_candidate(path: &Path) -> usize {
+    [
+        ("mods", path.join("mods").is_dir(), 5usize),
+        ("config", path.join("config").is_dir(), 4usize),
+        ("shaderpacks", path.join("shaderpacks").is_dir(), 3usize),
+        ("resourcepacks", path.join("resourcepacks").is_dir(), 3usize),
+        ("saves", path.join("saves").is_dir(), 2usize),
+        ("options.txt", path.join("options.txt").is_file(), 2usize),
+        ("servers.dat", path.join("servers.dat").is_file(), 2usize),
+    ]
+    .iter()
+    .map(|(_, exists, weight)| if *exists { *weight } else { 0 })
+    .sum()
+}
+
 fn resolve_redirect_game_dir(source_path: &Path) -> PathBuf {
-    let dot_minecraft = source_path.join(".minecraft");
-    if dot_minecraft.is_dir() {
+    let candidates = [
+        source_path.join(".minecraft"),
+        source_path.join("minecraft"),
+        source_path.to_path_buf(),
+    ];
+
+    let mut best_path = source_path.to_path_buf();
+    let mut best_score = 0usize;
+
+    for candidate in candidates {
+        if !candidate.is_dir() {
+            continue;
+        }
+        let score = score_game_dir_candidate(&candidate);
         log::info!(
-            "[REDIRECT] game_dir resuelto como .minecraft: {}",
-            dot_minecraft.display()
+            "[REDIRECT] game_dir candidato: {} (score={})",
+            candidate.display(),
+            score
         );
-        return dot_minecraft;
+        if score > best_score {
+            best_score = score;
+            best_path = candidate;
+        }
     }
 
-    let minecraft = source_path.join("minecraft");
-    if minecraft.is_dir() {
-        log::info!(
-            "[REDIRECT] game_dir resuelto como minecraft/: {}",
-            minecraft.display()
-        );
-        return minecraft;
-    }
-
-    let has_minecraft_data = source_path.join("mods").is_dir()
-        || source_path.join("saves").is_dir()
-        || source_path.join("options.txt").exists()
-        || source_path.join("config").is_dir();
-
-    if has_minecraft_data {
-        log::info!(
-            "[REDIRECT] game_dir resuelto como source_path directamente: {}",
+    if best_score == 0 {
+        log::warn!(
+            "[REDIRECT] No se detectaron marcadores claros en game_dir, usando source_path: {}",
             source_path.display()
         );
         return source_path.to_path_buf();
     }
 
-    log::warn!(
-        "[REDIRECT] No se encontró estructura .minecraft clara, usando source_path como game_dir: {}",
-        source_path.display()
+    log::info!(
+        "[REDIRECT] game_dir seleccionado: {} (score={})",
+        best_path.display(),
+        best_score
     );
-    source_path.to_path_buf()
+    best_path
 }
 
 fn verify_game_dir_has_instance_data(game_dir: &Path) -> Vec<String> {

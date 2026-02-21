@@ -447,6 +447,32 @@ fn detect_loader_from_versions_dir(path: &Path) -> Option<(String, String)> {
     None
 }
 
+fn resolve_shortcut_version_id(minecraft_version: &str, loader: &str, loader_version: &str) -> String {
+    let mc = minecraft_version.trim();
+    let loader = loader.trim().to_ascii_lowercase();
+    let loader_version = loader_version.trim();
+
+    if mc.is_empty() || mc.eq_ignore_ascii_case("desconocida") {
+        return minecraft_version.to_string();
+    }
+
+    match loader.as_str() {
+        "fabric" if !loader_version.is_empty() && loader_version != "-" => {
+            format!("fabric-loader-{loader_version}-{mc}")
+        }
+        "quilt" if !loader_version.is_empty() && loader_version != "-" => {
+            format!("quilt-loader-{loader_version}-{mc}")
+        }
+        "forge" if !loader_version.is_empty() && loader_version != "-" => {
+            format!("{mc}-forge-{loader_version}")
+        }
+        "neoforge" if !loader_version.is_empty() && loader_version != "-" => {
+            format!("{mc}-neoforge-{loader_version}")
+        }
+        _ => mc.to_string(),
+    }
+}
+
 fn detect_from_manifest(path: &Path) -> DetectionMeta {
     let mut meta = DetectionMeta::default();
 
@@ -1222,11 +1248,14 @@ pub fn execute_import_action(
         fs::create_dir_all(&instance_root)
             .map_err(|err| format!("No se pudo crear carpeta del atajo: {err}"))?;
 
+        let effective_version_id =
+            resolve_shortcut_version_id(&request.minecraft_version, &request.loader, &request.loader_version);
+
         let metadata = InstanceMetadata {
             name: request.target_name.clone(),
             group: "Atajos".to_string(),
             minecraft_version: request.minecraft_version.clone(),
-            version_id: request.minecraft_version.clone(),
+            version_id: effective_version_id,
             loader: request.loader.clone(),
             loader_version: request.loader_version.clone(),
             ram_mb: 4096,
