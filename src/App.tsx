@@ -51,6 +51,12 @@ type InstanceHoverInfo = {
   modsCount: string
 }
 
+type InstanceCardStats = {
+  sizeMb: number
+  modsCount: number
+  lastUsed?: string
+}
+
 type CreatorSection =
   | 'Personalizado'
   | 'CurseForge'
@@ -657,6 +663,7 @@ function App() {
   const [instanceDrafts, setInstanceDrafts] = useState<Record<string, InstanceSummary>>({})
   const [selectedInstanceMetadata, setSelectedInstanceMetadata] = useState<InstanceMetadataView | null>(null)
   const [instanceMetaByRoot, setInstanceMetaByRoot] = useState<Record<string, InstanceMetadataView>>({})
+  const [instanceStatsByRoot, setInstanceStatsByRoot] = useState<Record<string, InstanceCardStats>>({})
   const [instanceVisualMeta, setInstanceVisualMeta] = useState<Record<string, InstanceVisualMeta>>({})
   const [selectedSettingsTab, setSelectedSettingsTab] = useState<InstanceSettingsTab>('General')
   const [selectedGlobalSettingsTab, setSelectedGlobalSettingsTab] = useState<GlobalSettingsTab>('General')
@@ -1166,6 +1173,29 @@ function App() {
       cancelled = true
     }
   }, [cards, instanceMetaByRoot])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const warmupCardStats = async () => {
+      const roots = cards.map((card) => card.instanceRoot).filter((root): root is string => Boolean(root))
+      for (const root of roots) {
+        if (cancelled || instanceStatsByRoot[root]) continue
+        try {
+          const stats = await invoke<InstanceCardStats>('get_instance_card_stats', { instanceRoot: root })
+          if (cancelled) return
+          setInstanceStatsByRoot((prev) => ({ ...prev, [root]: stats }))
+        } catch {
+          // Ignorar errores para no bloquear el render principal de tarjetas.
+        }
+      }
+    }
+
+    void warmupCardStats()
+    return () => {
+      cancelled = true
+    }
+  }, [cards, instanceStatsByRoot])
 
   useEffect(() => {
     if (!selectedCard?.instanceRoot) {
@@ -2529,12 +2559,15 @@ function App() {
                       </div>
                       <div className="instance-card-hover-info">
                         {(() => {
+                          const stats = card.instanceRoot ? instanceStatsByRoot[card.instanceRoot] : undefined
                           const hoverInfo: InstanceHoverInfo = {
-                            size: '-',
+                            size: stats?.sizeMb ? `${stats.sizeMb} MB` : '-',
                             createdAt: metadata?.createdAt ? formatIsoDate(metadata.createdAt, selectedLocale) : '-',
-                            lastUsedAt: metadata?.lastUsed ? formatIsoDate(metadata.lastUsed, selectedLocale) : '-',
+                            lastUsedAt: stats?.lastUsed
+                              ? formatIsoDate(stats.lastUsed, selectedLocale)
+                              : (metadata?.lastUsed ? formatIsoDate(metadata.lastUsed, selectedLocale) : '-'),
                             author: authSession?.profileName ?? 'INTERFACE',
-                            modsCount: '-',
+                            modsCount: String(stats?.modsCount ?? 0),
                           }
 
                           return (
