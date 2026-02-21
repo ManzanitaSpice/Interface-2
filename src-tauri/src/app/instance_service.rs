@@ -91,6 +91,14 @@ struct ShortcutRedirect {
     source_launcher: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstanceCardStats {
+    pub size_mb: u64,
+    pub mods_count: u32,
+    pub last_used: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 struct RuntimeState {
     pid: Option<u32>,
@@ -344,6 +352,80 @@ pub fn get_instance_metadata(instance_root: String) -> Result<InstanceMetadata, 
             metadata_path.display(),
             err
         )
+    })
+}
+
+fn folder_size_bytes(root: &Path) -> u64 {
+    if !root.exists() {
+        return 0;
+    }
+    let mut total = 0u64;
+    let Ok(entries) = fs::read_dir(root) else {
+        return 0;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            total = total.saturating_add(folder_size_bytes(&path));
+        } else if let Ok(meta) = path.metadata() {
+            total = total.saturating_add(meta.len());
+        }
+    }
+    total
+}
+
+fn count_mod_files(root: &Path) -> u32 {
+    let mods_paths = [
+        root.join("minecraft").join("mods"),
+        root.join(".minecraft").join("mods"),
+        root.join("mods"),
+    ];
+    let Some(mods_dir) = mods_paths.iter().find(|path| path.is_dir()) else {
+        return 0;
+    };
+
+    let Ok(entries) = fs::read_dir(mods_dir) else {
+        return 0;
+    };
+
+    entries
+        .flatten()
+        .filter_map(|entry| entry.metadata().ok())
+        .filter(|meta| meta.is_file())
+        .count() as u32
+}
+
+#[tauri::command]
+pub fn get_instance_card_stats(instance_root: String) -> Result<InstanceCardStats, String> {
+    let root_path = PathBuf::from(instance_root.clone());
+    let metadata = get_instance_metadata(instance_root)?;
+
+    let effective_root = if metadata.state.eq_ignore_ascii_case("redirect") {
+        let redirect_path = root_path.join(".redirect.json");
+        let raw = fs::read_to_string(&redirect_path).map_err(|err| {
+            format!(
+                "No se pudo leer redirección en {}: {err}",
+                redirect_path.display()
+            )
+        })?;
+        let redirect: ShortcutRedirect = serde_json::from_str(&raw).map_err(|err| {
+            format!(
+                "No se pudo parsear redirección en {}: {err}",
+                redirect_path.display()
+            )
+        })?;
+        PathBuf::from(redirect.source_path)
+    } else {
+        root_path
+    };
+
+    let size_mb = (folder_size_bytes(&effective_root) / (1024 * 1024)).max(1);
+    let mods_count = count_mod_files(&effective_root);
+
+    Ok(InstanceCardStats {
+        size_mb,
+        mods_count,
+        last_used: metadata.last_used,
     })
 }
 

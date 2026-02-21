@@ -111,6 +111,48 @@ function cleanLoaderLabel(value: string) {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1)
 }
 
+const escapeHtml = (value: string) => value
+  .replaceAll('&', '&amp;')
+  .replaceAll('<', '&lt;')
+  .replaceAll('>', '&gt;')
+  .replaceAll('"', '&quot;')
+
+function renderRichText(content: string) {
+  const normalized = content.replace(/\r\n/g, '\n').trim()
+  if (!normalized) return '<p>-</p>'
+
+  const withBasicMarkdown = escapeHtml(normalized)
+    .replace(/^###\s+(.+)$/gm, '<h3>$1</h3>')
+    .replace(/^##\s+(.+)$/gm, '<h2>$1</h2>')
+    .replace(/^#\s+(.+)$/gm, '<h1>$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/__(.+?)__/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/_(.+?)_/g, '<em>$1</em>')
+    .replace(/\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
+    .replace(/!\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g, '<img src="$2" alt="$1" loading="lazy" referrerpolicy="no-referrer" />')
+    .replace(/(^|\s)(https?:\/\/[^\s<]+)/g, '$1<a href="$2" target="_blank" rel="noreferrer">$2</a>')
+
+  return withBasicMarkdown
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => /^<h[1-3]>/.test(block) ? block : `<p>${block.replace(/\n/g, '<br/>')}</p>`)
+    .join('')
+}
+
+function normalizeDetailHtml(html: string, fallback: string) {
+  const source = html?.trim() ? html : renderRichText(fallback)
+  return source
+    .replace(/<a\s+/g, '<a target="_blank" rel="noreferrer" ')
+    .replace(/<img\s+/g, '<img loading="lazy" referrerpolicy="no-referrer" ')
+}
+
+function resolveCardImage(image: string, title: string) {
+  if (image) return <img className="instance-card-media" src={image} alt={title} loading="lazy" referrerPolicy="no-referrer" />
+  return <div className="explorer-image-fallback" aria-hidden="true">🧩</div>
+}
+
 export function ExplorerPage({ uiLanguage }: Props) {
   const t = uiText[uiLanguage]
   const [category, setCategory] = useState<Category>('all')
@@ -262,7 +304,7 @@ export function ExplorerPage({ uiLanguage }: Props) {
                 <article key={`${item.source}-${item.id}`} className="instance-card explorer-card clickable" onClick={() => { setSelectedItem(item); setSelectedDetail(null); setActiveTab('description') }}>
                   <div className="explorer-card-media-wrapper">
                     <div className="instance-card-icon hero explorer-card-media">
-                      {item.image ? <img className="instance-card-media" src={item.image} alt={item.title} loading="lazy" referrerPolicy="no-referrer" /> : null}
+                      {resolveCardImage(item.image, item.title)}
                     </div>
                   </div>
                   <div className="explorer-card-info">
@@ -304,7 +346,7 @@ export function ExplorerPage({ uiLanguage }: Props) {
             <article className="instance-card explorer-detail-hero">
               <div className="explorer-card-media-wrapper">
                 <div className="instance-card-icon hero explorer-card-media">
-                  {(selectedDetail?.image || selectedItem.image) ? <img className="instance-card-media" src={selectedDetail?.image || selectedItem.image} alt={selectedItem.title} loading="lazy" referrerPolicy="no-referrer" /> : null}
+                  {resolveCardImage(selectedDetail?.image || selectedItem.image, selectedItem.title)}
                 </div>
               </div>
               <div className="explorer-card-info">
@@ -313,7 +355,15 @@ export function ExplorerPage({ uiLanguage }: Props) {
                 <div className="explorer-top-badges">
                   <span className={`platform-badge ${selectedItem.source.toLowerCase()}`}>{selectedItem.source}</span>
                   <span className="loader-badge">{cleanLoaderLabel(selectedItem.loaders[0] ?? selectedItem.projectType)}</span>
-                  <span className="mc-chip">{t.author}: {selectedDetail?.author || selectedItem.author}</span>
+                  {selectedItem.minecraftVersions[0] ? <span className="mc-chip">MC {selectedItem.minecraftVersions[0]}</span> : null}
+                </div>
+                <div className="explorer-detail-stats">
+                  <small>{t.author}: {selectedDetail?.author || selectedItem.author}</small>
+                  <small>{t.downloads}: {compactNumber(selectedItem.downloads, uiLanguage)}</small>
+                  <small>Tamaño: {selectedItem.size || '-'}</small>
+                  <small>Loader: {selectedItem.loaders.map((entry) => cleanLoaderLabel(entry)).join(', ') || cleanLoaderLabel(selectedItem.projectType)}</small>
+                  <small>MC: {selectedItem.minecraftVersions[0] || '-'}</small>
+                  <small>Versión complemento: {selectedDetail?.versions[0]?.name || '-'}</small>
                 </div>
                 {!!selectedDetail?.url && <a className="secondary explorer-link" href={selectedDetail.url} target="_blank" rel="noreferrer">{t.openSource}</a>}
               </div>
@@ -331,10 +381,10 @@ export function ExplorerPage({ uiLanguage }: Props) {
             {!!selectedDetail && (
               <div className="explorer-detail-panel">
                 {activeTab === 'description' && (
-                  <div className="explorer-detail-html" dangerouslySetInnerHTML={{ __html: selectedDetail.bodyHtml || selectedDetail.description }} />
+                  <div className="explorer-detail-html" dangerouslySetInnerHTML={{ __html: normalizeDetailHtml(selectedDetail.bodyHtml, selectedDetail.description) }} />
                 )}
                 {activeTab === 'changelog' && (
-                  <div className="explorer-detail-html" dangerouslySetInnerHTML={{ __html: selectedDetail.changelogHtml || selectedDetail.description }} />
+                  <div className="explorer-detail-html" dangerouslySetInnerHTML={{ __html: normalizeDetailHtml(selectedDetail.changelogHtml, selectedDetail.description) }} />
                 )}
                 {activeTab === 'gallery' && (
                   <div className="explorer-gallery-grid">

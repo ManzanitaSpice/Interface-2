@@ -36,23 +36,31 @@ export function useImportScanner() {
   const [isScanning, setIsScanning] = useState(false)
   const [keepDetected, setKeepDetected] = useState(true)
   const lastProgressLogAtRef = useRef(0)
+  const hydratedRef = useRef(false)
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(importScannerStorageKey)
-      if (!raw) return
+      if (!raw) {
+        hydratedRef.current = true
+        return
+      }
       const parsed = JSON.parse(raw) as { instances?: DetectedInstance[]; keepDetected?: boolean }
-      setInstances(Array.isArray(parsed.instances) ? dedupeInstances(parsed.instances) : [])
+      const recoveredInstances = Array.isArray(parsed.instances) ? dedupeInstances(parsed.instances) : []
+      setInstances(recoveredInstances)
       setKeepDetected(parsed.keepDetected !== false)
-      if ((parsed.instances?.length ?? 0) > 0) {
-        setStatus(`Instancias recuperadas: ${parsed.instances?.length ?? 0}`)
+      if (recoveredInstances.length > 0) {
+        setStatus(`Instancias recuperadas: ${recoveredInstances.length}`)
       }
     } catch {
       localStorage.removeItem(importScannerStorageKey)
+    } finally {
+      hydratedRef.current = true
     }
   }, [])
 
   useEffect(() => {
+    if (!hydratedRef.current) return
     localStorage.setItem(importScannerStorageKey, JSON.stringify({
       instances: keepDetected ? instances : [],
       keepDetected,
