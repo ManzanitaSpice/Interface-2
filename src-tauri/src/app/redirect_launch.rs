@@ -612,14 +612,18 @@ fn score_game_dir_candidate(path: &Path) -> usize {
 }
 
 fn resolve_redirect_game_dir(source_path: &Path) -> PathBuf {
-    let candidates = [
-        source_path.join(".minecraft"),
-        source_path.join("minecraft"),
-        source_path.to_path_buf(),
-    ];
+    let root_score = score_game_dir_candidate(source_path);
+    if root_score > 0 {
+        log::info!(
+            "[REDIRECT] game_dir seleccionado (instancia completa): {} (score={})",
+            source_path.display(),
+            root_score
+        );
+        return source_path.to_path_buf();
+    }
 
-    let mut best_path = source_path.to_path_buf();
-    let mut best_score = 0usize;
+    let candidates = [source_path.join(".minecraft"), source_path.join("minecraft")];
+    let mut best_nested: Option<(usize, PathBuf)> = None;
 
     for candidate in candidates {
         if !candidate.is_dir() {
@@ -627,30 +631,33 @@ fn resolve_redirect_game_dir(source_path: &Path) -> PathBuf {
         }
         let score = score_game_dir_candidate(&candidate);
         log::info!(
-            "[REDIRECT] game_dir candidato: {} (score={})",
+            "[REDIRECT] game_dir candidato anidado: {} (score={})",
             candidate.display(),
             score
         );
-        if score > best_score {
-            best_score = score;
-            best_path = candidate;
+        if best_nested
+            .as_ref()
+            .map(|(best_score, _)| score > *best_score)
+            .unwrap_or(true)
+        {
+            best_nested = Some((score, candidate));
         }
     }
 
-    if best_score == 0 {
-        log::warn!(
-            "[REDIRECT] No se detectaron marcadores claros en game_dir, usando source_path: {}",
-            source_path.display()
+    if let Some((score, path)) = best_nested {
+        log::info!(
+            "[REDIRECT] game_dir seleccionado (anidado): {} (score={})",
+            path.display(),
+            score
         );
-        return source_path.to_path_buf();
+        return path;
     }
 
-    log::info!(
-        "[REDIRECT] game_dir seleccionado: {} (score={})",
-        best_path.display(),
-        best_score
+    log::warn!(
+        "[REDIRECT] No se detectaron marcadores claros en game_dir, usando source_path: {}",
+        source_path.display()
     );
-    best_path
+    source_path.to_path_buf()
 }
 
 fn verify_game_dir_has_instance_data(game_dir: &Path) -> Vec<String> {

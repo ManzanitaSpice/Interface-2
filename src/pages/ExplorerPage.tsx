@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
 type Category = 'all' | 'modpacks' | 'mods' | 'datapacks' | 'resourcepacks' | 'shaders' | 'worlds' | 'addons' | 'customization'
 type SortMode = 'relevance' | 'popularity' | 'updated' | 'stable' | 'downloads' | 'name' | 'author'
@@ -111,43 +111,42 @@ function cleanLoaderLabel(value: string) {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1)
 }
 
-const escapeHtml = (value: string) => value
-  .replaceAll('&', '&amp;')
-  .replaceAll('<', '&lt;')
-  .replaceAll('>', '&gt;')
-  .replaceAll('"', '&quot;')
+function parseInlineMarkdown(value: string): ReactNode[] {
+  const tokens = value.split(/(!?\[[^\]]*\]\([^\)]+\)|\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_)/g).filter(Boolean)
+  return tokens.map((token, index) => {
+    const image = token.match(/^!\[([^\]]*)\]\((https?:\/\/[^\)]+)\)$/)
+    if (image) return <img key={`img-${index}`} src={image[2]} alt={image[1]} loading="lazy" referrerPolicy="no-referrer" />
 
-function renderRichText(content: string) {
-  const normalized = content.replace(/\r\n/g, '\n').trim()
-  if (!normalized) return '<p>-</p>'
+    const link = token.match(/^\[([^\]]+)\]\((https?:\/\/[^\)]+)\)$/)
+    if (link) return <a key={`link-${index}`} href={link[2]} target="_blank" rel="noreferrer">{link[1]}</a>
 
-  const withBasicMarkdown = escapeHtml(normalized)
-    .replace(/!\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g, '<img src="$2" alt="$1" loading="lazy" referrerpolicy="no-referrer" />')
-    .replace(/^###\s+(.+)$/gm, '<h3>$1</h3>')
-    .replace(/^##\s+(.+)$/gm, '<h2>$1</h2>')
-    .replace(/^#\s+(.+)$/gm, '<h1>$1</h1>')
-    .replace(/^\*\s+(.+)$/gm, '<li>$1</li>')
-    .replace(/(?:<li>.*?<\/li>\s*)+/gs, (block) => `<ul>${block}</ul>`)
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/__(.+?)__/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/_(.+?)_/g, '<em>$1</em>')
-    .replace(/\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
-    .replace(/(^|\s)(https?:\/\/[^\s<]+)/g, '$1<a href="$2" target="_blank" rel="noreferrer">$2</a>')
-
-  return withBasicMarkdown
-    .split(/\n{2,}/)
-    .map((block) => block.trim())
-    .filter(Boolean)
-    .map((block) => /^<(h[1-3]|ul|img)/.test(block) ? block : `<p>${block.replace(/\n/g, '<br/>')}</p>`)
-    .join('')
+    if ((token.startsWith('**') && token.endsWith('**')) || (token.startsWith('__') && token.endsWith('__'))) {
+      return <strong key={`strong-${index}`}>{token.slice(2, -2)}</strong>
+    }
+    if ((token.startsWith('*') && token.endsWith('*')) || (token.startsWith('_') && token.endsWith('_'))) {
+      return <em key={`em-${index}`}>{token.slice(1, -1)}</em>
+    }
+    return <Fragment key={`txt-${index}`}>{token}</Fragment>
+  })
 }
 
-function normalizeDetailHtml(html: string, fallback: string) {
-  const source = html?.trim() ? html : renderRichText(fallback)
-  return source
-    .replace(/<a\s+/g, '<a target="_blank" rel="noreferrer" ')
-    .replace(/<img\s+/g, '<img loading="lazy" referrerpolicy="no-referrer" ')
+function renderMarkdown(content: string) {
+  const normalized = content.replace(/\r\n/g, '\n').trim()
+  if (!normalized) return <p>-</p>
+
+  return normalized.split(/\n{2,}/).map((block, blockIndex) => {
+    const line = block.trim()
+    if (line.startsWith('### ')) return <h3 key={`h3-${blockIndex}`}>{parseInlineMarkdown(line.slice(4))}</h3>
+    if (line.startsWith('## ')) return <h2 key={`h2-${blockIndex}`}>{parseInlineMarkdown(line.slice(3))}</h2>
+    if (line.startsWith('# ')) return <h1 key={`h1-${blockIndex}`}>{parseInlineMarkdown(line.slice(2))}</h1>
+
+    const allLines = line.split('\n').map((entry) => entry.trim()).filter(Boolean)
+    if (allLines.length > 0 && allLines.every((entry) => /^[-*]\s+/.test(entry))) {
+      return <ul key={`ul-${blockIndex}`}>{allLines.map((item, itemIndex) => <li key={`li-${blockIndex}-${itemIndex}`}>{parseInlineMarkdown(item.replace(/^[-*]\s+/, ''))}</li>)}</ul>
+    }
+
+    return <p key={`p-${blockIndex}`}>{parseInlineMarkdown(line)}</p>
+  })
 }
 
 function resolveCardImage(image: string, title: string) {
@@ -383,10 +382,14 @@ export function ExplorerPage({ uiLanguage }: Props) {
             {!!selectedDetail && (
               <div className="explorer-detail-panel">
                 {activeTab === 'description' && (
-                  <div className="explorer-detail-html" dangerouslySetInnerHTML={{ __html: normalizeDetailHtml(selectedDetail.bodyHtml, selectedDetail.description) }} />
+                  <div className="explorer-detail-html">
+                    {renderMarkdown(selectedDetail.description || selectedItem.description)}
+                  </div>
                 )}
                 {activeTab === 'changelog' && (
-                  <div className="explorer-detail-html" dangerouslySetInnerHTML={{ __html: normalizeDetailHtml(selectedDetail.changelogHtml, selectedDetail.description) }} />
+                  <div className="explorer-detail-html">
+                    {renderMarkdown(selectedDetail.changelogHtml || selectedDetail.description)}
+                  </div>
                 )}
                 {activeTab === 'gallery' && (
                   <div className="explorer-gallery-grid">

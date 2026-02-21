@@ -1890,6 +1890,27 @@
 .import-cards-grid {
   padding-right: 248px;
 }
+
+.import-instance-card {
+  min-height: 420px;
+  max-height: none;
+}
+
+.import-instance-card .instance-card-title {
+  -webkit-line-clamp: 3;
+  margin-top: 0.3rem;
+}
+
+.import-instance-card .instance-card-meta small {
+  font-size: 0.82rem;
+  line-height: 1.42;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.import-instance-card .instance-card-icon.hero {
+  aspect-ratio: 16 / 9;
+}
 .import-selection-panel .import-action {
   border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--border) 68%, var(--accent));

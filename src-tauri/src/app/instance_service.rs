@@ -373,6 +373,25 @@ pub fn get_instance_metadata(instance_root: String) -> Result<InstanceMetadata, 
     })
 }
 
+
+fn write_instance_metadata(instance_root: &str, metadata: &InstanceMetadata) -> Result<(), String> {
+    let metadata_path = Path::new(instance_root).join(".instance.json");
+    let raw = serde_json::to_string_pretty(metadata)
+        .map_err(|err| format!("No se pudo serializar metadata de instancia: {err}"))?;
+    fs::write(&metadata_path, raw).map_err(|err| {
+        format!(
+            "No se pudo guardar metadata de la instancia en {}: {err}",
+            metadata_path.display()
+        )
+    })
+}
+
+fn touch_instance_last_used(instance_root: &str) -> Result<(), String> {
+    let mut metadata = get_instance_metadata(instance_root.to_string())?;
+    metadata.last_used = Some(chrono::Utc::now().to_rfc3339());
+    write_instance_metadata(instance_root, &metadata)
+}
+
 fn folder_size_bytes(root: &Path) -> u64 {
     if !root.exists() {
         return 0;
@@ -1216,6 +1235,7 @@ pub async fn start_instance(
     auth_session: LaunchAuthSession,
 ) -> Result<StartInstanceResult, String> {
     let metadata = get_instance_metadata(instance_root.clone())?;
+    let _ = touch_instance_last_used(&instance_root);
     if metadata.state.eq_ignore_ascii_case("redirect") {
         register_runtime_start(instance_root.clone())?;
         let result = crate::app::redirect_launch::launch_redirect_instance(

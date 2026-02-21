@@ -9,9 +9,9 @@ type Props = {
 }
 
 const text = {
-  es: { source: 'Origen', loader: 'Loader', realSize: 'Peso real', unknownSize: 'Tamaño no detectado', mods: 'mods' },
-  en: { source: 'Source', loader: 'Loader', realSize: 'Real size', unknownSize: 'Size not detected', mods: 'mods' },
-  pt: { source: 'Origem', loader: 'Loader', realSize: 'Tamanho real', unknownSize: 'Tamanho não detectado', mods: 'mods' },
+  es: { source: 'Origen', loader: 'Loader', realSize: 'Peso real', unknownSize: 'Tamaño no detectado', mods: 'mods', lastPlayed: 'Último uso' },
+  en: { source: 'Source', loader: 'Loader', realSize: 'Real size', unknownSize: 'Size not detected', mods: 'mods', lastPlayed: 'Last used' },
+  pt: { source: 'Origem', loader: 'Loader', realSize: 'Tamanho real', unknownSize: 'Tamanho não detectado', mods: 'mods', lastPlayed: 'Último uso' },
 } as const
 
 const resolveIcon = (iconPath?: string | null) => {
@@ -46,11 +46,12 @@ export function DetectedInstanceCard({ item, selected, onToggle, uiLanguage }: P
 
   return (
     <article
-      className={`instance-card clickable ${selected ? 'active' : ''} ${!item.importable ? 'is-dim' : ''}`}
+      className={`instance-card clickable import-instance-card ${selected ? 'active' : ''} ${!item.importable ? 'is-dim' : ''}`}
       onClick={() => item.importable && onToggle()}
       title={item.importWarnings.join(', ')}
     >
       {selected && <span className="instance-selected-chip">✓ Seleccionada</span>}
+      <strong className="instance-card-title">{displayName}</strong>
       <div className="instance-card-icon hero">
         {icon ? (
           <img src={icon} alt={displayName} loading="lazy" referrerPolicy="no-referrer" />
@@ -58,13 +59,13 @@ export function DetectedInstanceCard({ item, selected, onToggle, uiLanguage }: P
           '📦'
         )}
       </div>
-      <strong className="instance-card-title">{displayName}</strong>
       <div className="instance-card-meta">
         <small>{t.source}: {item.sourceLauncher}</small>
         <small>MC {item.minecraftVersion}</small>
         <small>{t.loader}: {loaderInfo.icon} {loaderLabel}</small>
         <small>{t.realSize}: {sizeLabel}</small>
         <small>{modsCount} {t.mods}</small>
+        <small>{t.lastPlayed}: {item.lastPlayed ? new Date(item.lastPlayed).toLocaleString() : '-'}</small>
       </div>
     </article>
   )
