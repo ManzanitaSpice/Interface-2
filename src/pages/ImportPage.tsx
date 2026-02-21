@@ -23,7 +23,7 @@ const text = {
 export function ImportPage({ onInstancesChanged, uiLanguage }: Props) {
   const t = text[uiLanguage]
   const { instances, status, progressPercent, isScanning, keepDetected, setKeepDetected, scan, clear } = useImportScanner()
-  const { running, message, progressPercent: executionProgressPercent, execute, executeActionBatch } = useImportExecution()
+  const { running, message, progressPercent: executionProgressPercent, checkpoints, execute, executeActionBatch } = useImportExecution()
   const [selected, setSelected] = useState<string[]>([])
   const [search, setSearch] = useState('')
   const [loaderFilter, setLoaderFilter] = useState<'all' | 'fabric' | 'forge' | 'neoforge' | 'quilt' | 'vanilla'>('all')
@@ -188,7 +188,7 @@ export function ImportPage({ onInstancesChanged, uiLanguage }: Props) {
           </div>
         )}
       </section>
-      <ImportProgressModal open={running} message={message} progressPercent={executionProgressPercent} />
+      <ImportProgressModal open={running} message={message} progressPercent={executionProgressPercent} checkpoints={checkpoints} />
     </main>
   )
 }

@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { useEffect, useState } from 'react'
-import type { ImportAction, ImportActionRequest, ImportExecutionProgress, ImportRequest } from '../types/import'
+import type { ImportAction, ImportActionRequest, ImportExecutionProgress, ImportFocusStatus, ImportRequest } from '../types/import'
 
 type ImportExecutionSummary = {
   success: boolean
@@ -16,6 +16,7 @@ export function useImportExecution() {
   const [running, setRunning] = useState(false)
   const [message, setMessage] = useState('')
   const [progressPercent, setProgressPercent] = useState(0)
+  const [checkpoints, setCheckpoints] = useState<ImportFocusStatus[]>([])
 
   useEffect(() => {
     let u1: (() => void) | undefined
@@ -26,6 +27,7 @@ export function useImportExecution() {
       const totalSteps = Math.max(payload.total * Math.max(payload.totalSteps, 1), 1)
       const currentStep = (payload.completed * Math.max(payload.totalSteps, 1)) + Math.max(payload.stepIndex, 0)
       setMessage(payload.message)
+      setCheckpoints(payload.checkpoints ?? [])
       setProgressPercent(Math.min(100, Math.max(0, Math.round((currentStep / totalSteps) * 100))))
       setRunning(true)
     }).then((f) => { u1 = f })
@@ -40,11 +42,13 @@ export function useImportExecution() {
   const execute = async (requests: ImportRequest[]) => {
     setRunning(true)
     setProgressPercent(0)
+    setCheckpoints([])
     try {
       await invoke('execute_import', { requests })
       setProgressPercent(100)
     } finally {
       setRunning(false)
+      setCheckpoints([])
     }
   }
 
@@ -53,6 +57,7 @@ export function useImportExecution() {
 
     setRunning(true)
     setProgressPercent(0)
+    setCheckpoints([])
     setMessage(`Preparando acción: ${action}`)
     try {
       const summary = await invoke<ImportExecutionSummary>('execute_import_action_batch', { action, requests })
@@ -66,8 +71,9 @@ export function useImportExecution() {
       return summary
     } finally {
       setRunning(false)
+      setCheckpoints([])
     }
   }
 
-  return { running, message, progressPercent, execute, executeActionBatch }
+  return { running, message, progressPercent, checkpoints, execute, executeActionBatch }
 }
