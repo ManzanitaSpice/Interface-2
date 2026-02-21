@@ -28,6 +28,7 @@ pub fn run() {
             app::auth_service::start_microsoft_device_auth,
             app::auth_service::complete_microsoft_device_auth,
             app::instance_service::open_instance_folder,
+            app::instance_service::open_redirect_origin_folder,
             app::instance_service::get_instance_metadata,
             app::instance_service::get_instance_card_stats,
             app::instance_service::validate_and_prepare_launch,

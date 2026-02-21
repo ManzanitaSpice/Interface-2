@@ -31,7 +31,7 @@ export type ImportRequest = {
   copyLogs: boolean
 }
 
-export type ImportAction = 'crear_atajo' | 'clonar' | 'migrar'
+export type ImportAction = 'crear_atajo' | 'clonar' | 'migrar' | 'eliminar_instancia'
 
 export type ImportExecutionProgress = {
   instanceId: string
@@ -53,5 +53,5 @@ export type ImportActionRequest = {
   loader: string
   loaderVersion: string
   sourceLauncher: string
-  action: ImportAction | 'abrir_carpeta'
+  action: ImportAction | 'abrir_carpeta' | 'abrir_origen'
 }

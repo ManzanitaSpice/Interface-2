@@ -194,6 +194,24 @@ pub fn open_instance_folder(path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub fn open_redirect_origin_folder(instance_root: String) -> Result<(), String> {
+    let redirect_path = Path::new(&instance_root).join(".redirect.json");
+    let raw = fs::read_to_string(&redirect_path).map_err(|err| {
+        format!(
+            "No se pudo leer redirección de atajo en {}: {err}",
+            redirect_path.display()
+        )
+    })?;
+    let redirect: ShortcutRedirect = serde_json::from_str(&raw).map_err(|err| {
+        format!(
+            "No se pudo parsear redirección de atajo en {}: {err}",
+            redirect_path.display()
+        )
+    })?;
+    open_instance_folder(redirect.source_path)
+}
+
 fn copy_dir_recursive(source: &Path, destination: &Path) -> Result<(), String> {
     if !source.exists() {
         return Err(format!("La carpeta origen no existe: {}", source.display()));

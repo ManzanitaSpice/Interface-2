@@ -26,13 +26,24 @@ export function ImportPage({ onInstancesChanged, uiLanguage }: Props) {
   const { running, message, progressPercent: executionProgressPercent, execute, executeActionBatch } = useImportExecution()
   const [selected, setSelected] = useState<string[]>([])
   const [search, setSearch] = useState('')
+  const [loaderFilter, setLoaderFilter] = useState<'all' | 'fabric' | 'forge' | 'neoforge' | 'quilt' | 'vanilla'>('all')
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'known' | 'auto'>('all')
+  const [modsFilter, setModsFilter] = useState<'all' | 'withMods' | 'withoutMods'>('all')
 
   const selectedItems = useMemo(() => instances.filter((item) => selected.includes(item.id)), [instances, selected])
   const filteredInstances = useMemo(() => {
     const query = search.trim().toLowerCase()
-    if (!query) return instances
-    return instances.filter((item) => item.name.toLowerCase().includes(query) || item.sourceLauncher.toLowerCase().includes(query))
-  }, [instances, search])
+    return instances.filter((item) => {
+      const bySearch = !query || item.name.toLowerCase().includes(query) || item.sourceLauncher.toLowerCase().includes(query)
+      const normalizedLoader = item.loader.toLowerCase()
+      const byLoader = loaderFilter === 'all' || normalizedLoader.includes(loaderFilter)
+      const autoSource = item.sourceLauncher.toLowerCase().includes('detectado')
+      const bySource = sourceFilter === 'all' || (sourceFilter === 'auto' ? autoSource : !autoSource)
+      const modCount = item.modsCount ?? 0
+      const byMods = modsFilter === 'all' || (modsFilter === 'withMods' ? modCount > 0 : modCount === 0)
+      return bySearch && byLoader && bySource && byMods
+    })
+  }, [instances, loaderFilter, modsFilter, search, sourceFilter])
 
   const buildImportRequests = (items = selectedItems): ImportRequest[] => items.filter((item) => item.importable).map((item) => ({
     detectedInstanceId: item.id,
@@ -95,6 +106,15 @@ export function ImportPage({ onInstancesChanged, uiLanguage }: Props) {
     })
   }
 
+  const removeSelectedInstances = async () => {
+    if (selectedItems.length === 0) return
+    const confirmed = window.confirm(`¿Estas seguro de eliminar ${selectedItems.length} instancia(s) detectada(s)? Esta acción elimina completamente la carpeta origen.`)
+    if (!confirmed) return
+    await executeActionBatch('eliminar_instancia', buildActionRequests('eliminar_instancia'))
+    setSelected([])
+    await onInstancesChanged?.()
+  }
+
   return (
     <main className="content content-padded">
       <section className="instances-panel huge-panel import-page">
@@ -106,6 +126,8 @@ export function ImportPage({ onInstancesChanged, uiLanguage }: Props) {
           keepDetected={keepDetected}
           onToggleKeepDetected={() => setKeepDetected((prev) => !prev)}
           onScan={() => void scan()}
+          onSelectAll={() => setSelected(filteredInstances.map((item) => item.id))}
+          onClearSelection={() => setSelected([])}
           onClear={() => { clear(); setSelected([]) }}
         />
         <ScanStatusBar status={status} progressPercent={progressPercent} isScanning={isScanning} />
@@ -117,6 +139,24 @@ export function ImportPage({ onInstancesChanged, uiLanguage }: Props) {
             placeholder={t.search}
             aria-label={t.searchAria}
           />
+          <select value={loaderFilter} onChange={(event) => setLoaderFilter(event.target.value as typeof loaderFilter)}>
+            <option value="all">Loader: Todos</option>
+            <option value="fabric">Fabric</option>
+            <option value="forge">Forge</option>
+            <option value="neoforge">NeoForge</option>
+            <option value="quilt">Quilt</option>
+            <option value="vanilla">Vanilla</option>
+          </select>
+          <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as typeof sourceFilter)}>
+            <option value="all">Origen: Todos</option>
+            <option value="known">Origen identificado</option>
+            <option value="auto">Auto/descubierto</option>
+          </select>
+          <select value={modsFilter} onChange={(event) => setModsFilter(event.target.value as typeof modsFilter)}>
+            <option value="all">Mods: Todos</option>
+            <option value="withMods">Con mods</option>
+            <option value="withoutMods">Sin mods</option>
+          </select>
         </div>
         <div className="instances-workspace">
           <div className="cards-grid instances-grid-area import-cards-grid">
@@ -142,6 +182,7 @@ export function ImportPage({ onInstancesChanged, uiLanguage }: Props) {
               onMigrate={() => void executeAction('migrar')}
               onCreateShortcut={() => void executeAction('crear_atajo')}
               onOpenFolder={() => void openSelectedFolder()}
+              onDelete={() => void removeSelectedInstances()}
               onClear={() => setSelected([])}
             />
           </div>

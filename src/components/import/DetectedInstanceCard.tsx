@@ -41,26 +41,30 @@ export function DetectedInstanceCard({ item, selected, onToggle, uiLanguage }: P
   const loaderLabel = `${loaderInfo.label} ${item.loaderVersion || ''}`.trim()
   const sizeLabel = item.sizeMb && item.sizeMb > 0 ? `${item.sizeMb} MB` : t.unknownSize
 
+  const displayName = item.name?.trim() || 'Instancia sin nombre'
+  const modsCount = item.modsCount ?? 0
+
   return (
     <article
       className={`instance-card clickable ${selected ? 'active' : ''} ${!item.importable ? 'is-dim' : ''}`}
       onClick={() => item.importable && onToggle()}
       title={item.importWarnings.join(', ')}
     >
+      {selected && <span className="instance-selected-chip">✓ Seleccionada</span>}
       <div className="instance-card-icon hero">
         {icon ? (
-          <img src={icon} alt={item.name} loading="lazy" referrerPolicy="no-referrer" />
+          <img src={icon} alt={displayName} loading="lazy" referrerPolicy="no-referrer" />
         ) : (
           '📦'
         )}
       </div>
-      <strong className="instance-card-title">{item.name}</strong>
+      <strong className="instance-card-title">{displayName}</strong>
       <div className="instance-card-meta">
         <small>{t.source}: {item.sourceLauncher}</small>
         <small>MC {item.minecraftVersion}</small>
         <small>{t.loader}: {loaderInfo.icon} {loaderLabel}</small>
         <small>{t.realSize}: {sizeLabel}</small>
-        <small>{item.modsCount ?? 0} {t.mods}</small>
+        <small>{modsCount} {t.mods}</small>
       </div>
     </article>
   )
