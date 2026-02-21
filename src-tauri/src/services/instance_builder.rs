@@ -82,7 +82,8 @@ pub fn build_instance_structure(
         completed: 0,
         total: 1,
     });
-    let version_entry = load_manifest_entry(launcher_root, minecraft_version)?;
+    let normalized_minecraft_version = normalize_minecraft_version_id(minecraft_version);
+    let version_entry = load_manifest_entry(launcher_root, &normalized_minecraft_version)?;
 
     on_progress(InstanceBuildProgress {
         step: "downloading_version_json".to_string(),
@@ -144,7 +145,7 @@ pub fn build_instance_structure(
     });
     let effective_version_id = prepare_loader(
         minecraft_root,
-        minecraft_version,
+        &normalized_minecraft_version,
         loader,
         loader_version,
         java_exec,
@@ -161,6 +162,20 @@ pub fn build_instance_structure(
     });
 
     Ok(effective_version_id)
+}
+
+fn normalize_minecraft_version_id(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    for token in ["-neoforge-", "-forge-", "-fabric-loader-", "-quilt-loader-"] {
+        if let Some(index) = lower.find(token) {
+            return trimmed[..index].to_string();
+        }
+    }
+    trimmed.to_string()
 }
 
 fn mirror_shared_dir(shared: &Path, local: &Path) -> AppResult<()> {

@@ -380,12 +380,35 @@ fn known_and_discovered_paths() -> Vec<(String, PathBuf)> {
         for discovered in discover_keyword_scan_paths(&base, 2, 24) {
             let canonical = fs::canonicalize(&discovered).unwrap_or(discovered.clone());
             if seen.insert(canonical) {
-                out.push(("Auto detectado".to_string(), discovered));
+                out.push((detect_launcher_from_path(&discovered), discovered));
             }
         }
     }
 
     out
+}
+
+fn detect_launcher_from_path(path: &Path) -> String {
+    let lower = path.to_string_lossy().to_ascii_lowercase();
+    if lower.contains("modrinth") || lower.contains("theseus") {
+        return "Modrinth".to_string();
+    }
+    if lower.contains("prism") {
+        return "Prism".to_string();
+    }
+    if lower.contains("multimc") || lower.contains("mmc") {
+        return "MultiMC".to_string();
+    }
+    if lower.contains("curseforge") || lower.contains("curse") {
+        return "CurseForge".to_string();
+    }
+    if lower.contains("tlauncher") {
+        return "TLauncher".to_string();
+    }
+    if lower.contains("\.minecraft") || lower.ends_with("/minecraft") {
+        return "Mojang Official".to_string();
+    }
+    "Descubierto".to_string()
 }
 
 fn read_json(path: &Path) -> Option<serde_json::Value> {
@@ -1203,6 +1226,24 @@ pub fn execute_import_action(
 
     if action == "abrir_carpeta" {
         crate::app::instance_service::open_instance_folder(request.source_path.clone())?;
+        return Ok(ImportActionResult {
+            success: true,
+            target_name: request.target_name,
+            target_path: Some(request.source_path),
+            error: None,
+        });
+    }
+
+    if action == "eliminar_instancia" {
+        let source_path = PathBuf::from(&request.source_path);
+        if !source_path.exists() {
+            return Err(format!("La instancia ya no existe en {}", source_path.display()));
+        }
+        if !source_path.is_dir() {
+            return Err(format!("La ruta no es una carpeta válida: {}", source_path.display()));
+        }
+        fs::remove_dir_all(&source_path)
+            .map_err(|err| format!("No se pudo eliminar la instancia origen: {err}"))?;
         return Ok(ImportActionResult {
             success: true,
             target_name: request.target_name,

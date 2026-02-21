@@ -470,7 +470,7 @@ const fontOptions: FontOption[] = [
 
 const launcherUpdatesUrl = 'https://github.com/TU_USUARIO/TU_REPO/releases'
 
-const instanceActions = ['Iniciar', 'Forzar Cierre', 'Editar', 'Cambiar Grupo', 'Carpeta', 'Exportar', 'Copiar', 'Crear atajo']
+const instanceActions = ['Iniciar', 'Forzar Cierre', 'Editar', 'Cambiar Grupo', 'Carpeta (Interface)', 'Exportar', 'Copiar', 'Crear atajo']
 const defaultGroup = 'Sin grupo'
 const sidebarMinWidth = 144
 const sidebarMaxWidth = 320
@@ -2053,7 +2053,21 @@ function App() {
       return
     }
 
-    if (action !== 'Carpeta') return
+    if (action === 'Carpeta (Origen)') {
+      if (!selectedCard.instanceRoot) {
+        setCreationConsoleLogs((prev) => [...prev, `No hay ruta registrada para la instancia ${selectedCard.name}.`])
+        return
+      }
+      try {
+        await invoke('open_redirect_origin_folder', { instanceRoot: selectedCard.instanceRoot })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        setCreationConsoleLogs((prev) => [...prev, `No se pudo abrir la carpeta origen: ${message}`])
+      }
+      return
+    }
+
+    if (action !== 'Carpeta (Interface)') return
 
     if (!selectedCard.instanceRoot) {
       setCreationConsoleLogs((prev) => [...prev, `No hay ruta registrada para la instancia ${selectedCard.name}.`])
@@ -2630,6 +2644,11 @@ function App() {
                         )}
                       </div>
                     ))}
+                    {instanceMetaByRoot[selectedCard.instanceRoot ?? '']?.state?.toUpperCase() === 'REDIRECT' && (
+                      <div className="instance-action-item">
+                        <button onClick={() => void handleInstanceAction('Carpeta (Origen)')}>📂 Carpeta (Origen)</button>
+                      </div>
+                    )}
                   </div>
                   </>
                 ) : null}

@@ -122,22 +122,24 @@ function renderRichText(content: string) {
   if (!normalized) return '<p>-</p>'
 
   const withBasicMarkdown = escapeHtml(normalized)
+    .replace(/!\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g, '<img src="$2" alt="$1" loading="lazy" referrerpolicy="no-referrer" />')
     .replace(/^###\s+(.+)$/gm, '<h3>$1</h3>')
     .replace(/^##\s+(.+)$/gm, '<h2>$1</h2>')
     .replace(/^#\s+(.+)$/gm, '<h1>$1</h1>')
+    .replace(/^\*\s+(.+)$/gm, '<li>$1</li>')
+    .replace(/(?:<li>.*?<\/li>\s*)+/gs, (block) => `<ul>${block}</ul>`)
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/__(.+?)__/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/_(.+?)_/g, '<em>$1</em>')
     .replace(/\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
-    .replace(/!\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g, '<img src="$2" alt="$1" loading="lazy" referrerpolicy="no-referrer" />')
     .replace(/(^|\s)(https?:\/\/[^\s<]+)/g, '$1<a href="$2" target="_blank" rel="noreferrer">$2</a>')
 
   return withBasicMarkdown
     .split(/\n{2,}/)
     .map((block) => block.trim())
     .filter(Boolean)
-    .map((block) => /^<h[1-3]>/.test(block) ? block : `<p>${block.replace(/\n/g, '<br/>')}</p>`)
+    .map((block) => /^<(h[1-3]|ul|img)/.test(block) ? block : `<p>${block.replace(/\n/g, '<br/>')}</p>`)
     .join('')
 }
 
