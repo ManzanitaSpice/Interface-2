@@ -405,7 +405,7 @@ fn detect_launcher_from_path(path: &Path) -> String {
     if lower.contains("tlauncher") {
         return "TLauncher".to_string();
     }
-    if lower.contains("\.minecraft") || lower.ends_with("/minecraft") {
+    if lower.contains("\\.minecraft") || lower.ends_with("/minecraft") {
         return "Mojang Official".to_string();
     }
     "Descubierto".to_string()
