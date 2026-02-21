@@ -710,7 +710,93 @@ fn resolve_shortcut_version_id(
     }
 }
 
-fn resolve_effective_version_id(
+fn system_minecraft_root() -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            return Some(PathBuf::from(appdata).join(".minecraft"));
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            return Some(PathBuf::from(home).join("Library/Application Support/minecraft"));
+        }
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            return Some(PathBuf::from(home).join(".minecraft"));
+        }
+    }
+
+    None
+}
+
+fn launcher_roots_for_source(source_launcher: &str) -> Vec<PathBuf> {
+    let lower = source_launcher.trim().to_ascii_lowercase();
+    known_paths()
+        .into_iter()
+        .filter(|(name, _)| name.to_ascii_lowercase().contains(&lower))
+        .map(|(_, path)| path)
+        .collect()
+}
+
+fn find_loader_version_id_from_external_paths(
+    source_path: &Path,
+    source_launcher: &str,
+    minecraft_version: &str,
+    loader: &str,
+) -> Option<String> {
+    let loader_lower = loader.to_ascii_lowercase();
+    let mc_lower = minecraft_version.to_ascii_lowercase();
+    let versions_roots = vec![
+        source_path.join("versions"),
+        source_path.join(".minecraft/versions"),
+    ];
+
+    let roots = versions_roots
+        .into_iter()
+        .chain(
+            launcher_roots_for_source(source_launcher)
+                .into_iter()
+                .map(|root| root.join("versions")),
+        )
+        .chain(
+            system_minecraft_root()
+                .into_iter()
+                .map(|root| root.join("versions")),
+        );
+
+    for versions_dir in roots {
+        if !versions_dir.is_dir() {
+            continue;
+        }
+        let Ok(entries) = fs::read_dir(&versions_dir) else {
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            let version_id = entry.file_name().to_string_lossy().to_string();
+            let id_lower = version_id.to_ascii_lowercase();
+            if !id_lower.contains(&loader_lower) || !id_lower.contains(&mc_lower) {
+                continue;
+            }
+            let json_path = versions_dir
+                .join(&version_id)
+                .join(format!("{version_id}.json"));
+            if json_path.is_file() {
+                return Some(version_id);
+            }
+        }
+    }
+
+    None
+}
+
+pub(crate) fn resolve_effective_version_id(
     source_root: &Path,
     minecraft_version: &str,
     loader: &str,
@@ -770,6 +856,14 @@ fn resolve_effective_version_id(
     }
 
     fallback_mc_match.unwrap_or(expected)
+}
+
+fn version_id_contains_loader(version_id: &str, loader: &str) -> bool {
+    let loader_lower = loader.trim().to_ascii_lowercase();
+    if loader_lower.is_empty() || loader_lower == "vanilla" || loader_lower == "desconocido" {
+        return true;
+    }
+    version_id.to_ascii_lowercase().contains(&loader_lower)
 }
 
 fn is_unknown_loader(loader: &str) -> bool {
@@ -1491,12 +1585,31 @@ pub fn execute_import_action(
             .map_err(|err| format!("No se pudo crear carpeta del atajo: {err}"))?;
 
         let source_root = PathBuf::from(&request.source_path);
-        let effective_version_id = resolve_effective_version_id(
+        let mut effective_version_id = resolve_effective_version_id(
             &source_root,
             &request.minecraft_version,
             &request.loader,
             &request.loader_version,
         );
+        let loader_is_vanilla = matches!(
+            request.loader.trim().to_ascii_lowercase().as_str(),
+            "" | "-" | "vanilla" | "desconocido" | "unknown"
+        );
+        if !loader_is_vanilla && !version_id_contains_loader(&effective_version_id, &request.loader)
+        {
+            if let Some(discovered_version_id) = find_loader_version_id_from_external_paths(
+                &source_root,
+                &request.source_launcher,
+                &request.minecraft_version,
+                &request.loader,
+            ) {
+                log::info!(
+                    "[REDIRECT] version_id de loader resuelto desde rutas externas: {}",
+                    discovered_version_id
+                );
+                effective_version_id = discovered_version_id;
+            }
+        }
 
         let mut shortcut_loader = request.loader.clone();
         let mut shortcut_loader_version = request.loader_version.clone();
@@ -1506,6 +1619,17 @@ pub fn execute_import_action(
             {
                 shortcut_loader = detected_loader;
                 shortcut_loader_version = detected_loader_version;
+            }
+        }
+        if shortcut_loader_version.is_empty() || shortcut_loader_version == "-" {
+            if let Some((_, detected_version)) =
+                detect_loader_from_version_id(&effective_version_id)
+            {
+                shortcut_loader_version = detected_version;
+                log::info!(
+                    "[REDIRECT] loader_version detectado desde version_id: {}",
+                    shortcut_loader_version
+                );
             }
         }
 
