@@ -54,10 +54,10 @@ pub struct RedirectLaunchContext {
 }
 
 #[derive(Debug, Clone)]
-struct RedirectVersionHints {
-    minecraft_version: String,
-    loader: String,
-    loader_version: String,
+pub struct RedirectVersionHints {
+    pub minecraft_version: String,
+    pub loader: String,
+    pub loader_version: String,
 }
 
 fn normalize_loader(loader: &str) -> String {
@@ -1882,6 +1882,7 @@ async fn download_redirect_runtime(
     instance_uuid: &str,
     version_id: &str,
     source_launcher: &str,
+    hints: &RedirectVersionHints,
 ) -> Result<RedirectCacheEntry, String> {
     let cache_root = redirect_cache_root(app)?;
     let entry_dir = entry_cache_dir(&cache_root, instance_uuid);
@@ -1911,32 +1912,33 @@ async fn download_redirect_runtime(
 
     let client = build_async_official_client()?;
     let version_json_path = versions_dir.join(format!("{version_id}.json"));
-    let version_json = match resolve_official_version_json(version_id, source_path, source_launcher)
-    {
-        Ok((local_path, json)) => {
-            tokio::fs::copy(&local_path, &version_json_path)
-                .await
-                .map_err(|err| {
-                    format!(
-                        "No se pudo copiar version json local {} a caché ({}): {err}",
-                        local_path.display(),
-                        version_json_path.display()
-                    )
-                })?;
-            json
-        }
-        Err(_) => {
-            let json = fetch_version_json_from_manifest(&client, version_id).await?;
-            let raw = serde_json::to_vec_pretty(&json)
-                .map_err(|err| format!("No se pudo serializar version json oficial: {err}"))?;
-            tokio::fs::write(&version_json_path, &raw)
-                .await
-                .map_err(|err| {
-                    format!("No se pudo guardar {}: {err}", version_json_path.display())
-                })?;
-            json
-        }
-    };
+    let version_ids = build_version_id_candidates(version_id, hints);
+    let version_json =
+        match resolve_official_version_json(&version_ids, hints, source_path, source_launcher) {
+            Ok((local_path, json)) => {
+                tokio::fs::copy(&local_path, &version_json_path)
+                    .await
+                    .map_err(|err| {
+                        format!(
+                            "No se pudo copiar version json local {} a caché ({}): {err}",
+                            local_path.display(),
+                            version_json_path.display()
+                        )
+                    })?;
+                json
+            }
+            Err(_) => {
+                let json = fetch_version_json_from_manifest(&client, version_id).await?;
+                let raw = serde_json::to_vec_pretty(&json)
+                    .map_err(|err| format!("No se pudo serializar version json oficial: {err}"))?;
+                tokio::fs::write(&version_json_path, &raw)
+                    .await
+                    .map_err(|err| {
+                        format!("No se pudo guardar {}: {err}", version_json_path.display())
+                    })?;
+                json
+            }
+        };
 
     let parent_json = if let Some(parent_id) = version_json
         .get("inheritsFrom")
@@ -1944,10 +1946,12 @@ async fn download_redirect_runtime(
         .map(str::trim)
         .filter(|id| !id.is_empty())
     {
-        let parent = match resolve_official_version_json(parent_id, source_path, source_launcher) {
-            Ok((_, json)) => json,
-            Err(_) => fetch_version_json_from_manifest(&client, parent_id).await?,
-        };
+        let parent_ids = build_version_id_candidates(parent_id, hints);
+        let parent =
+            match resolve_official_version_json(&parent_ids, hints, source_path, source_launcher) {
+                Ok((_, json)) => json,
+                Err(_) => fetch_version_json_from_manifest(&client, parent_id).await?,
+            };
         Some(parent)
     } else {
         None
@@ -2280,6 +2284,7 @@ async fn ensure_redirect_cache_context(
     source_launcher: &str,
     instance_uuid: &str,
     version_id: &str,
+    hints: &RedirectVersionHints,
 ) -> Result<RedirectLaunchContext, String> {
     let cache_root = redirect_cache_root(app)?;
     let mut index = load_redirect_cache_index(&cache_root);
@@ -2324,9 +2329,15 @@ async fn ensure_redirect_cache_context(
     });
     save_redirect_cache_index(&cache_root, &index)?;
 
-    let downloaded =
-        download_redirect_runtime(app, source_path, instance_uuid, version_id, source_launcher)
-            .await?;
+    let downloaded = download_redirect_runtime(
+        app,
+        source_path,
+        instance_uuid,
+        version_id,
+        source_launcher,
+        hints,
+    )
+    .await?;
 
     index
         .entries
@@ -2358,10 +2369,17 @@ pub async fn prewarm_redirect_runtime(
     source_launcher: &str,
     instance_uuid: &str,
     version_id: &str,
+    hints: &RedirectVersionHints,
 ) -> Result<(), String> {
-    let _ =
-        ensure_redirect_cache_context(app, source_path, source_launcher, instance_uuid, version_id)
-            .await?;
+    let _ = ensure_redirect_cache_context(
+        app,
+        source_path,
+        source_launcher,
+        instance_uuid,
+        version_id,
+        hints,
+    )
+    .await?;
     touch_cache_entry_last_used(app, instance_uuid);
     Ok(())
 }
@@ -2565,6 +2583,7 @@ pub async fn launch_redirect_instance(
                 &redirect.source_launcher,
                 &metadata.internal_uuid,
                 &metadata.version_id,
+                &hints,
             )
             .await?
         }

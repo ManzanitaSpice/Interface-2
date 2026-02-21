@@ -1446,10 +1446,23 @@ pub fn execute_import_action(
             return Err(format!("La carpeta original de la instancia ya no existe en: {}. Es posible que el launcher externo haya movido o eliminado la instancia.", source_path.display()));
         }
 
-        crate::app::redirect_launch::resolve_redirect_launch_context(
+        let hints = crate::app::redirect_launch::RedirectVersionHints {
+            minecraft_version: request.minecraft_version.clone(),
+            loader: request.loader.clone(),
+            loader_version: request.loader_version.clone(),
+        };
+        let effective_version_id = resolve_effective_version_id(
             &source_path,
             &request.minecraft_version,
+            &request.loader,
+            &request.loader_version,
+        );
+
+        crate::app::redirect_launch::resolve_redirect_launch_context(
+            &source_path,
+            &effective_version_id,
             &request.source_launcher,
+            &hints,
         )?;
 
         return Ok(ImportActionResult {
@@ -1534,6 +1547,12 @@ pub fn execute_import_action(
         persist_shortcut_visual_meta(&instance_root, Path::new(&request.source_path));
 
         let source_path = PathBuf::from(&request.source_path);
+        let hints = crate::app::redirect_launch::RedirectVersionHints {
+            minecraft_version: metadata.minecraft_version.clone(),
+            loader: metadata.loader.clone(),
+            loader_version: metadata.loader_version.clone(),
+        };
+
         if let Err(err) =
             tauri::async_runtime::block_on(crate::app::redirect_launch::prewarm_redirect_runtime(
                 &app,
@@ -1541,6 +1560,7 @@ pub fn execute_import_action(
                 &request.source_launcher,
                 &metadata.internal_uuid,
                 &metadata.version_id,
+                &hints,
             ))
         {
             let _ = fs::remove_dir_all(&instance_root);
