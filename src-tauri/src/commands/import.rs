@@ -379,15 +379,25 @@ const INSTANCE_IDENTIFIER_FILES: &[&str] = &[
 const INSTANCE_MINECRAFT_DIRS: &[&str] = &[".minecraft", "minecraft"];
 const INSTANCE_HINT_KEYWORDS: &[&str] = &[
     "instancias",
+    "instancia",
     "instances",
     "instance",
     "launcher",
     "minecraft",
+    ".minecraft",
     "modpacks",
     "prism",
     "multimc",
     "curseforge",
     "curse",
+    "modrinth",
+    "forge",
+    "neoforge",
+    "fabric",
+    "quilt",
+    "gdlauncher",
+    "atlauncher",
+    "polymc",
     "mmc",
 ];
 
@@ -398,19 +408,17 @@ const SCAN_SKIP_DIR_NAMES: &[&str] = &[
     ".cache",
     ".cargo",
     ".rustup",
-    "Library",
-    "AppData",
     "Program Files",
     "Program Files (x86)",
     "Windows",
     "System Volume Information",
 ];
 
-const MAX_DISCOVERY_VISITED_DIRS: usize = 320;
+const MAX_DISCOVERY_VISITED_DIRS: usize = 2_000;
 const MAX_ROOT_CHILDREN_TO_SCAN: usize = 180;
 const SCAN_PROGRESS_EMIT_INTERVAL: usize = 25;
-const DISCOVERY_SCAN_DEPTH: usize = 1;
-const DISCOVERY_MAX_CANDIDATES_PER_ROOT: usize = 12;
+const DISCOVERY_SCAN_DEPTH: usize = 3;
+const DISCOVERY_MAX_CANDIDATES_PER_ROOT: usize = 64;
 
 fn known_paths() -> Vec<(String, PathBuf)> {
     let mut out = Vec::new();
@@ -536,8 +544,17 @@ fn has_required_instance_layout(path: &Path) -> bool {
         || path.join("versions").is_dir()
         || path.join("options.txt").is_file()
         || path.join(".minecraft/mods").is_dir();
+    let is_minecraft_root = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(|name| {
+            name.eq_ignore_ascii_case(".minecraft") || name.eq_ignore_ascii_case("minecraft")
+        })
+        .unwrap_or(false);
 
-    has_identifier || (has_minecraft_folder && has_common_markers)
+    has_identifier
+        || (has_minecraft_folder && has_common_markers)
+        || (is_minecraft_root && has_common_markers)
 }
 
 fn directory_name_looks_like_container(path: &Path) -> bool {
@@ -557,6 +574,12 @@ fn external_search_roots() -> Vec<PathBuf> {
 
     #[cfg(target_os = "windows")]
     {
+        for env_name in ["APPDATA", "LOCALAPPDATA", "USERPROFILE", "PUBLIC"] {
+            if let Ok(value) = std::env::var(env_name) {
+                roots.push(PathBuf::from(value));
+            }
+        }
+
         for drive in b'A'..=b'Z' {
             let root = PathBuf::from(format!("{}:\\", drive as char));
             if root.exists() {
@@ -567,7 +590,7 @@ fn external_search_roots() -> Vec<PathBuf> {
 
     #[cfg(not(target_os = "windows"))]
     {
-        for candidate in ["/media", "/mnt", "/run/media", "/Volumes"] {
+        for candidate in ["/media", "/mnt", "/run/media", "/Volumes", "/opt", "/srv"] {
             let path = PathBuf::from(candidate);
             if path.exists() {
                 roots.push(path);
@@ -577,8 +600,16 @@ fn external_search_roots() -> Vec<PathBuf> {
 
     if let Ok(home) = std::env::var("HOME") {
         let home = PathBuf::from(home);
+        roots.push(home.clone());
         roots.push(home.join("Desktop"));
         roots.push(home.join("Documents"));
+        roots.push(home.join("Downloads"));
+        roots.push(home.join("Games"));
+        roots.push(home.join(".minecraft"));
+        roots.push(home.join(".local/share"));
+        roots.push(home.join(".config"));
+        roots.push(home.join("AppData/Roaming"));
+        roots.push(home.join("AppData/Local"));
     }
 
     roots
@@ -1370,6 +1401,7 @@ fn persist_shortcut_visual_meta(instance_root: &Path, source_path: &Path) {
 
 fn dedupe_instances(instances: Vec<DetectedInstance>) -> Vec<DetectedInstance> {
     let mut by_path = HashSet::new();
+    let mut by_name = HashSet::new();
     let mut out = Vec::new();
 
     for instance in instances {
@@ -1381,7 +1413,54 @@ fn dedupe_instances(instances: Vec<DetectedInstance>) -> Vec<DetectedInstance> {
             continue;
         }
 
+        let normalized_name = instance.name.trim().to_ascii_lowercase();
+        if normalized_name.is_empty() || !by_name.insert(normalized_name) {
+            continue;
+        }
+
         out.push(instance);
+    }
+
+    out
+}
+
+fn collect_candidate_instance_dirs(root: &Path) -> Vec<PathBuf> {
+    let mut out = vec![root.to_path_buf()];
+    let mut queue = VecDeque::from([(root.to_path_buf(), 0usize)]);
+    let mut visited = HashSet::new();
+
+    while let Some((current, depth)) = queue.pop_front() {
+        if depth >= 2 || out.len() >= MAX_ROOT_CHILDREN_TO_SCAN {
+            continue;
+        }
+
+        let canonical = fs::canonicalize(&current).unwrap_or(current.clone());
+        if !visited.insert(canonical) {
+            continue;
+        }
+
+        let Ok(entries) = fs::read_dir(&current) else {
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            if out.len() >= MAX_ROOT_CHILDREN_TO_SCAN {
+                break;
+            }
+            let path = entry.path();
+            if !path.is_dir() || should_skip_scan_dir(&path) {
+                continue;
+            }
+
+            if has_required_instance_layout(&path)
+                || directory_name_looks_like_container(&path)
+                || has_instance_markers(&path)
+            {
+                out.push(path.clone());
+            }
+
+            queue.push_back((path, depth + 1));
+        }
     }
 
     out
@@ -1425,13 +1504,9 @@ pub fn detect_external_instances(app: AppHandle) -> Result<Vec<DetectedInstance>
             }
         }
 
-        let entries = match fs::read_dir(&root) {
-            Ok(entries) => entries,
-            Err(_) => continue,
-        };
+        let candidates = collect_candidate_instance_dirs(&root);
 
-        let mut scanned_children = 0usize;
-        for entry in entries.flatten() {
+        for (candidate_index, path) in candidates.into_iter().enumerate() {
             if CANCEL_IMPORT
                 .get()
                 .is_some_and(|flag| flag.load(Ordering::Relaxed))
@@ -1439,22 +1514,7 @@ pub fn detect_external_instances(app: AppHandle) -> Result<Vec<DetectedInstance>
                 return Ok(found);
             }
 
-            if scanned_children >= MAX_ROOT_CHILDREN_TO_SCAN {
-                break;
-            }
-
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-
-            scanned_children += 1;
-
-            if should_skip_scan_dir(&path) {
-                continue;
-            }
-
-            if scanned_children % SCAN_PROGRESS_EMIT_INTERVAL == 0 {
+            if candidate_index % SCAN_PROGRESS_EMIT_INTERVAL == 0 {
                 let _ = app.emit(
                     "import_scan_progress",
                     ScanProgressEvent {
