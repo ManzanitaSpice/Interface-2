@@ -71,15 +71,20 @@ pub fn search_catalogs(request: CatalogSearchRequest) -> Result<CatalogSearchRes
     normalized_request.search = search;
 
     if platform != "curseforge" {
-        let (items, source_has_more) = fetch_modrinth(&client, &normalized_request, per_source_limit, offset)?;
+        let (items, source_has_more) =
+            fetch_modrinth(&client, &normalized_request, per_source_limit, offset)?;
         has_more = has_more || source_has_more;
         output.extend(items);
     }
     if platform != "modrinth" {
-        let (items, source_has_more) = fetch_curseforge(&client, &normalized_request, per_source_limit, offset)?;
+        let (items, source_has_more) =
+            fetch_curseforge(&client, &normalized_request, per_source_limit, offset)?;
         has_more = has_more || source_has_more;
         output.extend(items);
     }
+
+    let search_tokens = tokenize_search(&normalized_request.search);
+    output.sort_by(|a, b| compare_catalog_items(a, b, &search_tokens));
 
     if output.len() > limit as usize {
         output.truncate(limit as usize);
@@ -148,75 +153,77 @@ fn fetch_modrinth(
         .unwrap_or_default();
     let has_more = (offset as u64 + hits.len() as u64) < total_hits;
 
-    Ok((hits
-        .iter()
-        .map(|hit| {
-            let categories = hit
-                .get("categories")
-                .and_then(Value::as_array)
-                .map(|list| {
-                    list.iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_string)
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-            let versions = hit
-                .get("versions")
-                .and_then(Value::as_array)
-                .map(|list| {
-                    list.iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_string)
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
+    Ok((
+        hits.iter()
+            .map(|hit| {
+                let categories = hit
+                    .get("categories")
+                    .and_then(Value::as_array)
+                    .map(|list| {
+                        list.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                let versions = hit
+                    .get("versions")
+                    .and_then(Value::as_array)
+                    .map(|list| {
+                        list.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
 
-            CatalogItem {
-                id: hit
-                    .get("project_id")
-                    .and_then(Value::as_str)
-                    .unwrap_or("-")
-                    .to_string(),
-                source: "Modrinth".to_string(),
-                title: hit
-                    .get("title")
-                    .and_then(Value::as_str)
-                    .unwrap_or("Sin título")
-                    .to_string(),
-                description: hit
-                    .get("description")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
-                image: hit
-                    .get("icon_url")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
-                author: hit
-                    .get("author")
-                    .and_then(Value::as_str)
-                    .unwrap_or("-")
-                    .to_string(),
-                downloads: hit.get("downloads").and_then(Value::as_u64).unwrap_or(0),
-                updated_at: hit
-                    .get("date_modified")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
-                size: "-".to_string(),
-                minecraft_versions: versions,
-                loaders: categories.clone(),
-                project_type: hit
-                    .get("project_type")
-                    .and_then(Value::as_str)
-                    .unwrap_or("-")
-                    .to_string(),
-                tags: categories,
-            }
-        })
-        .collect(), has_more))
+                CatalogItem {
+                    id: hit
+                        .get("project_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("-")
+                        .to_string(),
+                    source: "Modrinth".to_string(),
+                    title: hit
+                        .get("title")
+                        .and_then(Value::as_str)
+                        .unwrap_or("Sin título")
+                        .to_string(),
+                    description: hit
+                        .get("description")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    image: hit
+                        .get("icon_url")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    author: hit
+                        .get("author")
+                        .and_then(Value::as_str)
+                        .unwrap_or("-")
+                        .to_string(),
+                    downloads: hit.get("downloads").and_then(Value::as_u64).unwrap_or(0),
+                    updated_at: hit
+                        .get("date_modified")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    size: "-".to_string(),
+                    minecraft_versions: versions,
+                    loaders: categories.clone(),
+                    project_type: hit
+                        .get("project_type")
+                        .and_then(Value::as_str)
+                        .unwrap_or("-")
+                        .to_string(),
+                    tags: categories,
+                }
+            })
+            .collect(),
+        has_more,
+    ))
 }
 
 fn fetch_curseforge(
@@ -280,88 +287,90 @@ fn fetch_curseforge(
         .unwrap_or_default();
     let has_more = (offset as u64 + data.len() as u64) < total_count;
 
-    Ok((data
-        .iter()
-        .map(|entry| {
-            let latest_indexes = entry
-                .get("latestFilesIndexes")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            let game_versions = latest_indexes
-                .iter()
-                .filter_map(|item| item.get("gameVersion").and_then(Value::as_str))
-                .map(str::to_string)
-                .collect::<Vec<_>>();
-            let loaders = latest_indexes
-                .iter()
-                .filter_map(|item| item.get("modLoader").and_then(Value::as_str))
-                .map(str::to_string)
-                .collect::<Vec<_>>();
-            let tags = entry
-                .get("categories")
-                .and_then(Value::as_array)
-                .map(|list| {
-                    list.iter()
-                        .filter_map(|item| item.get("name").and_then(Value::as_str))
-                        .map(str::to_string)
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-
-            CatalogItem {
-                id: entry
-                    .get("id")
-                    .map(|value| value.to_string().replace('"', ""))
-                    .unwrap_or_else(|| "-".to_string()),
-                source: "CurseForge".to_string(),
-                title: entry
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .unwrap_or("Sin título")
-                    .to_string(),
-                description: entry
-                    .get("summary")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
-                image: entry
-                    .get("logo")
-                    .and_then(|logo| logo.get("thumbnailUrl"))
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
-                author: entry
-                    .get("authors")
+    Ok((
+        data.iter()
+            .map(|entry| {
+                let latest_indexes = entry
+                    .get("latestFilesIndexes")
                     .and_then(Value::as_array)
-                    .and_then(|authors| authors.first())
-                    .and_then(|author| author.get("name"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("-")
-                    .to_string(),
-                downloads: entry
-                    .get("downloadCount")
-                    .and_then(Value::as_f64)
-                    .map(|v| v as u64)
-                    .unwrap_or(0),
-                updated_at: entry
-                    .get("dateReleased")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
-                size: "-".to_string(),
-                minecraft_versions: game_versions,
-                loaders,
-                project_type: entry
-                    .get("class")
-                    .and_then(|class| class.get("name"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("-")
-                    .to_string(),
-                tags,
-            }
-        })
-        .collect(), has_more))
+                    .cloned()
+                    .unwrap_or_default();
+                let game_versions = latest_indexes
+                    .iter()
+                    .filter_map(|item| item.get("gameVersion").and_then(Value::as_str))
+                    .map(str::to_string)
+                    .collect::<Vec<_>>();
+                let loaders = latest_indexes
+                    .iter()
+                    .filter_map(|item| item.get("modLoader").and_then(Value::as_str))
+                    .map(str::to_string)
+                    .collect::<Vec<_>>();
+                let tags = entry
+                    .get("categories")
+                    .and_then(Value::as_array)
+                    .map(|list| {
+                        list.iter()
+                            .filter_map(|item| item.get("name").and_then(Value::as_str))
+                            .map(str::to_string)
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+
+                CatalogItem {
+                    id: entry
+                        .get("id")
+                        .map(|value| value.to_string().replace('"', ""))
+                        .unwrap_or_else(|| "-".to_string()),
+                    source: "CurseForge".to_string(),
+                    title: entry
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("Sin título")
+                        .to_string(),
+                    description: entry
+                        .get("summary")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    image: entry
+                        .get("logo")
+                        .and_then(|logo| logo.get("thumbnailUrl"))
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    author: entry
+                        .get("authors")
+                        .and_then(Value::as_array)
+                        .and_then(|authors| authors.first())
+                        .and_then(|author| author.get("name"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("-")
+                        .to_string(),
+                    downloads: entry
+                        .get("downloadCount")
+                        .and_then(Value::as_f64)
+                        .map(|v| v as u64)
+                        .unwrap_or(0),
+                    updated_at: entry
+                        .get("dateReleased")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    size: "-".to_string(),
+                    minecraft_versions: game_versions,
+                    loaders,
+                    project_type: entry
+                        .get("class")
+                        .and_then(|class| class.get("name"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("-")
+                        .to_string(),
+                    tags,
+                }
+            })
+            .collect(),
+        has_more,
+    ))
 }
 
 fn map_curseforge_loader_type(loader: &str) -> Option<u32> {
@@ -372,4 +381,87 @@ fn map_curseforge_loader_type(loader: &str) -> Option<u32> {
         "neoforge" => Some(6),
         _ => None,
     }
+}
+
+fn tokenize_search(search: &str) -> Vec<String> {
+    search
+        .split_whitespace()
+        .map(|token| token.trim().to_ascii_lowercase())
+        .filter(|token| token.len() >= 2)
+        .collect()
+}
+
+fn score_catalog_item(item: &CatalogItem, search_tokens: &[String]) -> i64 {
+    let mut score = 0i64;
+
+    if search_tokens.is_empty() {
+        score += 10;
+    }
+
+    let title = item.title.to_ascii_lowercase();
+    let description = item.description.to_ascii_lowercase();
+    let author = item.author.to_ascii_lowercase();
+    let tags = item
+        .tags
+        .iter()
+        .map(|tag| tag.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+
+    for token in search_tokens {
+        if title == *token {
+            score += 80;
+        } else if title.starts_with(token) {
+            score += 42;
+        } else if title.contains(token) {
+            score += 24;
+        }
+
+        if description.contains(token) {
+            score += 8;
+        }
+
+        if author.contains(token) {
+            score += 8;
+        }
+
+        if tags.iter().any(|tag| tag.contains(token)) {
+            score += 14;
+        }
+
+        if item
+            .minecraft_versions
+            .iter()
+            .any(|version| version.eq_ignore_ascii_case(token))
+        {
+            score += 12;
+        }
+
+        if item
+            .loaders
+            .iter()
+            .any(|loader| loader.to_ascii_lowercase().contains(token))
+        {
+            score += 10;
+        }
+    }
+
+    let download_bonus = (item.downloads as f64).log10().max(0.0) as i64;
+    let source_bonus = if item.source == "Modrinth" { 1 } else { 0 };
+
+    score + download_bonus + source_bonus
+}
+
+fn compare_catalog_items(
+    a: &CatalogItem,
+    b: &CatalogItem,
+    search_tokens: &[String],
+) -> std::cmp::Ordering {
+    let score_a = score_catalog_item(a, search_tokens);
+    let score_b = score_catalog_item(b, search_tokens);
+
+    score_b
+        .cmp(&score_a)
+        .then_with(|| b.downloads.cmp(&a.downloads))
+        .then_with(|| b.updated_at.cmp(&a.updated_at))
+        .then_with(|| a.title.cmp(&b.title))
 }
