@@ -2820,6 +2820,12 @@ pub async fn launch_redirect_instance(
         &ctx.versions_dir,
         &ctx.resolved_version_id,
     )?;
+    let classpath_separator = if cfg!(target_os = "windows") {
+        ";"
+    } else {
+        ":"
+    };
+    let classpath_entry_count = classpath.split(classpath_separator).count();
     let natives_dir = app
         .path()
         .app_cache_dir()
@@ -2867,12 +2873,7 @@ pub async fn launch_redirect_instance(
 
     let launch_context = LaunchContext {
         classpath,
-        classpath_separator: if cfg!(target_os = "windows") {
-            ";"
-        } else {
-            ":"
-        }
-        .to_string(),
+        classpath_separator: classpath_separator.to_string(),
         library_directory: ctx.libraries_dir.display().to_string(),
         natives_dir: natives_dir.display().to_string(),
         launcher_name: "Interface-2".to_string(),
@@ -2931,11 +2932,6 @@ pub async fn launch_redirect_instance(
         log::warn!("[REDIRECT] Advertencia game_dir: {warning}");
     }
 
-    let sep = if cfg!(target_os = "windows") {
-        ";"
-    } else {
-        ":"
-    };
     log::info!("[REDIRECT] === DIAGNÓSTICO DE LOADER ===");
     log::info!("[REDIRECT] loader:          {}", metadata.loader);
     log::info!("[REDIRECT] loader_version:  {}", metadata.loader_version);
@@ -2956,7 +2952,7 @@ pub async fn launch_redirect_instance(
     );
     log::info!(
         "[REDIRECT] libs en cp:      {}",
-        classpath.split(sep).count()
+        classpath_entry_count
     );
 
     if resolved.main_class == "net.minecraft.client.main.Main"
