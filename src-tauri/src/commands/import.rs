@@ -626,6 +626,14 @@ fn read_json(path: &Path) -> Option<serde_json::Value> {
     serde_json::from_str(&raw).ok()
 }
 
+fn normalize_loader(loader: &str) -> String {
+    let normalized = loader.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "quilit" => "quilt".to_string(),
+        _ => normalized,
+    }
+}
+
 fn detect_loader_from_version_id(version_id: &str) -> Option<(String, String)> {
     let normalized = version_id.trim().to_ascii_lowercase();
     if normalized.is_empty() {
@@ -686,10 +694,7 @@ fn resolve_shortcut_version_id(
     loader_version: &str,
 ) -> String {
     let mc = minecraft_version.trim();
-    let loader = match loader.trim().to_ascii_lowercase().as_str() {
-        "quilit" => "quilt".to_string(),
-        other => other.to_string(),
-    };
+    let loader = normalize_loader(loader);
     let loader_version = loader_version.trim();
 
     if mc.is_empty() || mc.eq_ignore_ascii_case("desconocida") {
@@ -809,10 +814,7 @@ pub(crate) fn resolve_effective_version_id(
     let expected = resolve_shortcut_version_id(minecraft_version, loader, loader_version);
     let expected_lower = expected.to_ascii_lowercase();
     let mc_lower = minecraft_version.trim().to_ascii_lowercase();
-    let loader_lower = match loader.trim().to_ascii_lowercase().as_str() {
-        "quilit" => "quilt".to_string(),
-        other => other.to_string(),
-    };
+    let loader_lower = normalize_loader(loader);
 
     let mut version_roots = vec![
         source_root.join("versions"),
@@ -881,10 +883,7 @@ pub(crate) fn resolve_effective_version_id(
 }
 
 fn version_id_contains_loader(version_id: &str, loader: &str) -> bool {
-    let loader_lower = match loader.trim().to_ascii_lowercase().as_str() {
-        "quilit" => "quilt".to_string(),
-        other => other.to_string(),
-    };
+    let loader_lower = normalize_loader(loader);
     if loader_lower.is_empty() || loader_lower == "vanilla" || loader_lower == "desconocido" {
         return true;
     }
@@ -892,11 +891,8 @@ fn version_id_contains_loader(version_id: &str, loader: &str) -> bool {
 }
 
 fn is_unknown_loader(loader: &str) -> bool {
-    let normalized = match loader.trim().to_ascii_lowercase().as_str() {
-        "quilit" => "quilt",
-        other => other,
-    };
-    matches!(normalized, "" | "-" | "desconocido" | "unknown")
+    let normalized = normalize_loader(loader);
+    matches!(normalized.as_str(), "" | "-" | "desconocido" | "unknown")
 }
 
 fn detect_from_manifest(path: &Path) -> DetectionMeta {
@@ -1573,6 +1569,12 @@ pub fn execute_import_action(
         if !source_path.exists() {
             return Err(format!("La carpeta original de la instancia ya no existe en: {}. Es posible que el launcher externo haya movido o eliminado la instancia.", source_path.display()));
         }
+        if !source_path.is_dir() {
+            return Err(format!(
+                "La ruta de instancia original no es una carpeta válida: {}",
+                source_path.display()
+            ));
+        }
 
         let hints = crate::app::redirect_launch::RedirectVersionHints {
             minecraft_version: request.minecraft_version.clone(),
@@ -1620,6 +1622,18 @@ pub fn execute_import_action(
             .map_err(|err| format!("No se pudo crear carpeta del atajo: {err}"))?;
 
         let source_root = PathBuf::from(&request.source_path);
+        if !source_root.exists() {
+            return Err(format!(
+                "No se puede crear el atajo porque la instancia origen no existe: {}",
+                source_root.display()
+            ));
+        }
+        if !source_root.is_dir() {
+            return Err(format!(
+                "No se puede crear el atajo porque el origen no es una carpeta válida: {}",
+                source_root.display()
+            ));
+        }
         let mut effective_version_id = resolve_effective_version_id(
             &source_root,
             &request.minecraft_version,
