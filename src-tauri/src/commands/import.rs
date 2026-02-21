@@ -174,19 +174,56 @@ fn runtime_name(runtime: JavaRuntime) -> &'static str {
 }
 
 fn detect_source_minecraft_dir(source_root: &Path) -> Option<PathBuf> {
-    [
+    let preferred = [
         source_root.join("minecraft"),
         source_root.join(".minecraft"),
-    ]
-    .into_iter()
-    .find(|candidate| candidate.is_dir())
-    .or_else(|| {
-        if source_root.join("versions").is_dir() {
-            Some(source_root.to_path_buf())
-        } else {
-            None
+    ];
+    if let Some(path) = preferred.into_iter().find(|candidate| candidate.is_dir()) {
+        return Some(path);
+    }
+
+    if source_root.join("versions").is_dir() {
+        return Some(source_root.to_path_buf());
+    }
+
+    let mut fallback: Option<(u8, PathBuf)> = None;
+    let Ok(entries) = fs::read_dir(source_root) else {
+        return None;
+    };
+
+    for entry in entries.flatten() {
+        let candidate = entry.path();
+        if !candidate.is_dir() {
+            continue;
         }
-    })
+
+        let mut score = 0u8;
+        if candidate.join("versions").is_dir() {
+            score = score.saturating_add(5);
+        }
+        if candidate.join("mods").is_dir() {
+            score = score.saturating_add(2);
+        }
+        if candidate.join("assets").is_dir() {
+            score = score.saturating_add(2);
+        }
+        if candidate.join("options.txt").is_file() {
+            score = score.saturating_add(1);
+        }
+        if score == 0 {
+            continue;
+        }
+
+        if fallback
+            .as_ref()
+            .map(|(best, _)| score > *best)
+            .unwrap_or(true)
+        {
+            fallback = Some((score, candidate));
+        }
+    }
+
+    fallback.map(|(_, path)| path)
 }
 
 fn normalize_import_layout(instance_root: &Path, source_root: &Path) -> Result<PathBuf, String> {
@@ -333,6 +370,7 @@ static CANCEL_IMPORT: OnceLock<Arc<AtomicBool>> = OnceLock::new();
 const INSTANCE_IDENTIFIER_FILES: &[&str] = &[
     "minecraftinstance.json",
     "mmc-pack.json",
+    "manifest.json",
     "profile.json",
     "instance.cfg",
     ".curseclient",
@@ -379,10 +417,24 @@ fn known_paths() -> Vec<(String, PathBuf)> {
 
     #[cfg(target_os = "windows")]
     {
+        if let Ok(user_profile) = std::env::var("USERPROFILE") {
+            out.push((
+                "CurseForge".to_string(),
+                PathBuf::from(&user_profile).join("curseforge/minecraft/instances"),
+            ));
+            out.push((
+                "CurseForge".to_string(),
+                PathBuf::from(&user_profile).join("curseforge/minecraft/Install"),
+            ));
+        }
         if let Ok(appdata) = std::env::var("APPDATA") {
             out.push((
                 "CurseForge".to_string(),
                 PathBuf::from(&appdata).join("CurseForge/Minecraft/Instances"),
+            ));
+            out.push((
+                "CurseForge".to_string(),
+                PathBuf::from(&appdata).join("CurseForge/Minecraft/Install"),
             ));
             out.push((
                 "Modrinth".to_string(),
@@ -419,6 +471,16 @@ fn known_paths() -> Vec<(String, PathBuf)> {
                 "Mojang Official".to_string(),
                 PathBuf::from(&home).join("Library/Application Support/minecraft"),
             ));
+            out.push((
+                "CurseForge".to_string(),
+                PathBuf::from(&home)
+                    .join("Library/Application Support/curseforge/minecraft/instances"),
+            ));
+            out.push((
+                "CurseForge".to_string(),
+                PathBuf::from(&home)
+                    .join("Library/Application Support/curseforge/minecraft/Install"),
+            ));
         }
     }
 
@@ -440,6 +502,18 @@ fn known_paths() -> Vec<(String, PathBuf)> {
             out.push((
                 "Mojang Official".to_string(),
                 PathBuf::from(&home).join(".minecraft"),
+            ));
+            out.push((
+                "CurseForge".to_string(),
+                PathBuf::from(&home).join(".local/share/curseforge/minecraft/instances"),
+            ));
+            out.push((
+                "CurseForge".to_string(),
+                PathBuf::from(&home).join(".local/share/curseforge/minecraft/install"),
+            ));
+            out.push((
+                "CurseForge".to_string(),
+                PathBuf::from(&home).join(".local/share/curseforge/minecraft/Install"),
             ));
         }
     }
@@ -745,9 +819,24 @@ fn system_minecraft_root() -> Option<PathBuf> {
 
 fn launcher_roots_for_source(source_launcher: &str) -> Vec<PathBuf> {
     let lower = source_launcher.trim().to_ascii_lowercase();
+    let matches_all = lower.is_empty() || lower == "auto detectado";
+
     known_paths()
         .into_iter()
-        .filter(|(name, _)| name.to_ascii_lowercase().contains(&lower))
+        .filter(|(name, path)| {
+            if matches_all {
+                return true;
+            }
+
+            let name_lower = name.to_ascii_lowercase();
+            let path_lower = path.to_string_lossy().to_ascii_lowercase();
+            if name_lower.contains(&lower) || path_lower.contains(&lower) {
+                return true;
+            }
+
+            (lower.contains("curseforge") || lower.contains("curse"))
+                && path_lower.contains("curseforge")
+        })
         .map(|(_, path)| path)
         .collect()
 }
@@ -760,10 +849,14 @@ fn find_loader_version_id_from_external_paths(
 ) -> Option<String> {
     let loader_lower = loader.to_ascii_lowercase();
     let mc_lower = minecraft_version.to_ascii_lowercase();
-    let versions_roots = vec![
+    let source_game_dir = detect_source_minecraft_dir(source_path);
+    let mut versions_roots = vec![
         source_path.join("versions"),
         source_path.join(".minecraft/versions"),
     ];
+    if let Some(game_dir) = source_game_dir {
+        versions_roots.push(game_dir.join("versions"));
+    }
 
     let roots = versions_roots
         .into_iter()
@@ -820,6 +913,9 @@ pub(crate) fn resolve_effective_version_id(
         source_root.join("versions"),
         source_root.join(".minecraft/versions"),
     ];
+    if let Some(game_dir) = detect_source_minecraft_dir(source_root) {
+        version_roots.push(game_dir.join("versions"));
+    }
     for root in launcher_roots_for_source(source_launcher) {
         version_roots.push(root.join("versions"));
     }
@@ -1018,6 +1114,58 @@ fn detect_from_manifest(path: &Path) -> DetectionMeta {
             .get("loader_version")
             .and_then(|v| v.as_str())
             .map(ToOwned::to_owned);
+        return meta;
+    }
+
+    let curse_manifest = path.join("manifest.json");
+    if let Some(json) = read_json(&curse_manifest) {
+        meta.importable = true;
+        meta.format = Some("curseforge".to_string());
+        meta.minecraft_version = json
+            .get("minecraft")
+            .and_then(|minecraft| minecraft.get("version"))
+            .and_then(|value| value.as_str())
+            .map(ToOwned::to_owned);
+
+        if let Some((loader, version)) = json
+            .get("minecraft")
+            .and_then(|minecraft| minecraft.get("modLoaders"))
+            .and_then(|value| value.as_array())
+            .and_then(|loaders| {
+                loaders.iter().find_map(|entry| {
+                    let id = entry.get("id")?.as_str()?.to_ascii_lowercase();
+                    if id.starts_with("forge-") {
+                        return Some((
+                            "forge".to_string(),
+                            id.trim_start_matches("forge-").to_string(),
+                        ));
+                    }
+                    if id.starts_with("neoforge-") {
+                        return Some((
+                            "neoforge".to_string(),
+                            id.trim_start_matches("neoforge-").to_string(),
+                        ));
+                    }
+                    if id.starts_with("fabric-") {
+                        return Some((
+                            "fabric".to_string(),
+                            id.trim_start_matches("fabric-").to_string(),
+                        ));
+                    }
+                    if id.starts_with("quilt-") {
+                        return Some((
+                            "quilt".to_string(),
+                            id.trim_start_matches("quilt-").to_string(),
+                        ));
+                    }
+                    None
+                })
+            })
+        {
+            meta.loader = Some(loader);
+            meta.loader_version = Some(version);
+        }
+
         return meta;
     }
 
