@@ -44,6 +44,42 @@ pub struct CatalogSearchResponse {
     pub has_more: bool,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogDetailRequest {
+    pub id: String,
+    pub source: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogVersion {
+    pub version_type: String,
+    pub name: String,
+    pub published_at: String,
+    pub mod_loader: String,
+    pub game_version: String,
+    pub download_url: String,
+    pub file_url: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogDetailResponse {
+    pub id: String,
+    pub source: String,
+    pub title: String,
+    pub author: String,
+    pub description: String,
+    pub body_html: String,
+    pub changelog_html: String,
+    pub url: String,
+    pub image: String,
+    pub gallery: Vec<String>,
+    pub versions: Vec<CatalogVersion>,
+    pub comments_url: String,
+}
+
 #[tauri::command]
 pub fn search_catalogs(request: CatalogSearchRequest) -> Result<CatalogSearchResponse, String> {
     let client = Client::builder()
@@ -95,6 +131,327 @@ pub fn search_catalogs(request: CatalogSearchRequest) -> Result<CatalogSearchRes
         page,
         limit,
         has_more,
+    })
+}
+
+#[tauri::command]
+pub fn get_catalog_detail(request: CatalogDetailRequest) -> Result<CatalogDetailResponse, String> {
+    let client = Client::builder()
+        .user_agent("Interface-2/0.1")
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|err| format!("No se pudo inicializar cliente HTTP: {err}"))?;
+
+    let source = request.source.trim().to_ascii_lowercase();
+    if source == "modrinth" {
+        return fetch_modrinth_detail(&client, &request.id);
+    }
+    if source == "curseforge" {
+        return fetch_curseforge_detail(&client, &request.id);
+    }
+
+    Err(format!(
+        "Fuente de catálogo no soportada: {}",
+        request.source
+    ))
+}
+
+fn fetch_modrinth_detail(client: &Client, id: &str) -> Result<CatalogDetailResponse, String> {
+    let project: Value = client
+        .get(format!("https://api.modrinth.com/v2/project/{id}"))
+        .send()
+        .map_err(|err| format!("Error consultando detalle de Modrinth: {err}"))?
+        .json()
+        .map_err(|err| format!("Respuesta inválida de Modrinth (project): {err}"))?;
+
+    let versions_payload: Value = client
+        .get(format!("https://api.modrinth.com/v2/project/{id}/version"))
+        .query(&[("limit", "80")])
+        .send()
+        .map_err(|err| format!("Error consultando versiones de Modrinth: {err}"))?
+        .json()
+        .map_err(|err| format!("Respuesta inválida de Modrinth (versions): {err}"))?;
+
+    let versions = versions_payload
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|entry| {
+            let loaders = entry
+                .get("loaders")
+                .and_then(Value::as_array)
+                .map(|list| {
+                    list.iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_else(|| "-".to_string());
+            let game_versions = entry
+                .get("game_versions")
+                .and_then(Value::as_array)
+                .and_then(|list| list.first())
+                .and_then(Value::as_str)
+                .unwrap_or("-")
+                .to_string();
+            let download_url = entry
+                .get("files")
+                .and_then(Value::as_array)
+                .and_then(|files| files.first())
+                .and_then(|file| file.get("url"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+
+            CatalogVersion {
+                version_type: entry
+                    .get("version_type")
+                    .and_then(Value::as_str)
+                    .unwrap_or("release")
+                    .to_string(),
+                name: entry
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("-")
+                    .to_string(),
+                published_at: entry
+                    .get("date_published")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                mod_loader: loaders,
+                game_version: game_versions,
+                download_url: download_url.clone(),
+                file_url: entry
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(|version_id| {
+                        format!("https://modrinth.com/project/{id}/version/{version_id}")
+                    })
+                    .unwrap_or(download_url),
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let gallery = project
+        .get("gallery")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.get("url").and_then(Value::as_str))
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    Ok(CatalogDetailResponse {
+        id: id.to_string(),
+        source: "Modrinth".to_string(),
+        title: project
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or("Sin título")
+            .to_string(),
+        author: project
+            .get("team")
+            .and_then(Value::as_str)
+            .unwrap_or("-")
+            .to_string(),
+        description: project
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        body_html: project
+            .get("body")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .replace('\n', "<br />"),
+        changelog_html: "Consulta la pestaña Versions para revisar notas por versión en Modrinth."
+            .to_string(),
+        url: format!("https://modrinth.com/project/{id}"),
+        image: project
+            .get("icon_url")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        gallery,
+        versions,
+        comments_url: format!("https://modrinth.com/project/{id}"),
+    })
+}
+
+fn fetch_curseforge_detail(client: &Client, id: &str) -> Result<CatalogDetailResponse, String> {
+    let api_key = std::env::var("CURSEFORGE_API_KEY").unwrap_or_else(|_| {
+        "$2a$10$jK7YyZHdUNTDlcME9Egd6.Zt5RananLQKn/tpIhmRDezd2.wHGU9G".to_string()
+    });
+
+    let project: Value = client
+        .get(format!("https://api.curseforge.com/v1/mods/{id}"))
+        .header("x-api-key", &api_key)
+        .send()
+        .map_err(|err| format!("Error consultando detalle de CurseForge: {err}"))?
+        .json()
+        .map_err(|err| format!("Respuesta inválida de CurseForge (mod): {err}"))?;
+
+    let description_payload: Value = client
+        .get(format!(
+            "https://api.curseforge.com/v1/mods/{id}/description"
+        ))
+        .header("x-api-key", &api_key)
+        .send()
+        .map_err(|err| format!("Error consultando descripción de CurseForge: {err}"))?
+        .json()
+        .map_err(|err| format!("Respuesta inválida de CurseForge (description): {err}"))?;
+
+    let files_payload: Value = client
+        .get(format!("https://api.curseforge.com/v1/mods/{id}/files"))
+        .header("x-api-key", &api_key)
+        .query(&[("pageSize", "80")])
+        .send()
+        .map_err(|err| format!("Error consultando versiones de CurseForge: {err}"))?
+        .json()
+        .map_err(|err| format!("Respuesta inválida de CurseForge (files): {err}"))?;
+
+    let project_data = project.get("data").cloned().unwrap_or(Value::Null);
+
+    let versions = files_payload
+        .get("data")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|entry| {
+            let versions = entry
+                .get("sortableGameVersions")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let game_version = versions
+                .iter()
+                .find(|item| item.get("gameVersionName").is_some())
+                .and_then(|item| item.get("gameVersionName"))
+                .and_then(Value::as_str)
+                .unwrap_or("-")
+                .to_string();
+            let mod_loader = versions
+                .iter()
+                .find(|item| item.get("gameVersionPadded").is_some())
+                .and_then(|_| entry.get("releaseType"))
+                .and_then(Value::as_u64)
+                .map(|release_type| match release_type {
+                    1 => "Release",
+                    2 => "Beta",
+                    3 => "Alpha",
+                    _ => "-",
+                })
+                .unwrap_or("-")
+                .to_string();
+
+            CatalogVersion {
+                version_type: entry
+                    .get("displayName")
+                    .and_then(Value::as_str)
+                    .map(|name| {
+                        if name.to_ascii_lowercase().contains("alpha") {
+                            "Alpha".to_string()
+                        } else if name.to_ascii_lowercase().contains("beta") {
+                            "Beta".to_string()
+                        } else {
+                            "Release".to_string()
+                        }
+                    })
+                    .unwrap_or_else(|| "Release".to_string()),
+                name: entry
+                    .get("fileName")
+                    .and_then(Value::as_str)
+                    .unwrap_or("-")
+                    .to_string(),
+                published_at: entry
+                    .get("fileDate")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                mod_loader,
+                game_version,
+                download_url: entry
+                    .get("downloadUrl")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                file_url: entry
+                    .get("id")
+                    .and_then(Value::as_u64)
+                    .map(|file_id| {
+                        format!("https://www.curseforge.com/minecraft/mc-mods/{id}/files/{file_id}")
+                    })
+                    .unwrap_or_default(),
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let gallery = project_data
+        .get("screenshots")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.get("url").and_then(Value::as_str))
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    Ok(CatalogDetailResponse {
+        id: id.to_string(),
+        source: "CurseForge".to_string(),
+        title: project_data
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("Sin título")
+            .to_string(),
+        author: project_data
+            .get("authors")
+            .and_then(Value::as_array)
+            .and_then(|authors| authors.first())
+            .and_then(|author| author.get("name"))
+            .and_then(Value::as_str)
+            .unwrap_or("-")
+            .to_string(),
+        description: project_data
+            .get("summary")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        body_html: description_payload
+            .get("data")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        changelog_html: "Consulta la tabla de versiones para revisar los cambios del proyecto."
+            .to_string(),
+        url: project_data
+            .get("links")
+            .and_then(|links| links.get("websiteUrl"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        image: project_data
+            .get("logo")
+            .and_then(|logo| logo.get("thumbnailUrl"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        gallery,
+        versions,
+        comments_url: project_data
+            .get("links")
+            .and_then(|links| links.get("issuesUrl"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
     })
 }
 
@@ -455,13 +812,12 @@ fn score_catalog_item(item: &CatalogItem, search_tokens: &[String]) -> i64 {
 
     let download_bonus = (item.downloads as f64).log10().max(0.0) as i64;
     let source_bonus = if item.source == "Modrinth" { 1 } else { 0 };
-    let exact_phrase_bonus = if !search_tokens.is_empty()
-        && title.contains(&search_tokens.join(" "))
-    {
-        28
-    } else {
-        0
-    };
+    let exact_phrase_bonus =
+        if !search_tokens.is_empty() && title.contains(&search_tokens.join(" ")) {
+            28
+        } else {
+            0
+        };
 
     score + download_bonus + source_bonus + exact_phrase_bonus
 }
