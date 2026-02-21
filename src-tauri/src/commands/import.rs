@@ -1605,7 +1605,24 @@ pub fn execute_import_action(
     }
 
     if action == "crear_atajo" {
+        let source_root = PathBuf::from(&request.source_path);
+        if !source_root.exists() {
+            return Err(format!(
+                "No se puede crear el atajo porque la instancia origen no existe: {}",
+                source_root.display()
+            ));
+        }
+        if !source_root.is_dir() {
+            return Err(format!(
+                "No se puede crear el atajo porque el origen no es una carpeta válida: {}",
+                source_root.display()
+            ));
+        }
+
         let instances_root = crate::app::settings_service::resolve_instances_root(&app)?;
+        fs::create_dir_all(&instances_root)
+            .map_err(|err| format!("No se pudo preparar directorio de instancias: {err}"))?;
+
         let mut sanitized_name = sanitize_path_segment(&request.target_name);
         if sanitized_name.trim().is_empty() {
             sanitized_name = "instancia-atajo".to_string();
@@ -1621,19 +1638,6 @@ pub fn execute_import_action(
         fs::create_dir_all(&instance_root)
             .map_err(|err| format!("No se pudo crear carpeta del atajo: {err}"))?;
 
-        let source_root = PathBuf::from(&request.source_path);
-        if !source_root.exists() {
-            return Err(format!(
-                "No se puede crear el atajo porque la instancia origen no existe: {}",
-                source_root.display()
-            ));
-        }
-        if !source_root.is_dir() {
-            return Err(format!(
-                "No se puede crear el atajo porque el origen no es una carpeta válida: {}",
-                source_root.display()
-            ));
-        }
         let mut effective_version_id = resolve_effective_version_id(
             &source_root,
             &request.minecraft_version,
@@ -1683,7 +1687,7 @@ pub fn execute_import_action(
             }
         }
 
-        let metadata = InstanceMetadata {
+        let mut metadata = InstanceMetadata {
             name: request.target_name.clone(),
             group: "Atajos".to_string(),
             minecraft_version: request.minecraft_version.clone(),
@@ -1727,20 +1731,74 @@ pub fn execute_import_action(
             loader_version: metadata.loader_version.clone(),
         };
 
-        if let Err(err) =
-            tauri::async_runtime::block_on(crate::app::redirect_launch::prewarm_redirect_runtime(
-                &app,
-                &source_path,
-                &request.source_launcher,
-                &metadata.internal_uuid,
-                &metadata.version_id,
-                &hints,
-            ))
-        {
-            let _ = fs::remove_dir_all(&instance_root);
-            return Err(format!(
-                "No se pudo completar la descarga/instalación de runtime oficial para el atajo (assets, libraries o jar): {err}"
-            ));
+        let mut prewarm_candidates = Vec::new();
+        prewarm_candidates.push(metadata.version_id.clone());
+        prewarm_candidates.push(resolve_shortcut_version_id(
+            &metadata.minecraft_version,
+            &metadata.loader,
+            &metadata.loader_version,
+        ));
+        prewarm_candidates.push(metadata.minecraft_version.clone());
+
+        let mut seen_candidates = HashSet::new();
+        prewarm_candidates.retain(|candidate| {
+            let key = candidate.trim().to_ascii_lowercase();
+            !key.is_empty() && seen_candidates.insert(key)
+        });
+
+        let mut prewarm_errors = Vec::new();
+        let mut selected_runtime_version: Option<String> = None;
+        for candidate in prewarm_candidates {
+            match tauri::async_runtime::block_on(
+                crate::app::redirect_launch::prewarm_redirect_runtime(
+                    &app,
+                    &source_path,
+                    &request.source_launcher,
+                    &metadata.internal_uuid,
+                    &candidate,
+                    &hints,
+                ),
+            ) {
+                Ok(()) => {
+                    selected_runtime_version = Some(candidate);
+                    break;
+                }
+                Err(err) => {
+                    prewarm_errors.push(format!("{candidate}: {err}"));
+                }
+            }
+        }
+
+        if let Some(runtime_version) = selected_runtime_version {
+            if runtime_version != metadata.version_id {
+                metadata.version_id = runtime_version;
+                let metadata_raw = serde_json::to_string_pretty(&metadata)
+                    .map_err(|err| format!("No se pudo serializar metadata de atajo: {err}"))?;
+                fs::write(&metadata_path, metadata_raw)
+                    .map_err(|err| format!("No se pudo guardar metadata de atajo: {err}"))?;
+            }
+        } else {
+            let warning = if prewarm_errors.is_empty() {
+                "No se pudo validar runtime REDIRECT durante la creación; se reintentará al iniciar la instancia.".to_string()
+            } else {
+                format!(
+                    "No se pudo completar prewarm REDIRECT en la creación; la instancia fue creada y se reintentará al iniciar. Detalle: {}",
+                    prewarm_errors.join(" | ")
+                )
+            };
+            log::warn!("[REDIRECT] {}", warning);
+            let _ = app.emit(
+                "import_execution_progress",
+                serde_json::json!({
+                    "instanceId": request.detected_instance_id,
+                    "instanceName": request.target_name,
+                    "action": "crear_atajo",
+                    "step": "runtime_warning",
+                    "message": warning,
+                    "stepIndex": 2,
+                    "totalSteps": 3,
+                }),
+            );
         }
 
         let _ = app.emit(
