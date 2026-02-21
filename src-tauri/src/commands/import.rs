@@ -535,26 +535,53 @@ fn has_instance_markers(path: &Path) -> bool {
         .any(|file| path.join(file).is_file())
 }
 
+fn has_valid_versions_layout(path: &Path) -> bool {
+    let versions_dir = path.join("versions");
+    if !versions_dir.is_dir() {
+        return false;
+    }
+
+    fs::read_dir(&versions_dir)
+        .ok()
+        .map(|entries| {
+            entries.flatten().any(|entry| {
+                let version_id = entry.file_name().to_string_lossy().to_string();
+                if version_id.is_empty() {
+                    return false;
+                }
+                let version_root = entry.path();
+                version_root.is_dir()
+                    && version_root.join(format!("{version_id}.json")).is_file()
+                    && version_root.join(format!("{version_id}.jar")).is_file()
+            })
+        })
+        .unwrap_or(false)
+}
+
 fn has_required_instance_layout(path: &Path) -> bool {
-    let has_minecraft_folder = INSTANCE_MINECRAFT_DIRS
-        .iter()
-        .any(|dir| path.join(dir).is_dir());
-    let has_identifier = has_instance_markers(path);
-    let has_common_markers = path.join("mods").is_dir()
-        || path.join("versions").is_dir()
-        || path.join("options.txt").is_file()
-        || path.join(".minecraft/mods").is_dir();
-    let is_minecraft_root = path
-        .file_name()
+    if has_instance_markers(path) {
+        return true;
+    }
+
+    let game_dir = detect_source_minecraft_dir(path).unwrap_or_else(|| path.to_path_buf());
+    let has_playable_state = game_dir.join("options.txt").is_file()
+        || game_dir.join("mods").is_dir()
+        || game_dir.join("saves").is_dir()
+        || game_dir.join("config").is_dir();
+    let has_runtime_layout = has_valid_versions_layout(&game_dir)
+        && (game_dir.join("assets").is_dir() || game_dir.join("libraries").is_dir());
+
+    if has_playable_state && has_runtime_layout {
+        return true;
+    }
+
+    path.file_name()
         .and_then(|value| value.to_str())
         .map(|name| {
             name.eq_ignore_ascii_case(".minecraft") || name.eq_ignore_ascii_case("minecraft")
         })
-        .unwrap_or(false);
-
-    has_identifier
-        || (has_minecraft_folder && has_common_markers)
-        || (is_minecraft_root && has_common_markers)
+        .unwrap_or(false)
+        && has_runtime_layout
 }
 
 fn directory_name_looks_like_container(path: &Path) -> bool {
@@ -638,7 +665,7 @@ fn discover_keyword_scan_paths(
             continue;
         }
 
-        if directory_name_looks_like_container(&current) || has_instance_markers(&current) {
+        if has_required_instance_layout(&current) {
             found.push(current.clone());
         }
 
@@ -1452,10 +1479,7 @@ fn collect_candidate_instance_dirs(root: &Path) -> Vec<PathBuf> {
                 continue;
             }
 
-            if has_required_instance_layout(&path)
-                || directory_name_looks_like_container(&path)
-                || has_instance_markers(&path)
-            {
+            if has_required_instance_layout(&path) {
                 out.push(path.clone());
             }
 
@@ -1804,6 +1828,20 @@ pub fn execute_import_action(
             &hints,
         )?;
 
+        let cache_uuid = format!(
+            "preview-{:x}",
+            md5::compute(format!("{}::{effective_version_id}", source_path.display()))
+        );
+        let _ =
+            tauri::async_runtime::block_on(crate::app::redirect_launch::prewarm_redirect_runtime(
+                &app,
+                &source_path,
+                &request.source_launcher,
+                &cache_uuid,
+                &effective_version_id,
+                &hints,
+            ));
+
         return Ok(ImportActionResult {
             success: true,
             target_name: request.target_name,
@@ -1846,24 +1884,36 @@ pub fn execute_import_action(
         fs::create_dir_all(&instance_root)
             .map_err(|err| format!("No se pudo crear carpeta del atajo: {err}"))?;
 
+        let mut shortcut_loader = request.loader.clone();
+        let mut shortcut_loader_version = request.loader_version.clone();
+        if is_unknown_loader(&shortcut_loader) {
+            if let Some((detected_loader, detected_loader_version)) =
+                detect_loader_from_versions_dir(&source_root)
+            {
+                shortcut_loader = detected_loader;
+                shortcut_loader_version = detected_loader_version;
+            }
+        }
+
         let mut effective_version_id = resolve_effective_version_id(
             &source_root,
             &request.minecraft_version,
-            &request.loader,
-            &request.loader_version,
+            &shortcut_loader,
+            &shortcut_loader_version,
             &request.source_launcher,
         );
         let loader_is_vanilla = matches!(
-            request.loader.trim().to_ascii_lowercase().as_str(),
+            shortcut_loader.trim().to_ascii_lowercase().as_str(),
             "" | "-" | "vanilla" | "desconocido" | "unknown"
         );
-        if !loader_is_vanilla && !version_id_contains_loader(&effective_version_id, &request.loader)
+        if !loader_is_vanilla
+            && !version_id_contains_loader(&effective_version_id, &shortcut_loader)
         {
             if let Some(discovered_version_id) = find_loader_version_id_from_external_paths(
                 &source_root,
                 &request.source_launcher,
                 &request.minecraft_version,
-                &request.loader,
+                &shortcut_loader,
             ) {
                 log::info!(
                     "[REDIRECT] version_id de loader resuelto desde rutas externas: {}",
@@ -1873,21 +1923,14 @@ pub fn execute_import_action(
             }
         }
 
-        let mut shortcut_loader = request.loader.clone();
-        let mut shortcut_loader_version = request.loader_version.clone();
-        if is_unknown_loader(&shortcut_loader) {
-            if let Some((detected_loader, detected_loader_version)) =
-                detect_loader_from_version_id(&effective_version_id)
-            {
+        if let Some((detected_loader, detected_loader_version)) =
+            detect_loader_from_version_id(&effective_version_id)
+        {
+            if is_unknown_loader(&shortcut_loader) {
                 shortcut_loader = detected_loader;
-                shortcut_loader_version = detected_loader_version;
             }
-        }
-        if shortcut_loader_version.is_empty() || shortcut_loader_version == "-" {
-            if let Some((_, detected_version)) =
-                detect_loader_from_version_id(&effective_version_id)
-            {
-                shortcut_loader_version = detected_version;
+            if shortcut_loader_version.is_empty() || shortcut_loader_version == "-" {
+                shortcut_loader_version = detected_loader_version;
                 log::info!(
                     "[REDIRECT] loader_version detectado desde version_id: {}",
                     shortcut_loader_version
