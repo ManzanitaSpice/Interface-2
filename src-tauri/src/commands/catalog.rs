@@ -384,11 +384,14 @@ fn map_curseforge_loader_type(loader: &str) -> Option<u32> {
 }
 
 fn tokenize_search(search: &str) -> Vec<String> {
-    search
+    let mut tokens = search
         .split_whitespace()
         .map(|token| token.trim().to_ascii_lowercase())
         .filter(|token| token.len() >= 2)
-        .collect()
+        .collect::<Vec<_>>();
+    tokens.sort();
+    tokens.dedup();
+    tokens
 }
 
 fn score_catalog_item(item: &CatalogItem, search_tokens: &[String]) -> i64 {
@@ -401,6 +404,7 @@ fn score_catalog_item(item: &CatalogItem, search_tokens: &[String]) -> i64 {
     let title = item.title.to_ascii_lowercase();
     let description = item.description.to_ascii_lowercase();
     let author = item.author.to_ascii_lowercase();
+    let project_type = item.project_type.to_ascii_lowercase();
     let tags = item
         .tags
         .iter()
@@ -428,6 +432,10 @@ fn score_catalog_item(item: &CatalogItem, search_tokens: &[String]) -> i64 {
             score += 14;
         }
 
+        if project_type.contains(token) {
+            score += 10;
+        }
+
         if item
             .minecraft_versions
             .iter()
@@ -447,8 +455,15 @@ fn score_catalog_item(item: &CatalogItem, search_tokens: &[String]) -> i64 {
 
     let download_bonus = (item.downloads as f64).log10().max(0.0) as i64;
     let source_bonus = if item.source == "Modrinth" { 1 } else { 0 };
+    let exact_phrase_bonus = if !search_tokens.is_empty()
+        && title.contains(&search_tokens.join(" "))
+    {
+        28
+    } else {
+        0
+    };
 
-    score + download_bonus + source_bonus
+    score + download_bonus + source_bonus + exact_phrase_bonus
 }
 
 fn compare_catalog_items(
