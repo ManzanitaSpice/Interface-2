@@ -563,25 +563,75 @@ fn has_required_instance_layout(path: &Path) -> bool {
         return true;
     }
 
+    if is_likely_instance_container(path) {
+        return false;
+    }
+
     let game_dir = detect_source_minecraft_dir(path).unwrap_or_else(|| path.to_path_buf());
-    let has_playable_state = game_dir.join("options.txt").is_file()
-        || game_dir.join("mods").is_dir()
+    let has_modded_state = game_dir.join("mods").is_dir()
         || game_dir.join("saves").is_dir()
         || game_dir.join("config").is_dir();
+    let has_playable_state = game_dir.join("options.txt").is_file() || has_modded_state;
     let has_runtime_layout = has_valid_versions_layout(&game_dir)
         && (game_dir.join("assets").is_dir() || game_dir.join("libraries").is_dir());
 
-    if has_playable_state && has_runtime_layout {
+    if has_modded_state && has_runtime_layout {
         return true;
     }
 
-    path.file_name()
+    let is_minecraft_root_dir = path
+        .file_name()
         .and_then(|value| value.to_str())
         .map(|name| {
             name.eq_ignore_ascii_case(".minecraft") || name.eq_ignore_ascii_case("minecraft")
         })
-        .unwrap_or(false)
-        && has_runtime_layout
+        .unwrap_or(false);
+
+    if is_minecraft_root_dir {
+        return false;
+    }
+
+    has_playable_state && has_runtime_layout
+}
+
+fn is_likely_instance_container(path: &Path) -> bool {
+    let dir_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_default();
+    let known_container_names = ["instances", "profiles", "modpacks", "install", "roaming"];
+
+    if known_container_names
+        .iter()
+        .any(|name| dir_name == *name || dir_name.contains(name))
+    {
+        return true;
+    }
+
+    let Ok(entries) = fs::read_dir(path) else {
+        return false;
+    };
+
+    let mut child_instances = 0usize;
+    for entry in entries.flatten() {
+        let child = entry.path();
+        if !child.is_dir() {
+            continue;
+        }
+
+        let child_has_markers = has_instance_markers(&child)
+            || child.join("minecraft").is_dir()
+            || child.join(".minecraft").is_dir();
+        if child_has_markers {
+            child_instances += 1;
+            if child_instances >= 2 {
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 fn directory_name_looks_like_container(path: &Path) -> bool {
@@ -798,7 +848,11 @@ fn detect_loader_from_version_id(version_id: &str) -> Option<(String, String)> {
 }
 
 fn detect_loader_from_versions_dir(path: &Path) -> Option<(String, String)> {
-    let versions_candidates = [path.join("versions"), path.join(".minecraft/versions")];
+    let versions_candidates = [
+        path.join("versions"),
+        path.join(".minecraft/versions"),
+        path.join("minecraft/versions"),
+    ];
     for versions_dir in versions_candidates {
         if !versions_dir.is_dir() {
             continue;
@@ -1886,11 +1940,25 @@ pub fn execute_import_action(
 
         let mut shortcut_loader = request.loader.clone();
         let mut shortcut_loader_version = request.loader_version.clone();
-        if is_unknown_loader(&shortcut_loader) {
-            if let Some((detected_loader, detected_loader_version)) =
-                detect_loader_from_versions_dir(&source_root)
-            {
+        let requested_loader_normalized = normalize_loader(&shortcut_loader);
+        let request_is_vanilla = matches!(
+            requested_loader_normalized.as_str(),
+            "" | "-" | "vanilla" | "desconocido" | "unknown"
+        );
+        if let Some((detected_loader, detected_loader_version)) =
+            detect_loader_from_versions_dir(&source_root)
+        {
+            let detected_is_vanilla = matches!(
+                normalize_loader(&detected_loader).as_str(),
+                "" | "-" | "vanilla" | "desconocido" | "unknown"
+            );
+            if is_unknown_loader(&shortcut_loader) || (request_is_vanilla && !detected_is_vanilla) {
                 shortcut_loader = detected_loader;
+            }
+            if shortcut_loader_version.trim().is_empty()
+                || shortcut_loader_version == "-"
+                || (request_is_vanilla && !detected_loader_version.trim().is_empty())
+            {
                 shortcut_loader_version = detected_loader_version;
             }
         }
@@ -2385,5 +2453,56 @@ fn copy_dir_recursive(source: &Path, destination: &Path) -> Result<(), String> {
 pub fn cancel_import() {
     if let Some(flag) = CANCEL_IMPORT.get() {
         flag.store(true, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{detect_loader_from_versions_dir, has_required_instance_layout};
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    fn temp_dir(label: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("interface-import-{label}-{stamp}"));
+        fs::create_dir_all(&path).expect("create temp");
+        path
+    }
+
+    #[test]
+    fn detect_loader_in_minecraft_versions_subdir() {
+        let root = temp_dir("loader-minecraft-subdir");
+        let version_id = "fabric-loader-0.16.9-1.20.1";
+        let version_dir = root.join("minecraft/versions").join(version_id);
+        fs::create_dir_all(&version_dir).expect("create versions");
+
+        let detected = detect_loader_from_versions_dir(&root);
+        fs::remove_dir_all(&root).ok();
+
+        assert_eq!(detected, Some(("fabric".to_string(), "0.16.9".to_string())));
+    }
+
+    #[test]
+    fn reject_global_minecraft_directory_as_instance() {
+        let root = temp_dir("global-minecraft").join(".minecraft");
+        let versions = root.join("versions/1.20.1");
+        fs::create_dir_all(&versions).expect("create version root");
+        fs::write(versions.join("1.20.1.json"), "{}").expect("json");
+        fs::write(versions.join("1.20.1.jar"), "jar").expect("jar");
+        fs::create_dir_all(root.join("assets")).expect("assets");
+        fs::create_dir_all(root.join("libraries")).expect("libraries");
+        fs::write(root.join("options.txt"), "").expect("options");
+
+        let is_instance = has_required_instance_layout(&root);
+        let cleanup = root.parent().expect("temp parent").to_path_buf();
+        fs::remove_dir_all(cleanup).ok();
+
+        assert!(!is_instance);
     }
 }
