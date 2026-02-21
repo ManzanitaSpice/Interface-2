@@ -1,6 +1,7 @@
 use std::{
     collections::{HashSet, VecDeque},
     fs,
+    hash::{Hash, Hasher},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
