@@ -556,27 +556,6 @@ fn has_instance_markers(path: &Path) -> bool {
     })
 }
 
-fn contains_versions_with_json(path: &Path) -> bool {
-    let versions_dir = path.join("versions");
-    if !versions_dir.is_dir() {
-        return false;
-    }
-
-    fs::read_dir(&versions_dir)
-        .ok()
-        .map(|entries| {
-            entries.flatten().any(|entry| {
-                let version_dir = entry.path();
-                if !version_dir.is_dir() {
-                    return false;
-                }
-                let id = entry.file_name().to_string_lossy().to_string();
-                !id.is_empty() && version_dir.join(format!("{id}.json")).is_file()
-            })
-        })
-        .unwrap_or(false)
-}
-
 fn is_global_minecraft_runtime(path: &Path) -> bool {
     let has_versions = path.join("versions").is_dir();
     let has_assets = path.join("assets").is_dir();
@@ -585,6 +564,33 @@ fn is_global_minecraft_runtime(path: &Path) -> bool {
         || path.join("config").is_dir()
         || path.join("options.txt").is_file();
     has_versions && has_assets && !has_game_data
+}
+
+fn is_valid_mc_version(version: &str) -> bool {
+    let parts: Vec<&str> = version.trim().split('.').collect();
+    parts.len() >= 2
+        && parts.len() <= 3
+        && parts[0] == "1"
+        && parts[1].parse::<u32>().is_ok()
+        && parts
+            .get(2)
+            .map(|patch| patch.parse::<u32>().is_ok())
+            .unwrap_or(true)
+}
+
+fn dir_has_any_jar(dir: &Path) -> bool {
+    fs::read_dir(dir)
+        .ok()
+        .map(|entries| {
+            entries.flatten().any(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("jar"))
+            })
+        })
+        .unwrap_or(false)
 }
 
 fn has_required_instance_layout(path: &Path) -> bool {
@@ -621,6 +627,11 @@ fn has_required_instance_layout(path: &Path) -> bool {
         "target",
         ".git",
         "cache",
+        "bin",
+        "users",
+        "windows",
+        "program files",
+        "appdata",
     ];
     if BLOCKED_NAMES.iter().any(|blocked| dir_name == *blocked) {
         return false;
@@ -635,7 +646,12 @@ fn has_required_instance_layout(path: &Path) -> bool {
     }
 
     if let Some(json) = read_json(&path.join("profile.json")) {
-        if json.get("game_version").is_some() {
+        if json
+            .get("game_version")
+            .and_then(Value::as_str)
+            .filter(|value| is_valid_mc_version(value))
+            .is_some()
+        {
             return true;
         }
     }
@@ -644,7 +660,8 @@ fn has_required_instance_layout(path: &Path) -> bool {
         if json
             .get("minecraft")
             .and_then(|mc| mc.get("version"))
-            .and_then(|v| v.as_str())
+            .and_then(Value::as_str)
+            .filter(|value| is_valid_mc_version(value))
             .is_some()
         {
             return true;
@@ -657,20 +674,18 @@ fn has_required_instance_layout(path: &Path) -> bool {
             continue;
         }
 
-        let has_mods = game_dir.join("mods").is_dir();
+        let has_mods = game_dir.join("mods").is_dir() && dir_has_any_jar(&game_dir.join("mods"));
         let has_saves = game_dir.join("saves").is_dir();
-        let has_versions_with_json = contains_versions_with_json(&game_dir);
-        if has_mods || has_saves || has_versions_with_json {
+        if has_mods || has_saves {
             return true;
         }
     }
 
-    let has_mods = path.join("mods").is_dir();
+    let has_mods = path.join("mods").is_dir() && dir_has_any_jar(&path.join("mods"));
     let has_saves = path.join("saves").is_dir();
-    let has_config = path.join("config").is_dir();
-    let has_options = path.join("options.txt").is_file();
+    let has_config = path.join("config").is_dir() || path.join("options.txt").is_file();
 
-    if has_mods && (has_saves || (has_config && has_options)) {
+    if has_mods && (has_saves || has_config) {
         if is_global_minecraft_runtime(path) {
             return false;
         }
@@ -681,7 +696,7 @@ fn has_required_instance_layout(path: &Path) -> bool {
         let has_mc_version = json
             .get("mcVersion")
             .and_then(|v| v.as_str())
-            .filter(|v| !v.is_empty() && v.contains('.'))
+            .filter(|v| is_valid_mc_version(v))
             .is_some();
         let has_loader = json.get("loader").and_then(|v| v.as_str()).is_some();
         if has_mc_version && has_loader {
@@ -702,7 +717,7 @@ fn has_required_instance_layout(path: &Path) -> bool {
         let has_mc_version = json
             .get("mcVersion")
             .and_then(|v| v.as_str())
-            .filter(|v| !v.is_empty() && v.contains('.'))
+            .filter(|v| is_valid_mc_version(v))
             .is_some();
         let has_mod_loader = json.get("modLoader").is_some();
         if has_mc_version && has_mod_loader {
@@ -1325,6 +1340,110 @@ fn is_unknown_mc_version(version: &str) -> bool {
     normalized.is_empty() || normalized == "desconocida" || normalized == "unknown"
 }
 
+fn read_instance_manifest_strict(source_root: &Path) -> (String, String, String) {
+    for manifest_name in ["mmc-pack.json", "minecraftinstance.json"] {
+        let path = source_root.join(manifest_name);
+        let Some(json) = read_json(&path) else {
+            continue;
+        };
+        let Some(components) = json.get("components").and_then(Value::as_array) else {
+            continue;
+        };
+
+        let mut mc_version = String::new();
+        let mut loader_name = String::new();
+        let mut loader_version = String::new();
+
+        for component in components {
+            let uid = component.get("uid").and_then(Value::as_str).unwrap_or("");
+            let version = component
+                .get("version")
+                .or_else(|| component.get("cachedVersion"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+
+            if uid == "net.minecraft" {
+                mc_version = version;
+            } else if uid.contains("fabric-loader") || uid == "net.fabricmc.fabric-loader" {
+                loader_name = "fabric".to_string();
+                loader_version = version;
+            } else if uid.contains("neoforge") || uid == "net.neoforged.neoforge" {
+                loader_name = "neoforge".to_string();
+                loader_version = version;
+            } else if uid.contains("forge") || uid == "net.minecraftforge" {
+                loader_name = "forge".to_string();
+                loader_version = version;
+            } else if uid.contains("quilt") || uid == "org.quiltmc.quilt-loader" {
+                loader_name = "quilt".to_string();
+                loader_version = version;
+            }
+        }
+
+        if loader_version == mc_version {
+            loader_version.clear();
+        }
+        if !mc_version.is_empty() {
+            return (mc_version, loader_name, loader_version);
+        }
+    }
+
+    let path = source_root.join("profile.json");
+    if let Some(json) = read_json(&path) {
+        let mc = json
+            .get("game_version")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let loader = json
+            .get("loader")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let loader_ver = json
+            .get("loader_version")
+            .and_then(Value::as_str)
+            .unwrap_or("-")
+            .to_string();
+        if !mc.is_empty() {
+            return (mc, loader, loader_ver);
+        }
+    }
+
+    let path = source_root.join("manifest.json");
+    if let Some(json) = read_json(&path) {
+        let mc = json
+            .get("minecraft")
+            .and_then(|mc| mc.get("version"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let mut loader = String::new();
+        let mut loader_ver = String::new();
+        if let Some(loaders) = json
+            .get("minecraft")
+            .and_then(|mc| mc.get("modLoaders"))
+            .and_then(Value::as_array)
+        {
+            for entry in loaders {
+                let id = entry.get("id").and_then(Value::as_str).unwrap_or("");
+                for prefix in ["forge-", "neoforge-", "fabric-", "quilt-"] {
+                    if id.starts_with(prefix) {
+                        loader = prefix.trim_end_matches('-').to_string();
+                        loader_ver = id[prefix.len()..].to_string();
+                        break;
+                    }
+                }
+            }
+        }
+        if !mc.is_empty() {
+            return (mc, loader, loader_ver);
+        }
+    }
+
+    (String::new(), String::new(), String::new())
+}
+
 fn resolve_shortcut_hints_from_source(
     source_root: &Path,
     requested_mc: &str,
@@ -1386,7 +1505,8 @@ fn detect_from_manifest(path: &Path) -> DetectionMeta {
                         if uid == "net.minecraft" {
                             component
                                 .get("version")
-                                .and_then(|v| v.as_str())
+                                .or_else(|| component.get("cachedVersion"))
+                                .and_then(Value::as_str)
                                 .map(ToOwned::to_owned)
                         } else {
                             None
@@ -1402,7 +1522,8 @@ fn detect_from_manifest(path: &Path) -> DetectionMeta {
                         let uid = component.get("uid")?.as_str()?.to_lowercase();
                         let version = component
                             .get("version")
-                            .and_then(|v| v.as_str())
+                            .or_else(|| component.get("cachedVersion"))
+                            .and_then(Value::as_str)
                             .unwrap_or("-")
                             .to_string();
                         if uid.contains("fabric") {
@@ -1439,7 +1560,8 @@ fn detect_from_manifest(path: &Path) -> DetectionMeta {
                         if uid == "net.minecraft" {
                             component
                                 .get("version")
-                                .and_then(|v| v.as_str())
+                                .or_else(|| component.get("cachedVersion"))
+                                .and_then(Value::as_str)
                                 .map(ToOwned::to_owned)
                         } else {
                             None
@@ -1454,7 +1576,8 @@ fn detect_from_manifest(path: &Path) -> DetectionMeta {
                         let uid = component.get("uid")?.as_str()?.to_lowercase();
                         let version = component
                             .get("version")
-                            .and_then(|v| v.as_str())
+                            .or_else(|| component.get("cachedVersion"))
+                            .and_then(Value::as_str)
                             .unwrap_or("-")
                             .to_string();
                         if uid.contains("fabric") {
@@ -1498,12 +1621,16 @@ fn detect_from_manifest(path: &Path) -> DetectionMeta {
 
     let atlauncher_manifest = path.join("instance.json");
     if let Some(json) = read_json(&atlauncher_manifest) {
-        meta.importable = true;
-        meta.format = Some("atlauncher".to_string());
         meta.minecraft_version = json
             .get("mcVersion")
             .and_then(Value::as_str)
+            .filter(|value| is_valid_mc_version(value))
             .map(ToOwned::to_owned);
+        if meta.minecraft_version.is_none() {
+            return DetectionMeta::default();
+        }
+        meta.importable = true;
+        meta.format = Some("atlauncher".to_string());
         meta.loader = json
             .get("loader")
             .and_then(Value::as_str)
@@ -1520,6 +1647,7 @@ fn detect_from_manifest(path: &Path) -> DetectionMeta {
         let mc = json
             .get("mcVersion")
             .and_then(Value::as_str)
+            .filter(|value| is_valid_mc_version(value))
             .map(ToOwned::to_owned);
         if mc.is_some() {
             meta.importable = true;
@@ -2432,85 +2560,39 @@ pub fn execute_import_action(
         fs::create_dir_all(&instance_root)
             .map_err(|err| format!("No se pudo crear carpeta del atajo: {err}"))?;
 
-        let (resolved_mc_from_manifest, mut shortcut_loader, mut shortcut_loader_version) =
-            resolve_shortcut_hints_from_source(
-                &source_root,
-                &request.minecraft_version,
-                &request.loader,
-                &request.loader_version,
-            );
-        let manifest_meta = detect_from_manifest(&source_root);
+        let (manifest_mc, manifest_loader, manifest_loader_version) =
+            read_instance_manifest_strict(&source_root);
 
-        let shortcut_mc_version = if let Some(mc) = manifest_meta.minecraft_version.clone() {
-            mc
-        } else if is_unknown_mc_version(&resolved_mc_from_manifest) {
-            request.minecraft_version.clone()
+        let shortcut_mc_version = if !manifest_mc.is_empty() {
+            manifest_mc
         } else {
-            resolved_mc_from_manifest
+            request.minecraft_version.clone()
         };
 
-        if let Some(manifest_loader) = manifest_meta.loader {
-            let manifest_loader = normalize_loader(&manifest_loader);
-            if is_unknown_loader(&shortcut_loader)
-                || matches!(
-                    normalize_loader(&shortcut_loader).as_str(),
-                    "" | "-" | "vanilla" | "desconocido" | "unknown"
-                )
-            {
-                shortcut_loader = manifest_loader;
-            }
-        }
-        if let Some(manifest_loader_version) = manifest_meta.loader_version {
-            if shortcut_loader_version.trim().is_empty() || shortcut_loader_version == "-" {
-                shortcut_loader_version = manifest_loader_version;
-            }
-        }
+        let mut shortcut_loader = if !manifest_loader.is_empty() {
+            normalize_loader(&manifest_loader)
+        } else {
+            normalize_loader(&request.loader)
+        };
 
-        let requested_loader_normalized = normalize_loader(&shortcut_loader);
-        let request_is_vanilla = matches!(
-            requested_loader_normalized.as_str(),
-            "" | "-" | "vanilla" | "desconocido" | "unknown"
-        );
-        if let Some((detected_loader, detected_loader_version)) =
-            detect_loader_from_versions_dir(&source_root)
-        {
-            let detected_is_vanilla = matches!(
-                normalize_loader(&detected_loader).as_str(),
-                "" | "-" | "vanilla" | "desconocido" | "unknown"
-            );
-            if is_unknown_loader(&shortcut_loader) || (request_is_vanilla && !detected_is_vanilla) {
-                shortcut_loader = detected_loader;
-            }
-            if shortcut_loader_version.trim().is_empty()
-                || shortcut_loader_version == "-"
-                || (request_is_vanilla && !detected_loader_version.trim().is_empty())
-            {
-                shortcut_loader_version = detected_loader_version;
-            }
-        }
+        let mut shortcut_loader_version =
+            if !manifest_loader_version.is_empty() && manifest_loader_version != "-" {
+                manifest_loader_version
+            } else {
+                request.loader_version.clone()
+            };
 
-        let mut effective_version_id = resolve_effective_version_id(
-            &source_root,
-            &shortcut_mc_version,
-            &shortcut_loader,
-            &shortcut_loader_version,
-            &request.source_launcher,
-        );
-        let loader_normalized = normalize_loader(&shortcut_loader);
         let loader_is_vanilla = matches!(
-            loader_normalized.as_str(),
+            shortcut_loader.as_str(),
             "" | "-" | "vanilla" | "desconocido" | "unknown"
         );
 
-        if !loader_is_vanilla
-            && !effective_version_id
-                .to_ascii_lowercase()
-                .contains(&loader_normalized)
+        let mut effective_version_id = if !loader_is_vanilla
             && !shortcut_loader_version.is_empty()
             && shortcut_loader_version != "-"
-            && !shortcut_mc_version.is_empty()
+            && shortcut_loader_version != shortcut_mc_version
         {
-            let canonical_version_id = match loader_normalized.as_str() {
+            match shortcut_loader.as_str() {
                 "fabric" => {
                     format!(
                         "fabric-loader-{}-{}",
@@ -2530,15 +2612,27 @@ pub fn execute_import_action(
                         shortcut_mc_version, shortcut_loader_version
                     )
                 }
-                _ => effective_version_id.clone(),
-            };
-            log::info!(
-                "[REDIRECT] version_id canónico construido para loader: {} → {}",
-                effective_version_id,
-                canonical_version_id
-            );
-            effective_version_id = canonical_version_id;
-        }
+                _ => shortcut_mc_version.clone(),
+            }
+        } else if loader_is_vanilla {
+            shortcut_mc_version.clone()
+        } else {
+            resolve_effective_version_id(
+                &source_root,
+                &shortcut_mc_version,
+                &shortcut_loader,
+                &shortcut_loader_version,
+                &request.source_launcher,
+            )
+        };
+
+        log::info!(
+            "[REDIRECT] crear_atajo → mc={} loader={} loader_ver={} version_id={}",
+            shortcut_mc_version,
+            shortcut_loader,
+            shortcut_loader_version,
+            effective_version_id
+        );
 
         if !loader_is_vanilla
             && !version_id_contains_loader(&effective_version_id, &shortcut_loader)

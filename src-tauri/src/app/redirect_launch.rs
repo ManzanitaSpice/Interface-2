@@ -249,28 +249,203 @@ fn now_unix_millis() -> Option<u64> {
         .map(|duration| duration.as_millis() as u64)
 }
 
-fn detect_loader_from_version_id(version_id: &str) -> Option<(String, String)> {
+fn is_valid_mc_version(version: &str) -> bool {
+    let parts: Vec<&str> = version.trim().split('.').collect();
+    parts.len() >= 2
+        && parts.len() <= 3
+        && parts[0] == "1"
+        && parts[1].parse::<u32>().is_ok()
+        && parts
+            .get(2)
+            .map(|patch| patch.parse::<u32>().is_ok())
+            .unwrap_or(true)
+}
+
+fn read_json(path: &Path) -> Option<Value> {
+    let raw = fs::read_to_string(path).ok()?;
+    serde_json::from_str::<Value>(&raw).ok()
+}
+
+fn find_mc_version_start(s: &str) -> Option<usize> {
+    for (idx, _) in s.match_indices("1.") {
+        if idx > 0 && s.as_bytes().get(idx - 1) != Some(&b'-') {
+            continue;
+        }
+        let segment = s[idx..].split('-').next().unwrap_or("");
+        let parts: Vec<&str> = segment.split('.').collect();
+        let valid = parts.len() >= 2 && parts.iter().all(|part| part.parse::<u32>().is_ok());
+        if valid {
+            return Some(idx);
+        }
+    }
+    None
+}
+
+fn parse_loader_version_id(version_id: &str) -> Option<(String, String, String)> {
     let normalized = version_id.trim().to_ascii_lowercase();
-    if normalized.is_empty() {
-        return None;
+
+    if let Some(rest) = normalized.strip_prefix("fabric-loader-") {
+        if let Some(mc_start) = find_mc_version_start(rest) {
+            let loader_ver = rest[..mc_start].trim_end_matches('-').to_string();
+            let mc_ver = rest[mc_start..].to_string();
+            if !loader_ver.is_empty()
+                && !mc_ver.is_empty()
+                && loader_ver != mc_ver
+                && is_valid_mc_version(&mc_ver)
+            {
+                return Some(("fabric".to_string(), loader_ver, mc_ver));
+            }
+        }
     }
 
-    let patterns = [
-        ("fabric-loader-", "fabric"),
-        ("quilt-loader-", "quilt"),
-        ("neoforge-", "neoforge"),
-        ("forge-", "forge"),
-    ];
+    if let Some(rest) = normalized.strip_prefix("quilt-loader-") {
+        if let Some(mc_start) = find_mc_version_start(rest) {
+            let loader_ver = rest[..mc_start].trim_end_matches('-').to_string();
+            let mc_ver = rest[mc_start..].to_string();
+            if !loader_ver.is_empty()
+                && !mc_ver.is_empty()
+                && loader_ver != mc_ver
+                && is_valid_mc_version(&mc_ver)
+            {
+                return Some(("quilt".to_string(), loader_ver, mc_ver));
+            }
+        }
+    }
 
-    for (token, loader_name) in patterns {
-        if let Some(pos) = normalized.find(token) {
-            let raw = &normalized[(pos + token.len())..];
-            let version = raw.split(['+', '-', '_']).next().unwrap_or("-");
-            return Some((loader_name.to_string(), version.to_string()));
+    if let Some(pos) = normalized.find("-forge-") {
+        let mc_ver = normalized[..pos].to_string();
+        let loader_ver = normalized[(pos + 7)..].to_string();
+        if !mc_ver.is_empty()
+            && !loader_ver.is_empty()
+            && loader_ver != mc_ver
+            && is_valid_mc_version(&mc_ver)
+        {
+            return Some(("forge".to_string(), loader_ver, mc_ver));
+        }
+    }
+
+    if let Some(pos) = normalized.find("-neoforge-") {
+        let mc_ver = normalized[..pos].to_string();
+        let loader_ver = normalized[(pos + 10)..].to_string();
+        if !mc_ver.is_empty()
+            && !loader_ver.is_empty()
+            && loader_ver != mc_ver
+            && is_valid_mc_version(&mc_ver)
+        {
+            return Some(("neoforge".to_string(), loader_ver, mc_ver));
         }
     }
 
     None
+}
+
+fn detect_loader_from_version_id(version_id: &str) -> Option<(String, String)> {
+    parse_loader_version_id(version_id).map(|(loader, loader_version, _)| (loader, loader_version))
+}
+
+fn read_instance_manifest_strict(source_root: &Path) -> (String, String, String) {
+    for manifest_name in ["mmc-pack.json", "minecraftinstance.json"] {
+        let path = source_root.join(manifest_name);
+        let Some(json) = read_json(&path) else {
+            continue;
+        };
+        let Some(components) = json.get("components").and_then(Value::as_array) else {
+            continue;
+        };
+
+        let mut mc_version = String::new();
+        let mut loader_name = String::new();
+        let mut loader_version = String::new();
+
+        for component in components {
+            let uid = component.get("uid").and_then(Value::as_str).unwrap_or("");
+            let version = component
+                .get("version")
+                .or_else(|| component.get("cachedVersion"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+
+            if uid == "net.minecraft" {
+                mc_version = version;
+            } else if uid.contains("fabric-loader") || uid == "net.fabricmc.fabric-loader" {
+                loader_name = "fabric".to_string();
+                loader_version = version;
+            } else if uid.contains("neoforge") || uid == "net.neoforged.neoforge" {
+                loader_name = "neoforge".to_string();
+                loader_version = version;
+            } else if uid.contains("forge") || uid == "net.minecraftforge" {
+                loader_name = "forge".to_string();
+                loader_version = version;
+            } else if uid.contains("quilt") || uid == "org.quiltmc.quilt-loader" {
+                loader_name = "quilt".to_string();
+                loader_version = version;
+            }
+        }
+
+        if loader_version == mc_version {
+            loader_version.clear();
+        }
+
+        if !mc_version.is_empty() {
+            return (mc_version, loader_name, loader_version);
+        }
+    }
+
+    let path = source_root.join("profile.json");
+    if let Some(json) = read_json(&path) {
+        let mc = json
+            .get("game_version")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let loader = json
+            .get("loader")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let loader_ver = json
+            .get("loader_version")
+            .and_then(Value::as_str)
+            .unwrap_or("-")
+            .to_string();
+        if !mc.is_empty() {
+            return (mc, loader, loader_ver);
+        }
+    }
+
+    let path = source_root.join("manifest.json");
+    if let Some(json) = read_json(&path) {
+        let mc = json
+            .get("minecraft")
+            .and_then(|mc| mc.get("version"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let mut loader = String::new();
+        let mut loader_ver = String::new();
+        if let Some(loaders) = json
+            .get("minecraft")
+            .and_then(|mc| mc.get("modLoaders"))
+            .and_then(Value::as_array)
+        {
+            for entry in loaders {
+                let id = entry.get("id").and_then(Value::as_str).unwrap_or("");
+                for prefix in ["forge-", "neoforge-", "fabric-", "quilt-"] {
+                    if id.starts_with(prefix) {
+                        loader = prefix.trim_end_matches('-').to_string();
+                        loader_ver = id[prefix.len()..].to_string();
+                        break;
+                    }
+                }
+            }
+        }
+        if !mc.is_empty() {
+            return (mc, loader, loader_ver);
+        }
+    }
+
+    (String::new(), String::new(), String::new())
 }
 
 fn write_instance_metadata(
@@ -2574,24 +2749,80 @@ async fn download_redirect_runtime(
     source_launcher: &str,
     hints: &RedirectVersionHints,
 ) -> Result<RedirectCacheEntry, String> {
-    let resolved_hints: RedirectVersionHints = {
-        let mut h = hints.clone();
-        if let Some((detected_loader, detected_loader_version)) =
-            detect_loader_from_version_id(version_id)
-        {
-            if h.loader.trim().is_empty() || h.loader.trim().eq_ignore_ascii_case("vanilla") {
-                h.loader = detected_loader;
+    let enriched_hints =
+        if let Some((loader, loader_ver, mc_ver)) = parse_loader_version_id(version_id) {
+            log::info!(
+                "[REDIRECT] Hints extraídos de version_id '{}': loader={} loader_ver={} mc={}",
+                version_id,
+                loader,
+                loader_ver,
+                mc_ver
+            );
+            RedirectVersionHints {
+                loader: if hints.loader.trim().is_empty() || hints.loader == "vanilla" {
+                    loader
+                } else {
+                    hints.loader.clone()
+                },
+                loader_version: if hints.loader_version.trim().is_empty()
+                    || hints.loader_version == "-"
+                    || hints.loader_version == mc_ver
+                {
+                    loader_ver
+                } else {
+                    hints.loader_version.clone()
+                },
+                minecraft_version: if hints.minecraft_version.trim().is_empty() {
+                    mc_ver
+                } else {
+                    hints.minecraft_version.clone()
+                },
             }
-            if h.loader_version.trim().is_empty() || h.loader_version.trim() == "-" {
-                h.loader_version = detected_loader_version;
-            }
-            if h.minecraft_version.trim().is_empty() {
-                h.minecraft_version = extract_minecraft_version_from_id(version_id);
-            }
-        }
-        h
+        } else {
+            hints.clone()
+        };
+
+    let (manifest_mc, manifest_loader, manifest_loader_ver) =
+        read_instance_manifest_strict(source_path);
+    let final_loader_version = if !manifest_loader_ver.is_empty()
+        && manifest_loader_ver != "-"
+        && manifest_loader_ver != manifest_mc
+        && manifest_loader_ver != enriched_hints.minecraft_version
+    {
+        log::info!(
+            "[REDIRECT] Usando loader_version del manifiesto: {}",
+            manifest_loader_ver
+        );
+        manifest_loader_ver
+    } else {
+        enriched_hints.loader_version.clone()
     };
-    let hints = &resolved_hints;
+
+    let final_mc = if !manifest_mc.is_empty() {
+        manifest_mc
+    } else {
+        enriched_hints.minecraft_version.clone()
+    };
+
+    let final_loader = if !manifest_loader.is_empty() {
+        manifest_loader
+    } else {
+        enriched_hints.loader.clone()
+    };
+
+    let final_hints = RedirectVersionHints {
+        loader: final_loader,
+        loader_version: final_loader_version,
+        minecraft_version: final_mc,
+    };
+
+    log::info!(
+        "[REDIRECT] Hints finales para descarga: loader={} loader_ver={} mc={}",
+        final_hints.loader,
+        final_hints.loader_version,
+        final_hints.minecraft_version
+    );
+    let hints = &final_hints;
 
     let cache_root = redirect_cache_root(app)?;
     let entry_dir = entry_cache_dir(&cache_root, instance_uuid);
