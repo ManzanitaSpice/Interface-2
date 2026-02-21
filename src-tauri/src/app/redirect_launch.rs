@@ -24,7 +24,7 @@ use crate::{
     domain::{
         minecraft::{
             argument_resolver::{resolve_launch_arguments, LaunchContext},
-            rule_engine::{evaluate_rules, OsName, RuleContext, RuleFeatures},
+            rule_engine::{evaluate_rules, RuleContext, RuleFeatures},
         },
         models::{instance::LaunchAuthSession, java::JavaRuntime},
     },

@@ -1727,7 +1727,7 @@ pub fn execute_import_action_batch(
             }
             Ok(response) => {
                 failures.push(ImportActionBatchFailure {
-                    instance_id,
+                    instance_id: instance_id.clone(),
                     target_name: response.target_name,
                     error: response
                         .error
@@ -1779,8 +1779,8 @@ pub fn execute_import_action_batch(
             }
             Err(error) => {
                 failures.push(ImportActionBatchFailure {
-                    instance_id,
-                    target_name,
+                    instance_id: instance_id.clone(),
+                    target_name: target_name.clone(),
                     error,
                 });
                 if should_emit_focus {
