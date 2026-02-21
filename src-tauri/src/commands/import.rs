@@ -801,16 +801,23 @@ pub(crate) fn resolve_effective_version_id(
     minecraft_version: &str,
     loader: &str,
     loader_version: &str,
+    source_launcher: &str,
 ) -> String {
     let expected = resolve_shortcut_version_id(minecraft_version, loader, loader_version);
     let expected_lower = expected.to_ascii_lowercase();
     let mc_lower = minecraft_version.trim().to_ascii_lowercase();
     let loader_lower = loader.trim().to_ascii_lowercase();
 
-    let version_roots = [
+    let mut version_roots = vec![
         source_root.join("versions"),
         source_root.join(".minecraft/versions"),
     ];
+    for root in launcher_roots_for_source(source_launcher) {
+        version_roots.push(root.join("versions"));
+    }
+    if let Some(system_root) = system_minecraft_root() {
+        version_roots.push(system_root.join("versions"));
+    }
 
     let mut fallback_mc_match: Option<String> = None;
 
@@ -839,13 +846,22 @@ pub(crate) fn resolve_effective_version_id(
                     && !version_lower.contains("fabric")
                     && !version_lower.contains("quilt")
                     && !version_lower.contains("neoforge")
+                    && versions_dir
+                        .join(&version_id)
+                        .join(format!("{version_id}.json"))
+                        .is_file()
                 {
                     return version_id;
                 }
                 continue;
             }
 
-            if version_lower.contains(&loader_lower) {
+            if version_lower.contains(&loader_lower)
+                && versions_dir
+                    .join(&version_id)
+                    .join(format!("{version_id}.json"))
+                    .is_file()
+            {
                 return version_id;
             }
 
@@ -1122,7 +1138,14 @@ fn detect_dir(path: &Path, launcher: &str) -> Option<DetectedInstance> {
     let canonical_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     canonical_path.hash(&mut hasher);
-    let detected_id = format!("detected-{:x}", hasher.finish());
+    let detected_id = format!(
+        "detected-{:x}-{}",
+        hasher.finish(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    );
 
     Some(DetectedInstance {
         id: detected_id,
@@ -1434,6 +1457,7 @@ pub fn execute_import(app: AppHandle, requests: Vec<ImportRequest>) -> Result<()
                 &req.minecraft_version,
                 &req.loader,
                 &req.loader_version,
+                "Auto detectado",
             );
 
             let internal_uuid = uuid::Uuid::new_v4().to_string();
@@ -1550,6 +1574,7 @@ pub fn execute_import_action(
             &request.minecraft_version,
             &request.loader,
             &request.loader_version,
+            &request.source_launcher,
         );
 
         crate::app::redirect_launch::resolve_redirect_launch_context(
@@ -1590,6 +1615,7 @@ pub fn execute_import_action(
             &request.minecraft_version,
             &request.loader,
             &request.loader_version,
+            &request.source_launcher,
         );
         let loader_is_vanilla = matches!(
             request.loader.trim().to_ascii_lowercase().as_str(),
@@ -1692,6 +1718,15 @@ pub fn execute_import_action(
                 "No se pudo completar la descarga/instalación de runtime oficial para el atajo (assets, libraries o jar): {err}"
             ));
         }
+
+        let _ = app.emit(
+            "instances_changed",
+            serde_json::json!({
+                "action": "created",
+                "instanceName": request.target_name,
+                "instancePath": instance_root.display().to_string(),
+            }),
+        );
 
         return Ok(ImportActionResult {
             success: true,

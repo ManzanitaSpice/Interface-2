@@ -147,13 +147,35 @@ pub fn delete_instance(app: AppHandle, instance_root: String) -> Result<(), Stri
         ));
     }
 
+    if let Ok(raw) = fs::read_to_string(canonical_target.join(".instance.json")) {
+        if let Ok(metadata) = serde_json::from_str::<InstanceMetadata>(&raw) {
+            if metadata.state.eq_ignore_ascii_case("REDIRECT") {
+                let _ = crate::app::redirect_launch::clear_redirect_cache_for_instance(
+                    &app,
+                    &canonical_target,
+                    &metadata.internal_uuid,
+                );
+            }
+        }
+    }
+
     fs::remove_dir_all(&canonical_target).map_err(|err| {
         format!(
             "No se pudo eliminar la instancia {}: {}",
             canonical_target.display(),
             err
         )
-    })
+    })?;
+
+    let _ = app.emit(
+        "instances_changed",
+        serde_json::json!({
+            "action": "deleted",
+            "instancePath": canonical_target.display().to_string(),
+        }),
+    );
+
+    Ok(())
 }
 
 fn list_instances_impl(app: AppHandle) -> AppResult<Vec<InstanceSummary>> {
