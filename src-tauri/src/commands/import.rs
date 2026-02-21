@@ -610,6 +610,10 @@ fn has_required_instance_layout(path: &Path) -> bool {
     let has_modded_state = game_dir.join("mods").is_dir()
         || game_dir.join("saves").is_dir()
         || game_dir.join("config").is_dir();
+    let has_instance_content = has_modded_state
+        || game_dir.join("resourcepacks").is_dir()
+        || game_dir.join("shaderpacks").is_dir()
+        || game_dir.join("servers.dat").is_file();
     let has_options = game_dir.join("options.txt").is_file();
     let has_versions_with_jars = has_valid_versions_layout(&game_dir);
     let has_versions_json = has_version_json_layout(&game_dir);
@@ -640,7 +644,7 @@ fn has_required_instance_layout(path: &Path) -> bool {
         return false;
     }
 
-    strong_runtime_signal && runtime_score >= 3
+    strong_runtime_signal && runtime_score >= 3 && has_instance_content
 }
 
 fn is_likely_instance_container(path: &Path) -> bool {
@@ -749,9 +753,13 @@ fn discover_keyword_scan_paths(
     let mut found = Vec::new();
     let mut visited = HashSet::new();
     let mut queue = VecDeque::new();
-    queue.push_back((base.to_path_buf(), 0usize));
+    queue.push_back((
+        base.to_path_buf(),
+        0usize,
+        directory_name_looks_like_container(base),
+    ));
 
-    while let Some((current, depth)) = queue.pop_front() {
+    while let Some((current, depth, inherited_keyword_hint)) = queue.pop_front() {
         if visited.len() >= MAX_DISCOVERY_VISITED_DIRS {
             break;
         }
@@ -779,7 +787,11 @@ fn discover_keyword_scan_paths(
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() && !should_skip_scan_dir(&path) {
-                queue.push_back((path, depth + 1));
+                let has_keyword_hint =
+                    inherited_keyword_hint || directory_name_looks_like_container(&path);
+                if depth < 1 || has_keyword_hint {
+                    queue.push_back((path, depth + 1, has_keyword_hint));
+                }
             }
         }
     }
@@ -1150,6 +1162,56 @@ fn version_id_contains_loader(version_id: &str, loader: &str) -> bool {
 fn is_unknown_loader(loader: &str) -> bool {
     let normalized = normalize_loader(loader);
     matches!(normalized.as_str(), "" | "-" | "desconocido" | "unknown")
+}
+
+fn is_unknown_mc_version(version: &str) -> bool {
+    let normalized = version.trim().to_ascii_lowercase();
+    normalized.is_empty() || normalized == "desconocida" || normalized == "unknown"
+}
+
+fn resolve_shortcut_hints_from_source(
+    source_root: &Path,
+    requested_mc: &str,
+    requested_loader: &str,
+    requested_loader_version: &str,
+) -> (String, String, String) {
+    let manifest_meta = detect_from_manifest(source_root);
+    let manifest_mc = manifest_meta.minecraft_version;
+    let manifest_loader = manifest_meta.loader;
+    let manifest_loader_version = manifest_meta.loader_version;
+
+    let mut minecraft_version = requested_mc.trim().to_string();
+    if is_unknown_mc_version(&minecraft_version) {
+        if let Some(manifest_mc) = manifest_mc {
+            minecraft_version = manifest_mc;
+        }
+    }
+
+    let mut loader = requested_loader.trim().to_string();
+    let mut loader_version = requested_loader_version.trim().to_string();
+
+    if let Some(manifest_loader) = manifest_loader {
+        let manifest_loader_norm = normalize_loader(&manifest_loader);
+        let current_loader_norm = normalize_loader(&loader);
+        let request_is_vanilla = matches!(
+            current_loader_norm.as_str(),
+            "" | "-" | "vanilla" | "desconocido" | "unknown"
+        );
+        let manifest_is_vanilla = matches!(
+            manifest_loader_norm.as_str(),
+            "" | "-" | "vanilla" | "desconocido" | "unknown"
+        );
+
+        if is_unknown_loader(&loader) || (request_is_vanilla && !manifest_is_vanilla) {
+            loader = manifest_loader_norm;
+        }
+
+        if loader_version.is_empty() || loader_version == "-" {
+            loader_version = manifest_loader_version.unwrap_or_else(|| "-".to_string());
+        }
+    }
+
+    (minecraft_version, loader, loader_version)
 }
 
 fn detect_from_manifest(path: &Path) -> DetectionMeta {
@@ -1987,8 +2049,20 @@ pub fn execute_import_action(
         fs::create_dir_all(&instance_root)
             .map_err(|err| format!("No se pudo crear carpeta del atajo: {err}"))?;
 
-        let mut shortcut_loader = request.loader.clone();
-        let mut shortcut_loader_version = request.loader_version.clone();
+        let (resolved_mc_from_manifest, mut shortcut_loader, mut shortcut_loader_version) =
+            resolve_shortcut_hints_from_source(
+                &source_root,
+                &request.minecraft_version,
+                &request.loader,
+                &request.loader_version,
+            );
+
+        let shortcut_mc_version = if is_unknown_mc_version(&resolved_mc_from_manifest) {
+            request.minecraft_version.clone()
+        } else {
+            resolved_mc_from_manifest
+        };
+
         let requested_loader_normalized = normalize_loader(&shortcut_loader);
         let request_is_vanilla = matches!(
             requested_loader_normalized.as_str(),
@@ -2014,7 +2088,7 @@ pub fn execute_import_action(
 
         let mut effective_version_id = resolve_effective_version_id(
             &source_root,
-            &request.minecraft_version,
+            &shortcut_mc_version,
             &shortcut_loader,
             &shortcut_loader_version,
             &request.source_launcher,
@@ -2058,7 +2132,7 @@ pub fn execute_import_action(
         let mut metadata = InstanceMetadata {
             name: request.target_name.clone(),
             group: "Atajos".to_string(),
-            minecraft_version: request.minecraft_version.clone(),
+            minecraft_version: shortcut_mc_version,
             version_id: effective_version_id,
             loader: shortcut_loader,
             loader_version: shortcut_loader_version,
@@ -2507,7 +2581,10 @@ pub fn cancel_import() {
 
 #[cfg(test)]
 mod tests {
-    use super::{detect_loader_from_versions_dir, has_required_instance_layout};
+    use super::{
+        detect_loader_from_versions_dir, has_required_instance_layout,
+        resolve_shortcut_hints_from_source,
+    };
     use std::{
         fs,
         path::PathBuf,
@@ -2569,7 +2646,41 @@ mod tests {
     }
 
     #[test]
-    fn accept_runtime_with_version_json_assets_and_libraries() {
+    fn reject_runtime_only_folder_without_instance_content() {
+        let root = temp_dir("runtime-only-no-instance-content");
+        let version_id = "1.20.1";
+        let version_dir = root.join("versions").join(version_id);
+        fs::create_dir_all(&version_dir).expect("version dir");
+        fs::write(version_dir.join(format!("{version_id}.json")), "{}").expect("version json");
+        fs::create_dir_all(root.join("assets/indexes")).expect("assets indexes");
+        fs::create_dir_all(root.join("libraries/com/example")).expect("libraries");
+
+        let is_instance = has_required_instance_layout(&root);
+        fs::remove_dir_all(&root).ok();
+
+        assert!(!is_instance);
+    }
+
+    #[test]
+    fn shortcut_hints_prefer_manifest_values_when_request_is_unknown() {
+        let root = temp_dir("shortcut-hints-manifest");
+        let manifest = root.join("minecraftinstance.json");
+        fs::write(
+            &manifest,
+            r#"{"components":[{"uid":"net.minecraft","version":"1.20.1"},{"uid":"net.fabricmc.fabric-loader","version":"0.16.9"}]}"#,
+        )
+        .expect("manifest");
+
+        let (mc, loader, loader_version) =
+            resolve_shortcut_hints_from_source(&root, "desconocida", "vanilla", "-");
+        fs::remove_dir_all(&root).ok();
+
+        assert_eq!(mc, "1.20.1");
+        assert_eq!(loader, "fabric");
+        assert_eq!(loader_version, "0.16.9");
+    }
+    #[test]
+    fn reject_runtime_with_version_json_assets_and_libraries_without_instance_content() {
         let root = temp_dir("runtime-json-layout");
         let version_id = "fabric-loader-0.16.9-1.20.1";
         let version_dir = root.join("versions").join(version_id);
@@ -2581,6 +2692,6 @@ mod tests {
         let is_instance = has_required_instance_layout(&root);
         fs::remove_dir_all(&root).ok();
 
-        assert!(is_instance);
+        assert!(!is_instance);
     }
 }
