@@ -417,26 +417,110 @@ fn read_and_validate_version_json(path: &Path) -> Option<Value> {
     Some(json)
 }
 
+fn detect_source_instance_hints(source_path: &Path) -> (Option<String>, Option<String>) {
+    let prism_manifest = source_path.join("minecraftinstance.json");
+    if let Ok(raw) = fs::read_to_string(&prism_manifest) {
+        if let Ok(json) = serde_json::from_str::<Value>(&raw) {
+            let mc = json
+                .get("components")
+                .and_then(Value::as_array)
+                .and_then(|components| {
+                    components.iter().find_map(|component| {
+                        let uid = component.get("uid")?.as_str()?;
+                        if uid == "net.minecraft" {
+                            component
+                                .get("version")
+                                .and_then(Value::as_str)
+                                .map(str::to_string)
+                        } else {
+                            None
+                        }
+                    })
+                });
+            let loader = json
+                .get("components")
+                .and_then(Value::as_array)
+                .and_then(|components| {
+                    components.iter().find_map(|component| {
+                        let uid = component.get("uid")?.as_str()?.to_ascii_lowercase();
+                        if uid.contains("fabric") {
+                            Some("fabric".to_string())
+                        } else if uid.contains("neoforge") {
+                            Some("neoforge".to_string())
+                        } else if uid.contains("forge") {
+                            Some("forge".to_string())
+                        } else if uid.contains("quilt") {
+                            Some("quilt".to_string())
+                        } else {
+                            None
+                        }
+                    })
+                });
+            return (loader, mc);
+        }
+    }
+
+    let modrinth_manifest = source_path.join("profile.json");
+    if let Ok(raw) = fs::read_to_string(&modrinth_manifest) {
+        if let Ok(json) = serde_json::from_str::<Value>(&raw) {
+            let loader = json
+                .get("loader")
+                .and_then(Value::as_str)
+                .map(str::to_ascii_lowercase);
+            let mc = json
+                .get("game_version")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            return (loader, mc);
+        }
+    }
+
+    (None, None)
+}
+
+fn score_version_json_candidate(
+    path: &Path,
+    version_id: &str,
+    loader_hint: Option<&str>,
+    mc_hint: Option<&str>,
+) -> usize {
+    let mut score = 0usize;
+    let lower = path.to_string_lossy().to_ascii_lowercase();
+    let version_lower = version_id.to_ascii_lowercase();
+
+    if lower.contains(&version_lower) {
+        score += 30;
+    }
+
+    if let Some(loader) = loader_hint {
+        if lower.contains(loader) {
+            score += 35;
+        }
+    }
+
+    if let Some(mc) = mc_hint {
+        if lower.contains(&mc.to_ascii_lowercase()) {
+            score += 18;
+        }
+    }
+
+    if lower.contains(".minecraft") || lower.contains("minecraft/") {
+        score += 8;
+    }
+
+    if lower.contains("versions") {
+        score += 4;
+    }
+
+    score
+}
+
 fn resolve_official_version_json(
     version_id: &str,
     source_path: &Path,
     source_launcher: &str,
 ) -> Result<(PathBuf, Value), String> {
-    if let Some(system_root) = system_minecraft_root() {
-        let mojang_official = system_root
-            .join("versions")
-            .join(version_id)
-            .join(format!("{version_id}.json"));
-        if mojang_official.exists() {
-            if let Some(json) = read_and_validate_version_json(&mojang_official) {
-                log::info!(
-                    "[REDIRECT] Usando version.json oficial de Mojang: {}",
-                    mojang_official.display()
-                );
-                return Ok((mojang_official, json));
-            }
-        }
-    }
+    let (loader_hint, mc_hint) = detect_source_instance_hints(source_path);
 
     let local_candidates = [
         source_path
@@ -453,33 +537,58 @@ fn resolve_official_version_json(
             .join(format!("{version_id}.json")),
     ];
 
-    for candidate in local_candidates {
-        if candidate.exists() {
-            if let Some(json) = read_and_validate_version_json(&candidate) {
-                log::info!(
-                    "[REDIRECT] Usando version.json del launcher externo: {}",
-                    candidate.display()
-                );
-                return Ok((candidate, json));
-            }
+    let mut candidate_files = Vec::new();
+    candidate_files.extend(local_candidates);
+
+    for launcher_root in launcher_roots_for_source(source_launcher) {
+        candidate_files.push(
+            launcher_root
+                .join("versions")
+                .join(version_id)
+                .join(format!("{version_id}.json")),
+        );
+    }
+
+    if let Some(system_root) = system_minecraft_root() {
+        candidate_files.push(
+            system_root
+                .join("versions")
+                .join(version_id)
+                .join(format!("{version_id}.json")),
+        );
+    }
+
+    let mut best: Option<(usize, PathBuf, Value)> = None;
+    for candidate in unique_paths(candidate_files) {
+        if !candidate.is_file() {
+            continue;
+        }
+        let Some(json) = read_and_validate_version_json(&candidate) else {
+            continue;
+        };
+        let score = score_version_json_candidate(
+            &candidate,
+            version_id,
+            loader_hint.as_deref(),
+            mc_hint.as_deref(),
+        );
+
+        if best
+            .as_ref()
+            .map(|(best_score, _, _)| score > *best_score)
+            .unwrap_or(true)
+        {
+            best = Some((score, candidate, json));
         }
     }
 
-    for launcher_root in launcher_roots_for_source(source_launcher) {
-        let global_path = launcher_root
-            .join("versions")
-            .join(version_id)
-            .join(format!("{version_id}.json"));
-        if global_path.exists() {
-            if let Some(json) = read_and_validate_version_json(&global_path) {
-                log::info!(
-                    "[REDIRECT] Usando version.json global del launcher {}: {}",
-                    source_launcher,
-                    global_path.display()
-                );
-                return Ok((global_path, json));
-            }
-        }
+    if let Some((_, path, json)) = best {
+        log::info!(
+            "[REDIRECT] Usando version.json resuelto para {}: {}",
+            source_launcher,
+            path.display()
+        );
+        return Ok((path, json));
     }
 
     Err(format!(
@@ -635,15 +744,15 @@ fn minecraft_jar_candidates(
 fn libraries_dir_candidates(source_path: &Path, source_launcher: &str) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
 
-    if let Some(system_root) = system_minecraft_root() {
-        candidates.push(system_root.join("libraries"));
-    }
-
     candidates.extend([
         source_path.join("libraries"),
         source_path.join(".minecraft/libraries"),
         source_path.join("minecraft/libraries"),
     ]);
+
+    if let Some(system_root) = system_minecraft_root() {
+        candidates.push(system_root.join("libraries"));
+    }
 
     for launcher_root in launcher_roots_for_source(source_launcher) {
         candidates.push(launcher_root.join("libraries"));
@@ -655,15 +764,15 @@ fn libraries_dir_candidates(source_path: &Path, source_launcher: &str) -> Vec<Pa
 fn assets_dir_candidates(source_path: &Path, source_launcher: &str) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
 
-    if let Some(system_root) = system_minecraft_root() {
-        candidates.push(system_root.join("assets"));
-    }
-
     candidates.extend([
         source_path.join("assets"),
         source_path.join(".minecraft/assets"),
         source_path.join("minecraft/assets"),
     ]);
+
+    if let Some(system_root) = system_minecraft_root() {
+        candidates.push(system_root.join("assets"));
+    }
 
     for launcher_root in launcher_roots_for_source(source_launcher) {
         candidates.push(launcher_root.join("assets"));
