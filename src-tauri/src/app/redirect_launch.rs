@@ -597,11 +597,18 @@ fn resolve_official_version_json(
 }
 
 fn resolve_redirect_game_dir(source_path: &Path) -> PathBuf {
+    let preferred = [
+        source_path.join("minecraft"),
+        source_path.join(".minecraft"),
+    ]
+    .into_iter()
+    .find(|candidate| candidate.is_dir())
+    .unwrap_or_else(|| source_path.to_path_buf());
     log::info!(
         "[REDIRECT] game_dir seleccionado (carpeta detectada completa): {}",
-        source_path.display()
+        preferred.display()
     );
-    source_path.to_path_buf()
+    preferred
 }
 
 fn verify_game_dir_has_instance_data(game_dir: &Path) -> Vec<String> {
@@ -2003,6 +2010,31 @@ async fn download_redirect_runtime(
             tokio::fs::write(&asset_path, &bytes)
                 .await
                 .map_err(|err| format!("No se pudo guardar {}: {err}", asset_path.display()))?;
+
+            emit_redirect_cache_status(
+                app,
+                json!({
+                    "stage": "downloading",
+                    "instance_uuid": instance_uuid.clone(),
+                    "version_id": version_id,
+                    "message": format!("Descargando objetos de assets para {id}..."),
+                    "progress_percent": 92,
+                    "downloaded_bytes": 0,
+                    "total_bytes": 0,
+                    "current_file": format!("assets/{id}")
+                }),
+            );
+
+            let parsed_index: Value = serde_json::from_slice(&bytes)
+                .map_err(|err| format!("No se pudo parsear assets index {id}: {err}"))?;
+            download_assets_objects_for_redirect(
+                &client,
+                &parsed_index,
+                source_path,
+                source_launcher,
+                &entry_dir.join("assets"),
+            )
+            .await?;
         }
     }
 
@@ -2024,12 +2056,83 @@ async fn download_redirect_runtime(
     })
 }
 
+async fn download_assets_objects_for_redirect(
+    client: &reqwest::Client,
+    assets_index: &Value,
+    source_path: &Path,
+    source_launcher: &str,
+    cache_assets_dir: &Path,
+) -> Result<(), String> {
+    let objects = assets_index
+        .get("objects")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "assets index no contiene objects".to_string())?;
+
+    let object_roots = {
+        let mut roots = vec![
+            source_path.join("assets").join("objects"),
+            source_path.join("minecraft").join("assets").join("objects"),
+            source_path
+                .join(".minecraft")
+                .join("assets")
+                .join("objects"),
+        ];
+        if let Some(system_root) = system_minecraft_root() {
+            roots.push(system_root.join("assets").join("objects"));
+        }
+        roots.extend(
+            launcher_roots_for_source(source_launcher)
+                .into_iter()
+                .map(|root| root.join("assets").join("objects")),
+        );
+        unique_paths(roots)
+    };
+
+    for obj in objects.values() {
+        let Some(hash) = obj.get("hash").and_then(Value::as_str) else {
+            continue;
+        };
+        if hash.len() < 2 {
+            continue;
+        }
+
+        let prefix = &hash[..2];
+        let target = cache_assets_dir.join("objects").join(prefix).join(hash);
+        if target.exists() {
+            continue;
+        }
+
+        if let Some(parent) = target.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|err| format!("No se pudo crear directorio de assets: {err}"))?;
+        }
+
+        let mut linked = false;
+        for root in &object_roots {
+            let candidate = root.join(prefix).join(hash);
+            if candidate.is_file() && link_or_copy(&candidate, &target).is_ok() && target.exists() {
+                linked = true;
+                break;
+            }
+        }
+
+        if linked {
+            continue;
+        }
+
+        let url = format!("https://resources.download.minecraft.net/{prefix}/{hash}");
+        download_async_with_retry(client, &url, &target, hash, false).await?;
+    }
+
+    Ok(())
+}
+
 fn resolve_from_cache(
     app: &AppHandle,
     instance_uuid: &str,
     version_id: &str,
     source_path: &Path,
-    source_launcher: &str,
 ) -> Result<RedirectLaunchContext, String> {
     let cache_root = redirect_cache_root(app)?;
     let base = entry_cache_dir(&cache_root, instance_uuid);
@@ -2052,15 +2155,7 @@ fn resolve_from_cache(
     .map_err(|err| format!("No se pudo parsear {}: {err}", version_json_path.display()))?;
 
     let game_dir = resolve_redirect_game_dir(source_path);
-    let cached_assets_dir = base.join("assets");
-    let assets_dir = find_assets_dir(source_path, source_launcher)
-        .filter(|assets_path| assets_path.join("indexes").is_dir())
-        .or_else(|| {
-            system_minecraft_root()
-                .map(|p| p.join("assets"))
-                .filter(|p| p.join("indexes").is_dir())
-        })
-        .unwrap_or(cached_assets_dir);
+    let assets_dir = base.join("assets");
 
     Ok(RedirectLaunchContext {
         version_json_path,
@@ -2103,7 +2198,7 @@ async fn ensure_redirect_cache_context(
                 "current_file":"cached"
             }),
         );
-        return resolve_from_cache(app, instance_uuid, version_id, source_path, source_launcher);
+        return resolve_from_cache(app, instance_uuid, version_id, source_path);
     }
 
     remove_cache_entry(&cache_root, &mut index, instance_uuid);
@@ -2149,7 +2244,7 @@ async fn ensure_redirect_cache_context(
         }),
     );
 
-    resolve_from_cache(app, instance_uuid, version_id, source_path, source_launcher)
+    resolve_from_cache(app, instance_uuid, version_id, source_path)
 }
 
 fn touch_cache_entry_last_used(app: &AppHandle, instance_uuid: &str) {
