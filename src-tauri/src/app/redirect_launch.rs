@@ -118,6 +118,11 @@ fn build_version_id_candidates(version_id: &str, hints: &RedirectVersionHints) -
         }
     }
 
+    if loader != "vanilla" && !loader.is_empty() {
+        push_candidate(&mut candidates, format!("{mc}-{loader}-"));
+        push_candidate(&mut candidates, format!("{loader}-loader--{mc}"));
+    }
+
     candidates
 }
 
@@ -400,6 +405,24 @@ fn remove_cache_entry(cache_root: &Path, index: &mut RedirectCacheIndex, instanc
         .retain(|entry| entry.instance_uuid != instance_uuid);
 }
 
+pub fn clear_redirect_cache_for_instance(
+    app: &AppHandle,
+    instance_root: &Path,
+    instance_uuid: &str,
+) -> Result<(), String> {
+    let cache_root = redirect_cache_root(app)?;
+    let mut index = load_redirect_cache_index(&cache_root);
+    remove_cache_entry(&cache_root, &mut index, instance_uuid);
+    let _ = save_redirect_cache_index(&cache_root, &index);
+
+    let prefix = instance_root.display().to_string();
+    if let Ok(mut ctx_cache) = redirect_ctx_cache().lock() {
+        ctx_cache.retain(|key, _| !key.starts_with(&prefix) && !key.contains(instance_uuid));
+    }
+
+    Ok(())
+}
+
 fn entry_expired(entry: &RedirectCacheEntry) -> bool {
     let Some(last_used) = parse_rfc3339(&entry.last_used_at) else {
         return true;
@@ -574,15 +597,40 @@ fn read_and_validate_version_json(path: &Path) -> Option<Value> {
     let has_libraries = json.get("libraries").and_then(Value::as_array).is_some();
     let has_arguments = json.get("arguments").is_some() || json.get("minecraftArguments").is_some();
 
-    if !has_main_class || !has_libraries || !has_arguments {
+    if !has_main_class && !has_libraries && !has_arguments {
         log::warn!(
-            "[REDIRECT] version.json en {} está incompleto, descartando",
+            "[REDIRECT] version.json en {} no contiene campos de lanzamiento, descartando",
             path.display()
         );
         return None;
     }
 
     Some(json)
+}
+
+fn find_versions_matching_prefix(versions_dir: &Path, prefix: &str) -> Vec<PathBuf> {
+    let prefix_lower = prefix.trim_end_matches('-').to_ascii_lowercase();
+    let Ok(entries) = fs::read_dir(versions_dir) else {
+        return vec![];
+    };
+
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let file_name = entry.file_name();
+            let name = file_name.to_string_lossy().to_string();
+            let lower = name.to_ascii_lowercase();
+            if !lower.contains(&prefix_lower) {
+                return None;
+            }
+            let json = versions_dir.join(&file_name).join(format!("{name}.json"));
+            if json.is_file() {
+                Some(json)
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn detect_source_instance_hints(source_path: &Path) -> (Option<String>, Option<String>) {
@@ -712,6 +760,25 @@ fn resolve_official_version_json(
     let mut loader_candidates = Vec::new();
     let mut vanilla_candidates = Vec::new();
     for version_id in version_ids {
+        if version_id.ends_with('-') {
+            for versions_dir in [
+                source_path.join(".minecraft/versions"),
+                source_path.join("versions"),
+                source_path.join("minecraft/versions"),
+            ] {
+                let is_loader_version = version_id.contains("fabric")
+                    || version_id.contains("forge")
+                    || version_id.contains("neoforge")
+                    || version_id.contains("quilt");
+                let matches = find_versions_matching_prefix(&versions_dir, version_id);
+                if is_loader_version {
+                    loader_candidates.extend(matches);
+                } else {
+                    vanilla_candidates.extend(matches);
+                }
+            }
+        }
+
         let is_loader_version = version_id.contains("fabric")
             || version_id.contains("forge")
             || version_id.contains("neoforge")
@@ -740,6 +807,20 @@ fn resolve_official_version_json(
 
     for launcher_root in launcher_roots_for_source(source_launcher) {
         for version_id in version_ids {
+            if version_id.ends_with('-') {
+                let versions_dir = launcher_root.join("versions");
+                let matches = find_versions_matching_prefix(&versions_dir, version_id);
+                let is_loader = version_id.contains("fabric")
+                    || version_id.contains("forge")
+                    || version_id.contains("neoforge")
+                    || version_id.contains("quilt");
+                if is_loader {
+                    loader_candidates.extend(matches);
+                } else {
+                    vanilla_candidates.extend(matches);
+                }
+            }
+
             let path = launcher_root
                 .join("versions")
                 .join(version_id)
@@ -763,6 +844,12 @@ fn resolve_official_version_json(
 
     if let Some(system_root) = system_minecraft_root() {
         for version_id in version_ids {
+            if version_id.ends_with('-') {
+                candidate_files.extend(find_versions_matching_prefix(
+                    &system_root.join("versions"),
+                    version_id,
+                ));
+            }
             candidate_files.push(
                 system_root
                     .join("versions")
@@ -812,8 +899,27 @@ fn resolve_official_version_json(
 }
 
 fn resolve_redirect_game_dir(source_path: &Path) -> PathBuf {
+    log::info!(
+        "[REDIRECT] resolve_redirect_game_dir recibió: {}",
+        source_path.display()
+    );
+    if let Ok(entries) = fs::read_dir(source_path) {
+        let contents: Vec<String> = entries
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .collect();
+        log::info!("[REDIRECT] Contenido de source_path: {:?}", contents);
+    }
+
     let dot_minecraft = source_path.join(".minecraft");
     if dot_minecraft.is_dir() {
+        if let Ok(entries) = fs::read_dir(&dot_minecraft) {
+            let contents: Vec<String> = entries
+                .flatten()
+                .map(|entry| entry.file_name().to_string_lossy().to_string())
+                .collect();
+            log::info!("[REDIRECT] Contenido de .minecraft/: {:?}", contents);
+        }
         log::info!(
             "[REDIRECT] game_dir: subcarpeta .minecraft: {}",
             dot_minecraft.display()
@@ -823,6 +929,13 @@ fn resolve_redirect_game_dir(source_path: &Path) -> PathBuf {
 
     let minecraft = source_path.join("minecraft");
     if minecraft.is_dir() {
+        if let Ok(entries) = fs::read_dir(&minecraft) {
+            let contents: Vec<String> = entries
+                .flatten()
+                .map(|entry| entry.file_name().to_string_lossy().to_string())
+                .collect();
+            log::info!("[REDIRECT] Contenido de minecraft/: {:?}", contents);
+        }
         log::info!(
             "[REDIRECT] game_dir: subcarpeta minecraft/: {}",
             minecraft.display()
@@ -902,12 +1015,27 @@ fn merge_version_jsons(parent: &Value, child: &Value) -> Value {
             );
         }
         merged["arguments"] = Value::Object(merged_args);
+    } else if let Some(child_args) = child.get("arguments") {
+        merged["arguments"] = child_args.clone();
     }
 
-    if child.get("minecraftArguments").is_none() {
-        if let Some(legacy_args) = parent.get("minecraftArguments") {
-            merged["minecraftArguments"] = legacy_args.clone();
+    match (
+        parent.get("minecraftArguments").and_then(Value::as_str),
+        child.get("minecraftArguments").and_then(Value::as_str),
+    ) {
+        (Some(parent_args), Some(child_args)) => {
+            let mut tokens: Vec<&str> = parent_args.split_whitespace().collect();
+            for token in child_args.split_whitespace() {
+                if !tokens.contains(&token) {
+                    tokens.push(token);
+                }
+            }
+            merged["minecraftArguments"] = Value::String(tokens.join(" "));
         }
+        (None, Some(child_args)) => {
+            merged["minecraftArguments"] = Value::String(child_args.to_string());
+        }
+        _ => {}
     }
 
     merged
@@ -1225,28 +1353,51 @@ fn parse_java_runtime_for_redirect(version_json: &Value, version_id: &str) -> Ja
         .and_then(Value::as_u64)
         .unwrap_or(0);
 
-    let major = if declared > 0 {
-        declared as u32
-    } else {
-        let minor = version_id
-            .split('.')
-            .nth(1)
-            .and_then(|v| v.parse::<u32>().ok())
-            .unwrap_or(20);
-        if minor < 17 {
-            8
-        } else if minor == 17 {
-            16
-        } else {
-            21
-        }
-    };
+    if declared > 0 {
+        return match declared as u32 {
+            0..=11 => JavaRuntime::Java8,
+            12..=20 => JavaRuntime::Java17,
+            _ => JavaRuntime::Java21,
+        };
+    }
 
-    match major {
-        0..=11 => JavaRuntime::Java8,
-        12..=20 => JavaRuntime::Java17,
+    let mc_version = extract_minecraft_version_from_id(version_id);
+    let minor = mc_version
+        .split('.')
+        .nth(1)
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(20);
+
+    match minor {
+        0..=16 => JavaRuntime::Java8,
+        17..=20 => JavaRuntime::Java17,
         _ => JavaRuntime::Java21,
     }
+}
+
+fn extract_minecraft_version_from_id(version_id: &str) -> String {
+    if version_id.starts_with("fabric-loader-") || version_id.starts_with("quilt-loader-") {
+        if let Some(mc) = version_id.rsplitn(2, '-').next() {
+            if mc.contains('.')
+                && mc
+                    .chars()
+                    .next()
+                    .map(|ch| ch.is_ascii_digit())
+                    .unwrap_or(false)
+            {
+                return mc.to_string();
+            }
+        }
+    }
+
+    let lower = version_id.to_ascii_lowercase();
+    for sep in ["-forge-", "-neoforge-", "-optifine_", "-optifine-"] {
+        if let Some(pos) = lower.find(sep) {
+            return version_id[..pos].to_string();
+        }
+    }
+
+    version_id.to_string()
 }
 
 fn maven_library_path(name: &str) -> Option<PathBuf> {
@@ -2351,22 +2502,57 @@ async fn download_redirect_runtime(
             }
         }
 
-        let artifact = lib.get("downloads").and_then(|d| d.get("artifact"));
-        let rel = artifact
-            .and_then(|a| a.get("path"))
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        if rel.is_empty() {
+        if let Some(artifact) = lib.get("downloads").and_then(|d| d.get("artifact")) {
+            let rel = artifact
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if rel.is_empty() {
+                continue;
+            }
+
+            let target = libs_dir.join(rel);
+            if target.exists() {
+                continue;
+            }
+
+            if let Some(system_root) = &system_libs {
+                let global_file = system_root.join(rel);
+                if global_file.exists() {
+                    let _ = link_or_copy(&global_file, &target);
+                    if target.exists() {
+                        continue;
+                    }
+                }
+            }
+
+            let sha1 = artifact
+                .get("sha1")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let url = artifact
+                .get("url")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+                .unwrap_or_else(|| format!("https://libraries.minecraft.net/{rel}"));
+            download_async_with_retry(&client, &url, &target, sha1, false).await?;
             continue;
         }
 
-        let target = libs_dir.join(rel);
+        let Some(name) = lib.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(relative_path) = maven_library_path(name) else {
+            continue;
+        };
+        let rel_str = relative_path.to_string_lossy().replace('\\', "/");
+        let target = libs_dir.join(&relative_path);
         if target.exists() {
             continue;
         }
 
         if let Some(system_root) = &system_libs {
-            let global_file = system_root.join(rel);
+            let global_file = system_root.join(&relative_path);
             if global_file.exists() {
                 let _ = link_or_copy(&global_file, &target);
                 if target.exists() {
@@ -2375,16 +2561,33 @@ async fn download_redirect_runtime(
             }
         }
 
-        let sha1 = artifact
+        for launcher_root in launcher_roots_for_source(source_launcher) {
+            let local = launcher_root.join("libraries").join(&relative_path);
+            if local.exists() {
+                let _ = link_or_copy(&local, &target);
+                if target.exists() {
+                    break;
+                }
+            }
+        }
+        if target.exists() {
+            continue;
+        }
+
+        let base_url = lib
+            .get("url")
+            .and_then(Value::as_str)
+            .unwrap_or("https://libraries.minecraft.net/");
+        let url = format!("{}/{}", base_url.trim_end_matches('/'), rel_str);
+        let sha1 = lib
+            .get("downloads")
+            .and_then(|d| d.get("artifact"))
             .and_then(|a| a.get("sha1"))
             .and_then(Value::as_str)
             .unwrap_or_default();
-        let url = artifact
-            .and_then(|a| a.get("url"))
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned)
-            .unwrap_or_else(|| format!("https://libraries.minecraft.net/{rel}"));
-        download_async_with_retry(&client, &url, &target, sha1, false).await?;
+        if let Err(err) = download_async_with_retry(&client, &url, &target, sha1, false).await {
+            log::warn!("[REDIRECT] No se pudo descargar library {name}: {err}");
+        }
     }
 
     emit_redirect_cache_status(
@@ -3312,6 +3515,7 @@ pub async fn repair_instance(
                             &metadata.minecraft_version,
                             &metadata.loader,
                             &metadata.loader_version,
+                            &redirect.source_launcher,
                         );
                         if repaired_version != metadata.version_id {
                             changes_made.push(format!(
