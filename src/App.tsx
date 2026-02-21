@@ -1267,10 +1267,11 @@ function App() {
   }, [isInstanceRunning])
 
   useEffect(() => {
+    let cancelled = false
     let unlistenRuntimeOutput: UnlistenFn | null = null
 
     const wireRuntimeOutput = async () => {
-      unlistenRuntimeOutput = await listen<RuntimeOutputEvent>('instance_runtime_output', (event) => {
+      const unlisten = await listen<RuntimeOutputEvent>('instance_runtime_output', (event) => {
         const level = event.payload.stream === 'stderr' ? 'WARN' : 'INFO'
         const source = event.payload.stream === 'system' ? 'launcher' : 'game'
         const prefix = event.payload.stream === 'system' ? '' : `[${event.payload.stream.toUpperCase()}] `
@@ -1279,14 +1280,22 @@ function App() {
           setLaunchProgressPercent((prev) => Math.min(92, Math.max(prev + 4, 16)))
         }
       })
+
+      if (cancelled) {
+        void unlisten()
+        return
+      }
+
+      unlistenRuntimeOutput = unlisten
     }
 
     void wireRuntimeOutput()
 
     return () => {
+      cancelled = true
       if (unlistenRuntimeOutput) void unlistenRuntimeOutput()
     }
-  }, [selectedCard?.instanceRoot])
+  }, [appendRuntimeForRoot, isInstanceRunning, isStartingInstance])
 
   useEffect(() => {
     const onEscapePress = (event: KeyboardEvent) => {

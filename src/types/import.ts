@@ -33,15 +33,23 @@ export type ImportRequest = {
 
 export type ImportAction = 'crear_atajo' | 'clonar' | 'migrar' | 'eliminar_instancia'
 
+export type ImportFocusStatus = {
+  key: 'verifier' | 'downloader' | 'finalizer' | string
+  label: string
+  status: 'idle' | 'running' | 'ok' | 'warn' | 'error' | string
+}
+
 export type ImportExecutionProgress = {
   instanceId: string
   instanceName: string
+  action?: string
   step: string
   stepIndex: number
   totalSteps: number
   completed: number
   total: number
   message: string
+  checkpoints?: ImportFocusStatus[]
 }
 
 export type ImportActionRequest = {

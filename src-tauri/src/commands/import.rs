@@ -103,6 +103,43 @@ pub struct ImportActionBatchResult {
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+struct ImportFocusStatus {
+    key: String,
+    label: String,
+    status: String,
+}
+
+fn emit_action_progress(
+    app: &AppHandle,
+    request: &ImportActionRequest,
+    action: &str,
+    completed: usize,
+    total: usize,
+    step_index: usize,
+    total_steps: usize,
+    step: &str,
+    message: String,
+    checkpoints: Option<Vec<ImportFocusStatus>>,
+) {
+    let _ = app.emit(
+        "import_execution_progress",
+        serde_json::json!({
+            "instanceId": request.detected_instance_id,
+            "instanceName": request.target_name,
+            "action": action,
+            "step": step,
+            "stepIndex": step_index,
+            "totalSteps": total_steps,
+            "completed": completed,
+            "total": total,
+            "message": message,
+            "checkpoints": checkpoints
+        }),
+    );
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ScanProgressEvent {
     stage: String,
     message: String,
@@ -733,6 +770,13 @@ fn resolve_effective_version_id(
     }
 
     fallback_mc_match.unwrap_or(expected)
+}
+
+fn is_unknown_loader(loader: &str) -> bool {
+    matches!(
+        loader.trim().to_ascii_lowercase().as_str(),
+        "" | "-" | "desconocido" | "unknown"
+    )
 }
 
 fn detect_from_manifest(path: &Path) -> DetectionMeta {
@@ -1441,13 +1485,24 @@ pub fn execute_import_action(
             &request.loader_version,
         );
 
+        let mut shortcut_loader = request.loader.clone();
+        let mut shortcut_loader_version = request.loader_version.clone();
+        if is_unknown_loader(&shortcut_loader) {
+            if let Some((detected_loader, detected_loader_version)) =
+                detect_loader_from_version_id(&effective_version_id)
+            {
+                shortcut_loader = detected_loader;
+                shortcut_loader_version = detected_loader_version;
+            }
+        }
+
         let metadata = InstanceMetadata {
             name: request.target_name.clone(),
             group: "Atajos".to_string(),
             minecraft_version: request.minecraft_version.clone(),
             version_id: effective_version_id,
-            loader: request.loader.clone(),
-            loader_version: request.loader_version.clone(),
+            loader: shortcut_loader,
+            loader_version: shortcut_loader_version,
             ram_mb: 4096,
             java_args: vec!["-XX:+UnlockExperimentalVMOptions".to_string()],
             java_path: "".to_string(),
@@ -1548,15 +1603,127 @@ pub fn execute_import_action_batch(
     let mut failures = Vec::new();
     let mut success_count = 0usize;
 
-    for mut request in requests {
+    for (index, mut request) in requests.into_iter().enumerate() {
         request.action = normalized_action.clone();
         let instance_id = request.detected_instance_id.clone();
         let target_name = request.target_name.clone();
+
+        let should_emit_focus = matches!(
+            normalized_action.as_str(),
+            "crear_atajo" | "clonar" | "migrar"
+        );
+        if should_emit_focus {
+            emit_action_progress(
+                &app,
+                &request,
+                &normalized_action,
+                index,
+                total,
+                0,
+                3,
+                "verificando",
+                format!(
+                    "Primer foco: verificador analizando runtime y loader para {}...",
+                    request.target_name
+                ),
+                Some(vec![
+                    ImportFocusStatus {
+                        key: "verifier".to_string(),
+                        label: "Primer foco · Verificador".to_string(),
+                        status: "running".to_string(),
+                    },
+                    ImportFocusStatus {
+                        key: "downloader".to_string(),
+                        label: "Segundo foco · Descargador e instalador".to_string(),
+                        status: "idle".to_string(),
+                    },
+                    ImportFocusStatus {
+                        key: "finalizer".to_string(),
+                        label: "Tercer foco · Finalización".to_string(),
+                        status: "idle".to_string(),
+                    },
+                ]),
+            );
+            emit_action_progress(
+                &app,
+                &request,
+                &normalized_action,
+                index,
+                total,
+                1,
+                3,
+                "descargando",
+                "Segundo foco: descargando e instalando componentes faltantes oficiales..."
+                    .to_string(),
+                Some(vec![
+                    ImportFocusStatus {
+                        key: "verifier".to_string(),
+                        label: "Primer foco · Verificador".to_string(),
+                        status: "ok".to_string(),
+                    },
+                    ImportFocusStatus {
+                        key: "downloader".to_string(),
+                        label: "Segundo foco · Descargador e instalador".to_string(),
+                        status: "running".to_string(),
+                    },
+                    ImportFocusStatus {
+                        key: "finalizer".to_string(),
+                        label: "Tercer foco · Finalización".to_string(),
+                        status: "idle".to_string(),
+                    },
+                ]),
+            );
+        }
+
         let result = execute_import_action(app.clone(), request);
 
         match result {
             Ok(response) if response.success => {
                 success_count += 1;
+                if should_emit_focus {
+                    let done = index + 1;
+                    emit_action_progress(
+                        &app,
+                        &ImportActionRequest {
+                            detected_instance_id: instance_id.clone(),
+                            source_path: String::new(),
+                            target_name: response.target_name.clone(),
+                            target_group: String::new(),
+                            minecraft_version: String::new(),
+                            loader: String::new(),
+                            loader_version: String::new(),
+                            source_launcher: String::new(),
+                            action: normalized_action.clone(),
+                        },
+                        &normalized_action,
+                        done,
+                        total,
+                        3,
+                        3,
+                        "finalizado",
+                        format!(
+                            "Tercer foco: proceso completado para {}.",
+                            response.target_name
+                        ),
+                        Some(vec![
+                            ImportFocusStatus {
+                                key: "verifier".to_string(),
+                                label: "Primer foco · Verificador".to_string(),
+                                status: "ok".to_string(),
+                            },
+                            ImportFocusStatus {
+                                key: "downloader".to_string(),
+                                label: "Segundo foco · Descargador e instalador".to_string(),
+                                status: "ok".to_string(),
+                            },
+                            ImportFocusStatus {
+                                key: "finalizer".to_string(),
+                                label: "Tercer foco · Finalización".to_string(),
+                                status: "ok".to_string(),
+                            },
+                        ]),
+                    );
+                }
             }
             Ok(response) => {
                 failures.push(ImportActionBatchFailure {
@@ -1566,6 +1733,49 @@ pub fn execute_import_action_batch(
                         .error
                         .unwrap_or_else(|| "La acción terminó sin éxito".to_string()),
                 });
+                if should_emit_focus {
+                    emit_action_progress(
+                        &app,
+                        &ImportActionRequest {
+                            detected_instance_id: instance_id.clone(),
+                            source_path: String::new(),
+                            target_name: target_name.clone(),
+                            target_group: String::new(),
+                            minecraft_version: String::new(),
+                            loader: String::new(),
+                            loader_version: String::new(),
+                            source_launcher: String::new(),
+                            action: normalized_action.clone(),
+                        },
+                        &normalized_action,
+                        index,
+                        total,
+                        2,
+                        3,
+                        "error",
+                        format!(
+                            "Tercer foco: no se pudo completar {}, se cancela para evitar errores.",
+                            target_name
+                        ),
+                        Some(vec![
+                            ImportFocusStatus {
+                                key: "verifier".to_string(),
+                                label: "Primer foco · Verificador".to_string(),
+                                status: "warn".to_string(),
+                            },
+                            ImportFocusStatus {
+                                key: "downloader".to_string(),
+                                label: "Segundo foco · Descargador e instalador".to_string(),
+                                status: "error".to_string(),
+                            },
+                            ImportFocusStatus {
+                                key: "finalizer".to_string(),
+                                label: "Tercer foco · Finalización".to_string(),
+                                status: "error".to_string(),
+                            },
+                        ]),
+                    );
+                }
             }
             Err(error) => {
                 failures.push(ImportActionBatchFailure {
@@ -1573,6 +1783,47 @@ pub fn execute_import_action_batch(
                     target_name,
                     error,
                 });
+                if should_emit_focus {
+                    emit_action_progress(
+                        &app,
+                        &ImportActionRequest {
+                            detected_instance_id: instance_id,
+                            source_path: String::new(),
+                            target_name,
+                            target_group: String::new(),
+                            minecraft_version: String::new(),
+                            loader: String::new(),
+                            loader_version: String::new(),
+                            source_launcher: String::new(),
+                            action: normalized_action.clone(),
+                        },
+                        &normalized_action,
+                        index,
+                        total,
+                        2,
+                        3,
+                        "error",
+                        "Tercer foco: error crítico, operación cancelada para prevenir problemas."
+                            .to_string(),
+                        Some(vec![
+                            ImportFocusStatus {
+                                key: "verifier".to_string(),
+                                label: "Primer foco · Verificador".to_string(),
+                                status: "warn".to_string(),
+                            },
+                            ImportFocusStatus {
+                                key: "downloader".to_string(),
+                                label: "Segundo foco · Descargador e instalador".to_string(),
+                                status: "error".to_string(),
+                            },
+                            ImportFocusStatus {
+                                key: "finalizer".to_string(),
+                                label: "Tercer foco · Finalización".to_string(),
+                                status: "error".to_string(),
+                            },
+                        ]),
+                    );
+                }
             }
         }
     }

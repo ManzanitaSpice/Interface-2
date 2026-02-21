@@ -410,6 +410,37 @@
   margin: 0;
 }
 
+
+.import-focus-row {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.import-focus-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, #111827);
+  background: #64748b;
+}
+
+.import-focus-dot.running,
+.import-focus-dot.idle {
+  background: #64748b;
+}
+
+.import-focus-dot.ok {
+  background: #22c55e;
+}
+
+.import-focus-dot.warn {
+  background: #f59e0b;
+}
+
+.import-focus-dot.error {
+  background: #ef4444;
+}
 .floating-modal-actions {
   display: flex;
   justify-content: flex-end;
