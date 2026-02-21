@@ -558,25 +558,74 @@ fn has_valid_versions_layout(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn has_required_instance_layout(path: &Path) -> bool {
-    if has_instance_markers(path) {
-        return true;
+fn has_version_json_layout(path: &Path) -> bool {
+    let versions_dir = path.join("versions");
+    if !versions_dir.is_dir() {
+        return false;
     }
 
+    fs::read_dir(&versions_dir)
+        .ok()
+        .map(|entries| {
+            entries.flatten().any(|entry| {
+                let version_id = entry.file_name().to_string_lossy().to_string();
+                if version_id.is_empty() {
+                    return false;
+                }
+                let version_root = entry.path();
+                version_root.is_dir() && version_root.join(format!("{version_id}.json")).is_file()
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn has_assets_layout(path: &Path) -> bool {
+    let assets_dir = path.join("assets");
+    if !assets_dir.is_dir() {
+        return false;
+    }
+
+    assets_dir.join("indexes").is_dir() || assets_dir.join("objects").is_dir()
+}
+
+fn has_libraries_layout(path: &Path) -> bool {
+    let libraries_dir = path.join("libraries");
+    if !libraries_dir.is_dir() {
+        return false;
+    }
+
+    fs::read_dir(&libraries_dir)
+        .ok()
+        .map(|mut entries| entries.next().is_some())
+        .unwrap_or(false)
+}
+
+fn has_required_instance_layout(path: &Path) -> bool {
     if is_likely_instance_container(path) {
         return false;
     }
 
     let game_dir = detect_source_minecraft_dir(path).unwrap_or_else(|| path.to_path_buf());
+    let has_manifest_markers = has_instance_markers(path);
     let has_modded_state = game_dir.join("mods").is_dir()
         || game_dir.join("saves").is_dir()
         || game_dir.join("config").is_dir();
-    let has_playable_state = game_dir.join("options.txt").is_file() || has_modded_state;
-    let has_runtime_layout = has_valid_versions_layout(&game_dir)
-        && (game_dir.join("assets").is_dir() || game_dir.join("libraries").is_dir());
+    let has_options = game_dir.join("options.txt").is_file();
+    let has_versions_with_jars = has_valid_versions_layout(&game_dir);
+    let has_versions_json = has_version_json_layout(&game_dir);
+    let has_assets = has_assets_layout(&game_dir);
+    let has_libraries = has_libraries_layout(&game_dir);
 
-    if has_modded_state && has_runtime_layout {
-        return true;
+    let strong_runtime_signal = has_versions_with_jars || has_versions_json;
+    let runtime_score = usize::from(has_versions_with_jars) * 2
+        + usize::from(has_versions_json)
+        + usize::from(has_assets)
+        + usize::from(has_libraries)
+        + usize::from(has_options)
+        + usize::from(has_modded_state);
+
+    if has_manifest_markers {
+        return strong_runtime_signal || has_modded_state;
     }
 
     let is_minecraft_root_dir = path
@@ -591,7 +640,7 @@ fn has_required_instance_layout(path: &Path) -> bool {
         return false;
     }
 
-    has_playable_state && has_runtime_layout
+    strong_runtime_signal && runtime_score >= 3
 }
 
 fn is_likely_instance_container(path: &Path) -> bool {
@@ -2504,5 +2553,34 @@ mod tests {
         fs::remove_dir_all(cleanup).ok();
 
         assert!(!is_instance);
+    }
+
+    #[test]
+    fn reject_random_folder_with_partial_minecraft_files() {
+        let root = temp_dir("partial-noise-folder");
+        fs::create_dir_all(root.join("mods")).expect("mods");
+        fs::create_dir_all(root.join("assets")).expect("assets");
+        fs::write(root.join("options.txt"), "").expect("options");
+
+        let is_instance = has_required_instance_layout(&root);
+        fs::remove_dir_all(&root).ok();
+
+        assert!(!is_instance);
+    }
+
+    #[test]
+    fn accept_runtime_with_version_json_assets_and_libraries() {
+        let root = temp_dir("runtime-json-layout");
+        let version_id = "fabric-loader-0.16.9-1.20.1";
+        let version_dir = root.join("versions").join(version_id);
+        fs::create_dir_all(&version_dir).expect("version dir");
+        fs::write(version_dir.join(format!("{version_id}.json")), "{}").expect("version json");
+        fs::create_dir_all(root.join("assets/indexes")).expect("assets indexes");
+        fs::create_dir_all(root.join("libraries/net/fabricmc")).expect("libraries");
+
+        let is_instance = has_required_instance_layout(&root);
+        fs::remove_dir_all(&root).ok();
+
+        assert!(is_instance);
     }
 }
