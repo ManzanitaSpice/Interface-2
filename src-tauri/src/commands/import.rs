@@ -577,10 +577,6 @@ fn contains_versions_with_json(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn has_modded_game_data(path: &Path) -> bool {
-    path.join("mods").is_dir() || path.join("saves").is_dir()
-}
-
 fn is_global_minecraft_runtime(path: &Path) -> bool {
     let has_versions = path.join("versions").is_dir();
     let has_assets = path.join("assets").is_dir();
@@ -601,54 +597,117 @@ fn has_required_instance_layout(path: &Path) -> bool {
         .and_then(|value| value.to_str())
         .map(|value| value.to_ascii_lowercase())
         .unwrap_or_default();
-    let blocked_exact = [
+    const BLOCKED_NAMES: &[&str] = &[
         ".minecraft",
         "minecraft",
         "instances",
         "profiles",
         "install",
+        "Install",
         "modpacks",
+        "versions",
+        "assets",
+        "libraries",
+        "runtime",
+        "runtimes",
+        "jvm",
+        "java",
+        "launcher",
+        "logs",
+        "crash-reports",
+        "temp",
+        "tmp",
+        "node_modules",
+        "target",
+        ".git",
+        "cache",
     ];
-    if blocked_exact.iter().any(|blocked| dir_name == *blocked) {
+    if BLOCKED_NAMES.iter().any(|blocked| dir_name == *blocked) {
         return false;
     }
 
-    if has_instance_markers(path) {
+    if path.join("minecraftinstance.json").is_file()
+        || path.join("mmc-pack.json").is_file()
+        || path.join("instance.cfg").is_file()
+        || path.join(".curseclient").exists()
+    {
         return true;
+    }
+
+    if let Some(json) = read_json(&path.join("profile.json")) {
+        if json.get("game_version").is_some() {
+            return true;
+        }
+    }
+
+    if let Some(json) = read_json(&path.join("manifest.json")) {
+        if json
+            .get("minecraft")
+            .and_then(|mc| mc.get("version"))
+            .and_then(|v| v.as_str())
+            .is_some()
+        {
+            return true;
+        }
+    }
+
+    for nested in ["minecraft", ".minecraft"] {
+        let game_dir = path.join(nested);
+        if !game_dir.is_dir() {
+            continue;
+        }
+
+        let has_mods = game_dir.join("mods").is_dir();
+        let has_saves = game_dir.join("saves").is_dir();
+        let has_versions_with_json = contains_versions_with_json(&game_dir);
+        if has_mods || has_saves || has_versions_with_json {
+            return true;
+        }
     }
 
     let has_mods = path.join("mods").is_dir();
     let has_saves = path.join("saves").is_dir();
     let has_config = path.join("config").is_dir();
     let has_options = path.join("options.txt").is_file();
-    let has_nested_mc = INSTANCE_MINECRAFT_DIRS
-        .iter()
-        .any(|nested| path.join(nested).is_dir());
 
-    if !has_nested_mc && !has_mods && !has_saves && !has_config && !has_options {
-        return false;
-    }
-
-    if is_global_minecraft_runtime(path) {
-        return false;
-    }
-
-    for nested in INSTANCE_MINECRAFT_DIRS {
-        let game_dir = path.join(nested);
-        if game_dir.is_dir() && has_modded_game_data(&game_dir) {
-            return true;
+    if has_mods && (has_saves || (has_config && has_options)) {
+        if is_global_minecraft_runtime(path) {
+            return false;
         }
-        if game_dir.is_dir() && contains_versions_with_json(&game_dir) {
-            return true;
-        }
-    }
-
-    if has_mods && (has_saves || has_config || has_options) {
         return true;
     }
 
-    if contains_versions_with_json(path) && (has_mods || has_saves || has_config) {
-        return !is_likely_instance_container(path);
+    if let Some(json) = read_json(&path.join("instance.json")) {
+        let has_mc_version = json
+            .get("mcVersion")
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.is_empty() && v.contains('.'))
+            .is_some();
+        let has_loader = json.get("loader").and_then(|v| v.as_str()).is_some();
+        if has_mc_version && has_loader {
+            return true;
+        }
+
+        let has_name = json
+            .get("name")
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.is_empty())
+            .is_some();
+        if has_mc_version && has_name {
+            return true;
+        }
+    }
+
+    if let Some(json) = read_json(&path.join("config.json")) {
+        let has_mc_version = json
+            .get("mcVersion")
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.is_empty() && v.contains('.'))
+            .is_some();
+        let has_mod_loader = json.get("modLoader").is_some();
+        if has_mc_version && has_mod_loader {
+            return true;
+        }
     }
 
     false
@@ -660,13 +719,15 @@ fn is_likely_instance_container(path: &Path) -> bool {
         .and_then(|value| value.to_str())
         .map(|value| value.to_ascii_lowercase())
         .unwrap_or_default();
-    let known_container_names = ["instances", "profiles", "modpacks", "install"];
+    const KNOWN_CONTAINER_NAMES: &[&str] =
+        &["instances", "profiles", "modpacks", "install", "Install"];
 
-    if known_container_names
-        .iter()
-        .any(|name| dir_name == *name || dir_name.contains(name))
-    {
+    if KNOWN_CONTAINER_NAMES.iter().any(|name| dir_name == *name) {
         return true;
+    }
+
+    if has_instance_markers(path) {
+        return false;
     }
 
     let Ok(entries) = fs::read_dir(path) else {
@@ -674,24 +735,23 @@ fn is_likely_instance_container(path: &Path) -> bool {
     };
 
     let mut child_instances = 0usize;
+    let mut total_dirs = 0usize;
     for entry in entries.flatten() {
         let child = entry.path();
         if !child.is_dir() {
             continue;
         }
+        total_dirs += 1;
 
         let child_has_markers = has_instance_markers(&child)
             || child.join("minecraft").is_dir()
             || child.join(".minecraft").is_dir();
         if child_has_markers {
             child_instances += 1;
-            if child_instances >= 3 {
-                return true;
-            }
         }
     }
 
-    false
+    child_instances >= 5 || (total_dirs >= 3 && child_instances * 100 / total_dirs.max(1) >= 60)
 }
 
 fn directory_name_looks_like_container(path: &Path) -> bool {
@@ -2436,10 +2496,50 @@ pub fn execute_import_action(
             &shortcut_loader_version,
             &request.source_launcher,
         );
+        let loader_normalized = normalize_loader(&shortcut_loader);
         let loader_is_vanilla = matches!(
-            shortcut_loader.trim().to_ascii_lowercase().as_str(),
+            loader_normalized.as_str(),
             "" | "-" | "vanilla" | "desconocido" | "unknown"
         );
+
+        if !loader_is_vanilla
+            && !effective_version_id
+                .to_ascii_lowercase()
+                .contains(&loader_normalized)
+            && !shortcut_loader_version.is_empty()
+            && shortcut_loader_version != "-"
+            && !shortcut_mc_version.is_empty()
+        {
+            let canonical_version_id = match loader_normalized.as_str() {
+                "fabric" => {
+                    format!(
+                        "fabric-loader-{}-{}",
+                        shortcut_loader_version, shortcut_mc_version
+                    )
+                }
+                "quilt" => {
+                    format!(
+                        "quilt-loader-{}-{}",
+                        shortcut_loader_version, shortcut_mc_version
+                    )
+                }
+                "forge" => format!("{}-forge-{}", shortcut_mc_version, shortcut_loader_version),
+                "neoforge" => {
+                    format!(
+                        "{}-neoforge-{}",
+                        shortcut_mc_version, shortcut_loader_version
+                    )
+                }
+                _ => effective_version_id.clone(),
+            };
+            log::info!(
+                "[REDIRECT] version_id canónico construido para loader: {} → {}",
+                effective_version_id,
+                canonical_version_id
+            );
+            effective_version_id = canonical_version_id;
+        }
+
         if !loader_is_vanilla
             && !version_id_contains_loader(&effective_version_id, &shortcut_loader)
         {
