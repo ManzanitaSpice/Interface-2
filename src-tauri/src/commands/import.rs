@@ -418,11 +418,12 @@ const SCAN_SKIP_DIR_NAMES: &[&str] = &[
     "System Volume Information",
 ];
 
-const MAX_DISCOVERY_VISITED_DIRS: usize = 2_000;
-const MAX_ROOT_CHILDREN_TO_SCAN: usize = 180;
-const SCAN_PROGRESS_EMIT_INTERVAL: usize = 25;
+const MAX_DISCOVERY_VISITED_DIRS: usize = 150;
+const MAX_ROOT_CHILDREN_TO_SCAN: usize = 150;
+const SCAN_PROGRESS_EMIT_INTERVAL: usize = 10;
 const DISCOVERY_SCAN_DEPTH: usize = 3;
 const DISCOVERY_MAX_CANDIDATES_PER_ROOT: usize = 64;
+const DISCOVERY_PHASE1_RESULT_THRESHOLD: usize = 8;
 
 fn known_paths() -> Vec<(String, PathBuf)> {
     let mut out = Vec::new();
@@ -591,7 +592,7 @@ fn is_global_minecraft_runtime(path: &Path) -> bool {
 }
 
 fn has_required_instance_layout(path: &Path) -> bool {
-    if !path.is_dir() || is_likely_instance_container(path) {
+    if !path.is_dir() {
         return false;
     }
 
@@ -612,12 +613,24 @@ fn has_required_instance_layout(path: &Path) -> bool {
         return false;
     }
 
-    if is_global_minecraft_runtime(path) {
+    if has_instance_markers(path) {
+        return true;
+    }
+
+    let has_mods = path.join("mods").is_dir();
+    let has_saves = path.join("saves").is_dir();
+    let has_config = path.join("config").is_dir();
+    let has_options = path.join("options.txt").is_file();
+    let has_nested_mc = INSTANCE_MINECRAFT_DIRS
+        .iter()
+        .any(|nested| path.join(nested).is_dir());
+
+    if !has_nested_mc && !has_mods && !has_saves && !has_config && !has_options {
         return false;
     }
 
-    if has_instance_markers(path) {
-        return true;
+    if is_global_minecraft_runtime(path) {
+        return false;
     }
 
     for nested in INSTANCE_MINECRAFT_DIRS {
@@ -630,10 +643,15 @@ fn has_required_instance_layout(path: &Path) -> bool {
         }
     }
 
-    path.join("mods").is_dir()
-        && (path.join("saves").is_dir()
-            || path.join("config").is_dir()
-            || path.join("options.txt").is_file())
+    if has_mods && (has_saves || has_config || has_options) {
+        return true;
+    }
+
+    if contains_versions_with_json(path) && (has_mods || has_saves || has_config) {
+        return !is_likely_instance_container(path);
+    }
+
+    false
 }
 
 fn is_likely_instance_container(path: &Path) -> bool {
@@ -709,7 +727,7 @@ fn external_search_roots() -> Vec<PathBuf> {
 
     #[cfg(not(target_os = "windows"))]
     {
-        for candidate in ["/media", "/mnt", "/run/media", "/Volumes", "/opt", "/srv"] {
+        for candidate in ["/media", "/mnt", "/run/media", "/Volumes"] {
             let path = PathBuf::from(candidate);
             if path.exists() {
                 roots.push(path);
@@ -723,10 +741,6 @@ fn external_search_roots() -> Vec<PathBuf> {
         roots.push(home.join("Desktop"));
         roots.push(home.join("Documents"));
         roots.push(home.join("Downloads"));
-        roots.push(home.join("Games"));
-        roots.push(home.join(".minecraft"));
-        roots.push(home.join(".local/share"));
-        roots.push(home.join(".config"));
         roots.push(home.join("AppData/Roaming"));
         roots.push(home.join("AppData/Local"));
     }
@@ -1764,13 +1778,25 @@ fn dedupe_instances(instances: Vec<DetectedInstance>) -> Vec<DetectedInstance> {
     out
 }
 
-fn collect_candidate_instance_dirs(root: &Path) -> Vec<PathBuf> {
-    let mut out = vec![root.to_path_buf()];
+fn collect_candidate_instance_dirs(
+    root: &Path,
+    max_depth: usize,
+    max_visited_dirs: usize,
+    cancel_flag: Option<&Arc<AtomicBool>>,
+) -> Vec<PathBuf> {
+    let mut out = Vec::new();
     let mut queue = VecDeque::from([(root.to_path_buf(), 0usize)]);
     let mut visited = HashSet::new();
 
     while let Some((current, depth)) = queue.pop_front() {
-        if depth >= 3 || out.len() >= MAX_ROOT_CHILDREN_TO_SCAN {
+        if cancel_flag.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
+            break;
+        }
+
+        if depth > max_depth
+            || visited.len() >= max_visited_dirs
+            || out.len() >= MAX_ROOT_CHILDREN_TO_SCAN
+        {
             continue;
         }
 
@@ -1784,6 +1810,9 @@ fn collect_candidate_instance_dirs(root: &Path) -> Vec<PathBuf> {
         };
 
         for entry in entries.flatten() {
+            if cancel_flag.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
+                break;
+            }
             if out.len() >= MAX_ROOT_CHILDREN_TO_SCAN {
                 break;
             }
@@ -1796,7 +1825,9 @@ fn collect_candidate_instance_dirs(root: &Path) -> Vec<PathBuf> {
                 out.push(path.clone());
             }
 
-            queue.push_back((path, depth + 1));
+            if depth < max_depth {
+                queue.push_back((path, depth + 1));
+            }
         }
     }
 
@@ -1856,19 +1887,38 @@ fn infer_mc_from_versions_dir(path: &Path) -> Option<String> {
     None
 }
 
-#[tauri::command]
-pub fn detect_external_instances(app: AppHandle) -> Result<Vec<DetectedInstance>, String> {
+fn detect_external_instances_blocking(app: AppHandle) -> Vec<DetectedInstance> {
     CANCEL_IMPORT
         .get_or_init(|| Arc::new(AtomicBool::new(false)))
         .store(false, Ordering::Relaxed);
+    let cancel_flag = CANCEL_IMPORT.get().cloned();
 
     let mut found = Vec::new();
     let mut seen_paths = HashSet::new();
 
-    let scan_targets = known_and_discovered_paths();
-    let total_targets = scan_targets.len().max(1);
+    let known_targets = known_paths();
+    let total_targets = known_targets.len().max(1);
 
-    for (index, (launcher, root)) in scan_targets.into_iter().enumerate() {
+    let _ = app.emit(
+        "import_scan_progress",
+        ScanProgressEvent {
+            stage: "phase_1_known_paths".to_string(),
+            message: "Fase 1: escaneo rápido en rutas conocidas".to_string(),
+            found_so_far: 0,
+            current_path: String::new(),
+            progress_percent: 0,
+            total_targets,
+        },
+    );
+
+    for (index, (launcher, root)) in known_targets.into_iter().enumerate() {
+        if cancel_flag
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::Relaxed))
+        {
+            return dedupe_instances(found);
+        }
+
         let percent = (((index as f32) / (total_targets as f32)) * 100.0).round() as usize;
         let _ = app.emit(
             "import_scan_progress",
@@ -1894,14 +1944,19 @@ pub fn detect_external_instances(app: AppHandle) -> Result<Vec<DetectedInstance>
             }
         }
 
-        let candidates = collect_candidate_instance_dirs(&root);
+        let candidates = collect_candidate_instance_dirs(
+            &root,
+            DISCOVERY_SCAN_DEPTH,
+            MAX_DISCOVERY_VISITED_DIRS,
+            cancel_flag.as_ref(),
+        );
 
         for (candidate_index, path) in candidates.into_iter().enumerate() {
-            if CANCEL_IMPORT
-                .get()
+            if cancel_flag
+                .as_ref()
                 .is_some_and(|flag| flag.load(Ordering::Relaxed))
             {
-                return Ok(found);
+                return dedupe_instances(found);
             }
 
             if candidate_index % SCAN_PROGRESS_EMIT_INTERVAL == 0 {
@@ -1930,6 +1985,68 @@ pub fn detect_external_instances(app: AppHandle) -> Result<Vec<DetectedInstance>
         }
     }
 
+    if cancel_flag
+        .as_ref()
+        .is_some_and(|flag| flag.load(Ordering::Relaxed))
+    {
+        return dedupe_instances(found);
+    }
+
+    if found.len() < DISCOVERY_PHASE1_RESULT_THRESHOLD {
+        let discovery_roots = external_search_roots();
+        let discovery_total = discovery_roots.len().max(1);
+        for (index, root) in discovery_roots.into_iter().enumerate() {
+            if cancel_flag
+                .as_ref()
+                .is_some_and(|flag| flag.load(Ordering::Relaxed))
+            {
+                return dedupe_instances(found);
+            }
+
+            if !root.is_dir() {
+                continue;
+            }
+
+            let _ = app.emit(
+                "import_scan_progress",
+                ScanProgressEvent {
+                    stage: "phase_2_discovery".to_string(),
+                    message: "Fase 2: descubrimiento opcional".to_string(),
+                    found_so_far: found.len(),
+                    current_path: root.display().to_string(),
+                    progress_percent: (((index as f32) / (discovery_total as f32)) * 100.0)
+                        .round()
+                        .min(99.0) as u8,
+                    total_targets: discovery_total,
+                },
+            );
+
+            for path in collect_candidate_instance_dirs(
+                &root,
+                DISCOVERY_SCAN_DEPTH,
+                MAX_DISCOVERY_VISITED_DIRS,
+                cancel_flag.as_ref(),
+            ) {
+                if cancel_flag
+                    .as_ref()
+                    .is_some_and(|flag| flag.load(Ordering::Relaxed))
+                {
+                    return dedupe_instances(found);
+                }
+
+                let canonical = fs::canonicalize(&path).unwrap_or(path.clone());
+                if !seen_paths.insert(canonical) {
+                    continue;
+                }
+
+                if let Some(instance) = detect_dir(&path, &detect_launcher_from_path(&path)) {
+                    let _ = app.emit("import_scan_result", instance.clone());
+                    found.push(instance);
+                }
+            }
+        }
+    }
+
     let _ = app.emit(
         "import_scan_progress",
         ScanProgressEvent {
@@ -1942,9 +2059,14 @@ pub fn detect_external_instances(app: AppHandle) -> Result<Vec<DetectedInstance>
         },
     );
 
-    let found = dedupe_instances(found);
+    dedupe_instances(found)
+}
 
-    Ok(found)
+#[tauri::command]
+pub async fn detect_external_instances(app: AppHandle) -> Result<Vec<DetectedInstance>, String> {
+    tauri::async_runtime::spawn_blocking(move || detect_external_instances_blocking(app))
+        .await
+        .map_err(|error| format!("No se pudo completar el escaneo externo: {error}"))
 }
 
 #[tauri::command]
