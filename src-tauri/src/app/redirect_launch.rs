@@ -3220,24 +3220,41 @@ pub async fn launch_redirect_instance(
         loader_version: metadata.loader_version.clone(),
     };
 
-    let ctx = match resolve_redirect_launch_context(
-        &source_path,
-        &metadata.version_id,
-        &redirect.source_launcher,
-        &hints,
-    ) {
-        Ok(ctx) => ctx,
-        Err(_) => {
-            ensure_redirect_cache_context(
-                &app,
-                &source_path,
-                &redirect.source_launcher,
-                &metadata.internal_uuid,
-                &metadata.version_id,
-                &hints,
-            )
-            .await?
+    let loader_is_vanilla = matches!(
+        metadata.loader.trim().to_ascii_lowercase().as_str(),
+        "" | "-" | "vanilla" | "desconocido" | "unknown"
+    );
+
+    let ctx = if loader_is_vanilla {
+        match resolve_redirect_launch_context(
+            &source_path,
+            &metadata.version_id,
+            &redirect.source_launcher,
+            &hints,
+        ) {
+            Ok(ctx) => ctx,
+            Err(_) => {
+                ensure_redirect_cache_context(
+                    &app,
+                    &source_path,
+                    &redirect.source_launcher,
+                    &metadata.internal_uuid,
+                    &metadata.version_id,
+                    &hints,
+                )
+                .await?
+            }
         }
+    } else {
+        ensure_redirect_cache_context(
+            &app,
+            &source_path,
+            &redirect.source_launcher,
+            &metadata.internal_uuid,
+            &metadata.version_id,
+            &hints,
+        )
+        .await?
     };
     touch_cache_entry_last_used(&app, &metadata.internal_uuid);
     let runtime = parse_java_runtime_for_redirect(&ctx.version_json, &ctx.resolved_version_id);
