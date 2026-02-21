@@ -2285,6 +2285,72 @@ async fn fetch_loader_version_json(
     loader_version: &str,
     minecraft_version: &str,
 ) -> Result<Value, String> {
+    async fn download_installer_bytes(
+        client: &reqwest::Client,
+        urls: &[String],
+        loader: &str,
+        loader_version: &str,
+    ) -> Result<Vec<u8>, String> {
+        let mut last_error: Option<String> = None;
+        for url in urls {
+            match client
+                .get(url)
+                .send()
+                .await
+                .and_then(|res| res.error_for_status())
+            {
+                Ok(response) => {
+                    let bytes = response.bytes().await.map_err(|e| {
+                        format!(
+                            "No se pudo leer installer de {loader} {loader_version} desde {url}: {e}"
+                        )
+                    })?;
+                    return Ok(bytes.to_vec());
+                }
+                Err(err) => {
+                    last_error = Some(format!(
+                        "No se pudo descargar installer de {loader} {loader_version} desde {url}: {err}"
+                    ));
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| {
+            format!(
+                "No se pudo descargar installer de {loader} {loader_version} desde ningún mirror"
+            )
+        }))
+    }
+
+    fn extract_version_json_from_installer(
+        installer_bytes: &[u8],
+        loader: &str,
+        loader_version: &str,
+    ) -> Result<Value, String> {
+        let reader = std::io::Cursor::new(installer_bytes);
+        let mut archive = ZipArchive::new(reader).map_err(|err| {
+            format!("Installer de {loader} {loader_version} inválido (zip): {err}")
+        })?;
+
+        for candidate in ["version.json", "profile.json"] {
+            if let Ok(mut file) = archive.by_name(candidate) {
+                let mut raw = String::new();
+                use std::io::Read;
+                file.read_to_string(&mut raw).map_err(|err| {
+                    format!("No se pudo leer {candidate} dentro del installer de {loader}: {err}")
+                })?;
+                let json: Value = serde_json::from_str(&raw).map_err(|err| {
+                    format!("No se pudo parsear {candidate} del installer de {loader}: {err}")
+                })?;
+                return Ok(json);
+            }
+        }
+
+        Err(format!(
+            "El installer de {loader} {loader_version} no incluye version.json/profile.json"
+        ))
+    }
+
     let url = match loader.trim().to_ascii_lowercase().as_str() {
         "fabric" => format!(
             "https://meta.fabricmc.net/v2/versions/loader/{}/{}/profile/json",
@@ -2295,14 +2361,33 @@ async fn fetch_loader_version_json(
             minecraft_version, loader_version
         ),
         "forge" => {
-            return Err(format!(
-                "Forge {loader_version} no encontrado localmente. Instala esta versión en cualquier launcher externo primero."
-            ));
+            let urls = vec![format!(
+                "https://maven.minecraftforge.net/net/minecraftforge/forge/{minecraft_version}-{loader_version}/forge-{minecraft_version}-{loader_version}-installer.jar"
+            )];
+            log::info!(
+                "[REDIRECT] Descargando installer de Forge para extraer version.json: {}",
+                urls[0]
+            );
+            let installer =
+                download_installer_bytes(client, &urls, "forge", loader_version).await?;
+            return extract_version_json_from_installer(&installer, "forge", loader_version);
         }
         "neoforge" => {
-            return Err(format!(
-                "NeoForge {loader_version} no encontrado localmente. Instala esta versión en cualquier launcher externo primero."
-            ));
+            let urls = vec![
+                format!(
+                    "https://maven.neoforged.net/releases/net/neoforged/neoforge/{loader_version}/neoforge-{loader_version}-installer.jar"
+                ),
+                format!(
+                    "https://maven.neoforged.net/releases/net/neoforged/neoforge/{minecraft_version}-{loader_version}/neoforge-{minecraft_version}-{loader_version}-installer.jar"
+                ),
+            ];
+            log::info!(
+                "[REDIRECT] Descargando installer de NeoForge para extraer version.json ({} intentos).",
+                urls.len()
+            );
+            let installer =
+                download_installer_bytes(client, &urls, "neoforge", loader_version).await?;
+            return extract_version_json_from_installer(&installer, "neoforge", loader_version);
         }
         _ => {
             return Err(format!(

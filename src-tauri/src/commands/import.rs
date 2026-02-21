@@ -686,7 +686,10 @@ fn resolve_shortcut_version_id(
     loader_version: &str,
 ) -> String {
     let mc = minecraft_version.trim();
-    let loader = loader.trim().to_ascii_lowercase();
+    let loader = match loader.trim().to_ascii_lowercase().as_str() {
+        "quilit" => "quilt".to_string(),
+        other => other.to_string(),
+    };
     let loader_version = loader_version.trim();
 
     if mc.is_empty() || mc.eq_ignore_ascii_case("desconocida") {
@@ -806,7 +809,10 @@ pub(crate) fn resolve_effective_version_id(
     let expected = resolve_shortcut_version_id(minecraft_version, loader, loader_version);
     let expected_lower = expected.to_ascii_lowercase();
     let mc_lower = minecraft_version.trim().to_ascii_lowercase();
-    let loader_lower = loader.trim().to_ascii_lowercase();
+    let loader_lower = match loader.trim().to_ascii_lowercase().as_str() {
+        "quilit" => "quilt".to_string(),
+        other => other.to_string(),
+    };
 
     let mut version_roots = vec![
         source_root.join("versions"),
@@ -875,7 +881,10 @@ pub(crate) fn resolve_effective_version_id(
 }
 
 fn version_id_contains_loader(version_id: &str, loader: &str) -> bool {
-    let loader_lower = loader.trim().to_ascii_lowercase();
+    let loader_lower = match loader.trim().to_ascii_lowercase().as_str() {
+        "quilit" => "quilt".to_string(),
+        other => other.to_string(),
+    };
     if loader_lower.is_empty() || loader_lower == "vanilla" || loader_lower == "desconocido" {
         return true;
     }
@@ -883,10 +892,11 @@ fn version_id_contains_loader(version_id: &str, loader: &str) -> bool {
 }
 
 fn is_unknown_loader(loader: &str) -> bool {
-    matches!(
-        loader.trim().to_ascii_lowercase().as_str(),
-        "" | "-" | "desconocido" | "unknown"
-    )
+    let normalized = match loader.trim().to_ascii_lowercase().as_str() {
+        "quilit" => "quilt",
+        other => other,
+    };
+    matches!(normalized, "" | "-" | "desconocido" | "unknown")
 }
 
 fn detect_from_manifest(path: &Path) -> DetectionMeta {
