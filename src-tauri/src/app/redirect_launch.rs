@@ -622,7 +622,10 @@ fn resolve_redirect_game_dir(source_path: &Path) -> PathBuf {
         return source_path.to_path_buf();
     }
 
-    let candidates = [source_path.join(".minecraft"), source_path.join("minecraft")];
+    let candidates = [
+        source_path.join(".minecraft"),
+        source_path.join("minecraft"),
+    ];
     let mut best_nested: Option<(usize, PathBuf)> = None;
 
     for candidate in candidates {
@@ -1756,7 +1759,7 @@ async fn load_manifest_version_url(
         .await
         .map_err(|err| format!("No se pudo parsear manifest oficial: {err}"))?;
 
-    manifest
+    if let Some(url) = manifest
         .get("versions")
         .and_then(Value::as_array)
         .and_then(|versions| {
@@ -1766,7 +1769,59 @@ async fn load_manifest_version_url(
                 .and_then(|entry| entry.get("url").and_then(Value::as_str))
         })
         .map(ToOwned::to_owned)
-        .ok_or_else(|| format!("No se encontró la versión {version_id} en manifest oficial."))
+    {
+        return Ok(url);
+    }
+
+    let fallback_id = version_id
+        .split('-')
+        .next()
+        .map(str::trim)
+        .filter(|id| !id.is_empty() && *id != version_id);
+
+    if let Some(fallback_id) = fallback_id {
+        if let Some(url) = manifest
+            .get("versions")
+            .and_then(Value::as_array)
+            .and_then(|versions| {
+                versions
+                    .iter()
+                    .find(|entry| entry.get("id").and_then(Value::as_str) == Some(fallback_id))
+                    .and_then(|entry| entry.get("url").and_then(Value::as_str))
+            })
+            .map(ToOwned::to_owned)
+        {
+            log::warn!(
+                "[REDIRECT] {} no existe en manifest oficial; usando fallback vanilla {}.",
+                version_id,
+                fallback_id
+            );
+            return Ok(url);
+        }
+    }
+
+    Err(format!(
+        "No se encontró la versión {version_id} en manifest oficial."
+    ))
+}
+
+async fn fetch_version_json_from_manifest(
+    client: &reqwest::Client,
+    version_id: &str,
+) -> Result<Value, String> {
+    let version_url = load_manifest_version_url(client, version_id).await?;
+    let raw = client
+        .get(&version_url)
+        .send()
+        .await
+        .and_then(|res| res.error_for_status())
+        .map_err(|err| format!("No se pudo descargar version json {version_url}: {err}"))?
+        .bytes()
+        .await
+        .map_err(|err| format!("No se pudo leer version json: {err}"))?;
+
+    serde_json::from_slice(&raw)
+        .map_err(|err| format!("No se pudo parsear version json oficial para {version_id}: {err}"))
 }
 
 async fn download_redirect_runtime(
@@ -1803,33 +1858,48 @@ async fn download_redirect_runtime(
     );
 
     let client = build_async_official_client()?;
-    let version_url = load_manifest_version_url(&client, version_id).await?;
     let version_json_path = versions_dir.join(format!("{version_id}.json"));
-    if !version_json_path.exists() {
-        let raw = client
-            .get(&version_url)
-            .send()
-            .await
-            .and_then(|res| res.error_for_status())
-            .map_err(|err| format!("No se pudo descargar version json {version_url}: {err}"))?
-            .bytes()
-            .await
-            .map_err(|err| format!("No se pudo leer version json: {err}"))?;
-        tokio::fs::write(&version_json_path, &raw)
-            .await
-            .map_err(|err| format!("No se pudo guardar {}: {err}", version_json_path.display()))?;
-    }
+    let version_json = match resolve_official_version_json(version_id, source_path, source_launcher)
+    {
+        Ok((local_path, json)) => {
+            tokio::fs::copy(&local_path, &version_json_path)
+                .await
+                .map_err(|err| {
+                    format!(
+                        "No se pudo copiar version json local {} a caché ({}): {err}",
+                        local_path.display(),
+                        version_json_path.display()
+                    )
+                })?;
+            json
+        }
+        Err(_) => {
+            let json = fetch_version_json_from_manifest(&client, version_id).await?;
+            let raw = serde_json::to_vec_pretty(&json)
+                .map_err(|err| format!("No se pudo serializar version json oficial: {err}"))?;
+            tokio::fs::write(&version_json_path, &raw)
+                .await
+                .map_err(|err| {
+                    format!("No se pudo guardar {}: {err}", version_json_path.display())
+                })?;
+            json
+        }
+    };
 
-    let version_json: Value = serde_json::from_str(
-        &fs::read_to_string(&version_json_path)
-            .map_err(|err| format!("No se pudo leer {}: {err}", version_json_path.display()))?,
-    )
-    .map_err(|err| {
-        format!(
-            "version json inválido {}: {err}",
-            version_json_path.display()
-        )
-    })?;
+    let parent_json = if let Some(parent_id) = version_json
+        .get("inheritsFrom")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        let parent = match resolve_official_version_json(parent_id, source_path, source_launcher) {
+            Ok((_, json)) => json,
+            Err(_) => fetch_version_json_from_manifest(&client, parent_id).await?,
+        };
+        Some(parent)
+    } else {
+        None
+    };
 
     emit_redirect_cache_status(
         app,
@@ -1846,7 +1916,22 @@ async fn download_redirect_runtime(
     );
 
     let jar_path = versions_dir.join(format!("{version_id}.jar"));
-    if let Some(downloads) = version_json.get("downloads").and_then(|v| v.get("client")) {
+    let jar_source_json = if version_json
+        .get("downloads")
+        .and_then(|v| v.get("client"))
+        .is_some()
+    {
+        &version_json
+    } else {
+        parent_json.as_ref().ok_or_else(|| {
+            "version json no contiene downloads.client ni se pudo resolver inheritsFrom".to_string()
+        })?
+    };
+
+    if let Some(downloads) = jar_source_json
+        .get("downloads")
+        .and_then(|v| v.get("client"))
+    {
         let url = downloads
             .get("url")
             .and_then(Value::as_str)
@@ -1876,12 +1961,25 @@ async fn download_redirect_runtime(
 
     let rule_context = RuleContext::current();
     let system_libs = system_minecraft_root().map(|p| p.join("libraries"));
-    for lib in version_json
-        .get("libraries")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
-    {
+    let mut libraries_to_sync = Vec::new();
+    if let Some(parent) = &parent_json {
+        libraries_to_sync.extend(
+            parent
+                .get("libraries")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default(),
+        );
+    }
+    libraries_to_sync.extend(
+        version_json
+            .get("libraries")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
+    );
+
+    for lib in libraries_to_sync {
         if let Some(rules) = lib.get("rules").and_then(Value::as_array) {
             if !evaluate_rules(rules, &rule_context) {
                 continue;
@@ -1938,7 +2036,10 @@ async fn download_redirect_runtime(
         }),
     );
 
-    if let Some(asset_index) = version_json.get("assetIndex") {
+    if let Some(asset_index) = version_json
+        .get("assetIndex")
+        .or_else(|| parent_json.as_ref().and_then(|json| json.get("assetIndex")))
+    {
         let id = asset_index
             .get("id")
             .and_then(Value::as_str)
@@ -2059,13 +2160,7 @@ async fn ensure_redirect_cache_context(
                 "current_file":"cached"
             }),
         );
-        return resolve_from_cache(
-            app,
-            instance_uuid,
-            version_id,
-            source_path,
-            source_launcher,
-        );
+        return resolve_from_cache(app, instance_uuid, version_id, source_path, source_launcher);
     }
 
     remove_cache_entry(&cache_root, &mut index, instance_uuid);
@@ -2111,13 +2206,7 @@ async fn ensure_redirect_cache_context(
         }),
     );
 
-    resolve_from_cache(
-        app,
-        instance_uuid,
-        version_id,
-        source_path,
-        source_launcher,
-    )
+    resolve_from_cache(app, instance_uuid, version_id, source_path, source_launcher)
 }
 
 fn touch_cache_entry_last_used(app: &AppHandle, instance_uuid: &str) {
