@@ -1385,7 +1385,7 @@ async fn download_natives_from_mojang_manifest(
 }
 
 pub async fn prepare_redirect_natives(
-    app: &AppHandle,
+    _app: &AppHandle,
     version_json: &Value,
     version_id: &str,
     libraries_dir: &Path,
