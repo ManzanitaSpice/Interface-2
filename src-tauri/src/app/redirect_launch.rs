@@ -1979,6 +1979,8 @@ fn resolve_from_cache(
     app: &AppHandle,
     instance_uuid: &str,
     version_id: &str,
+    source_path: &Path,
+    source_launcher: &str,
 ) -> Result<RedirectLaunchContext, String> {
     let cache_root = redirect_cache_root(app)?;
     let base = entry_cache_dir(&cache_root, instance_uuid);
@@ -2000,16 +2002,22 @@ fn resolve_from_cache(
     )
     .map_err(|err| format!("No se pudo parsear {}: {err}", version_json_path.display()))?;
 
+    let game_dir = resolve_redirect_game_dir(source_path);
+    let assets_dir = find_assets_dir(source_path, source_launcher)
+        .or_else(|| {
+            system_minecraft_root()
+                .map(|p| p.join("assets"))
+                .filter(|p| p.exists())
+        })
+        .unwrap_or_else(|| base.join("assets"));
+
     Ok(RedirectLaunchContext {
         version_json_path,
         version_json,
-        game_dir: base.clone(),
+        game_dir,
         versions_dir: base.join("versions"),
         libraries_dir: base.join("libraries"),
-        assets_dir: system_minecraft_root()
-            .map(|p| p.join("assets"))
-            .filter(|p| p.exists())
-            .unwrap_or_else(|| base.join("assets")),
+        assets_dir,
         minecraft_jar,
         launcher_name: "REDIRECT_CACHE".to_string(),
     })
@@ -2044,7 +2052,13 @@ async fn ensure_redirect_cache_context(
                 "current_file":"cached"
             }),
         );
-        return resolve_from_cache(app, instance_uuid, version_id);
+        return resolve_from_cache(
+            app,
+            instance_uuid,
+            version_id,
+            source_path,
+            source_launcher,
+        );
     }
 
     remove_cache_entry(&cache_root, &mut index, instance_uuid);
@@ -2090,7 +2104,13 @@ async fn ensure_redirect_cache_context(
         }),
     );
 
-    resolve_from_cache(app, instance_uuid, version_id)
+    resolve_from_cache(
+        app,
+        instance_uuid,
+        version_id,
+        source_path,
+        source_launcher,
+    )
 }
 
 fn touch_cache_entry_last_used(app: &AppHandle, instance_uuid: &str) {

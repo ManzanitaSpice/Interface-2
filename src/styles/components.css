@@ -2036,11 +2036,7 @@
   position: relative;
   width: 100%;
   aspect-ratio: 3 / 3;
-<<<<<<< HEAD
-  min-height: 180px;
-=======
-  min-height: 108px;
->>>>>>> 7958cce91ec8caad08f4bc248c814b97faeab003
+  min-height: 120px;
   overflow: hidden;
   border-radius: 10px 10px 0 0;
   background: #1a1a2e;
@@ -2071,26 +2067,15 @@
 .explorer-card-info {
   display: flex;
   flex-direction: column;
-<<<<<<< HEAD
-  gap: 0.4rem;
+  gap: 0.3rem;
   min-width: 0;
-  padding: 10px 12px;
-=======
-  gap: 0.26rem;
-  min-width: 0;
-  padding: 7px 9px 8px;
->>>>>>> 7958cce91ec8caad08f4bc248c814b97faeab003
+  padding: 8px 10px 9px;
 }
 
 .explorer-results.grid {
   display: grid;
-<<<<<<< HEAD
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: .7rem;
-=======
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: .55rem;
->>>>>>> 7958cce91ec8caad08f4bc248c814b97faeab003
   overflow: auto;
 }
 
@@ -2101,11 +2086,7 @@
 
 .explorer-results.list .explorer-card {
   display: grid;
-<<<<<<< HEAD
-  grid-template-columns: 280px minmax(0, 1fr);
-=======
-  grid-template-columns: 160px minmax(0, 1fr);
->>>>>>> 7958cce91ec8caad08f4bc248c814b97faeab003
+  grid-template-columns: 180px minmax(0, 1fr);
   align-items: stretch;
   column-gap: .7rem;
 }
@@ -2115,9 +2096,6 @@
 }
 
 .explorer-results.list .explorer-card .explorer-card-info {
-<<<<<<< HEAD
-  padding: .2rem 0;
-=======
   padding: .15rem 0;
 }
 
@@ -2138,9 +2116,8 @@
 }
 
 .explorer-card .instance-card-title {
-  font-size: .78rem;
+  font-size: .86rem;
   -webkit-line-clamp: 2;
->>>>>>> 7958cce91ec8caad08f4bc248c814b97faeab003
 }
 
 .explorer-results.titles {
@@ -2162,13 +2139,9 @@
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-<<<<<<< HEAD
-  line-height: 1.4;
-=======
   line-height: 1.3;
-  font-size: .68rem;
+  font-size: .72rem;
   color: var(--text-muted);
->>>>>>> 7958cce91ec8caad08f4bc248c814b97faeab003
 }
 
 .explorer-top-badges {
@@ -2196,13 +2169,8 @@
 .explorer-tags span {
   border: 1px solid var(--border);
   border-radius: 999px;
-<<<<<<< HEAD
-  padding: .1rem .45rem;
-  font-size: .68rem;
-=======
   padding: .06rem .32rem;
-  font-size: .58rem;
->>>>>>> 7958cce91ec8caad08f4bc248c814b97faeab003
+  font-size: .61rem;
   color: var(--text-muted);
 }
 
@@ -2222,11 +2190,7 @@
   padding: .1rem .34rem;
   border-radius: 999px;
   font-weight: 700;
-<<<<<<< HEAD
-  font-size: .68rem;
-=======
-  font-size: .58rem;
->>>>>>> 7958cce91ec8caad08f4bc248c814b97faeab003
+  font-size: .61rem;
 }
 
 .platform-badge.curseforge {

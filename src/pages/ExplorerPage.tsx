@@ -71,6 +71,20 @@ const labels = {
   },
 } as const
 
+function compactNumber(value: number, uiLanguage: 'es' | 'en' | 'pt') {
+  const locale = uiLanguage === 'en' ? 'en-US' : uiLanguage === 'pt' ? 'pt-BR' : 'es-ES'
+  return new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+}
+
+function cleanLoaderLabel(value: string) {
+  const normalized = value.trim().toLowerCase()
+  if (!normalized) return '-'
+  if (normalized === 'minecraft') return 'Vanilla'
+  if (normalized === 'neoforge') return 'NeoForge'
+  if (normalized === 'mrpack') return 'Modpack'
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1)
+}
+
 export function ExplorerPage({ uiLanguage }: Props) {
   const t = uiText[uiLanguage]
   const [category, setCategory] = useState<Category>('all')
@@ -141,8 +155,6 @@ export function ExplorerPage({ uiLanguage }: Props) {
     })
   }, [debouncedSearch, category, sort, platform, mcVersion, loader, page, uiLanguage, reloadTick])
 
-  const numberFormatter = useMemo(() => new Intl.NumberFormat(uiLanguage === 'en' ? 'en-US' : uiLanguage === 'pt' ? 'pt-BR' : 'es-ES'), [uiLanguage])
-
   const dateFormatter = useMemo(() => new Intl.DateTimeFormat(uiLanguage === 'en' ? 'en-US' : uiLanguage === 'pt' ? 'pt-BR' : 'es-ES', { dateStyle: 'medium' }), [uiLanguage])
 
   return (
@@ -201,16 +213,16 @@ export function ExplorerPage({ uiLanguage }: Props) {
                     <small className="explorer-description" title={item.description}>{item.description}</small>
                     <div className="explorer-top-badges">
                       <span className={`platform-badge ${item.source.toLowerCase()}`}>{item.source}</span>
-                      <span className="loader-badge">{item.loaders[0] ?? item.projectType}</span>
+                      <span className="loader-badge">{cleanLoaderLabel(item.loaders[0] ?? item.projectType)}</span>
                       {item.minecraftVersions[0] ? <span className="mc-chip">MC {item.minecraftVersions[0]}</span> : null}
                     </div>
                     <div className="instance-card-meta explorer-meta-grid">
                       <small>{t.author}: {item.author}</small>
-                      <small>{t.downloads}: {numberFormatter.format(item.downloads)}</small>
+                      <small>{t.downloads}: {compactNumber(item.downloads, uiLanguage)}</small>
                       {item.updatedAt ? <small>{dateFormatter.format(new Date(item.updatedAt))}</small> : null}
                       {item.size && item.size !== '-' ? <small>{item.size}</small> : null}
                     </div>
-                    <div className="explorer-tags">{item.tags.slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}</div>
+                    <div className="explorer-tags">{item.tags.slice(0, 3).map((tag) => <span key={tag}>{cleanLoaderLabel(tag)}</span>)}</div>
                   </>
                 )}
               </div>
