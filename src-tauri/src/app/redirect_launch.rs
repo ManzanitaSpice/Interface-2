@@ -2574,6 +2574,25 @@ async fn download_redirect_runtime(
     source_launcher: &str,
     hints: &RedirectVersionHints,
 ) -> Result<RedirectCacheEntry, String> {
+    let resolved_hints: RedirectVersionHints = {
+        let mut h = hints.clone();
+        if let Some((detected_loader, detected_loader_version)) =
+            detect_loader_from_version_id(version_id)
+        {
+            if h.loader.trim().is_empty() || h.loader.trim().eq_ignore_ascii_case("vanilla") {
+                h.loader = detected_loader;
+            }
+            if h.loader_version.trim().is_empty() || h.loader_version.trim() == "-" {
+                h.loader_version = detected_loader_version;
+            }
+            if h.minecraft_version.trim().is_empty() {
+                h.minecraft_version = extract_minecraft_version_from_id(version_id);
+            }
+        }
+        h
+    };
+    let hints = &resolved_hints;
+
     let cache_root = redirect_cache_root(app)?;
     let entry_dir = entry_cache_dir(&cache_root, instance_uuid);
     let versions_dir = entry_dir.join("versions").join(version_id);
@@ -2640,31 +2659,55 @@ async fn download_redirect_runtime(
         };
 
     let loader_hint = hints.loader.trim().to_ascii_lowercase();
-    if !loader_hint.is_empty()
+    let loader_version_hint = hints.loader_version.trim();
+    let mc_hint = hints.minecraft_version.trim();
+
+    let version_id_lower = version_id.to_ascii_lowercase();
+    let version_id_has_loader = (!loader_hint.is_empty()
+        && version_id_lower.contains(&loader_hint))
+        || version_id_lower.contains("fabric")
+        || version_id_lower.contains("forge")
+        || version_id_lower.contains("neoforge")
+        || version_id_lower.contains("quilt");
+
+    let should_fetch_loader = !loader_hint.is_empty()
         && loader_hint != "vanilla"
-        && !is_loader_version_json(&version_json, &loader_hint)
-        && !hints.loader_version.trim().is_empty()
-        && hints.loader_version.trim() != "-"
-    {
-        log::warn!(
-            "[REDIRECT] version.json resuelto parece vanilla; intentando descargar json específico del loader {} {}",
-            loader_hint,
-            hints.loader_version
+        && !loader_version_hint.is_empty()
+        && loader_version_hint != "-"
+        && !mc_hint.is_empty()
+        && (!version_id_has_loader || !is_loader_version_json(&version_json, &loader_hint));
+
+    if should_fetch_loader {
+        log::info!(
+            "[REDIRECT] version_id '{}' no contiene loader '{}'; descargando version.json oficial del loader...",
+            version_id,
+            loader_hint
         );
-        if let Ok(loader_json) = fetch_loader_version_json(
-            &client,
-            &loader_hint,
-            &hints.loader_version,
-            &hints.minecraft_version,
-        )
-        .await
-        {
-            version_json = loader_json;
-            let raw = serde_json::to_vec_pretty(&version_json)
-                .map_err(|e| format!("No se pudo serializar version.json del loader: {e}"))?;
-            tokio::fs::write(&version_json_path, &raw)
-                .await
-                .map_err(|e| format!("No se pudo guardar version.json del loader: {e}"))?;
+        match fetch_loader_version_json(&client, &loader_hint, loader_version_hint, mc_hint).await {
+            Ok(loader_json) => {
+                let correct_version_id = match loader_hint.as_str() {
+                    "fabric" => format!("fabric-loader-{}-{}", loader_version_hint, mc_hint),
+                    "quilt" => format!("quilt-loader-{}-{}", loader_version_hint, mc_hint),
+                    "forge" => format!("{}-forge-{}", mc_hint, loader_version_hint),
+                    "neoforge" => format!("{}-neoforge-{}", mc_hint, loader_version_hint),
+                    _ => version_id.to_string(),
+                };
+                log::info!(
+                    "[REDIRECT] Loader json descargado. version_id correcto: {}",
+                    correct_version_id
+                );
+                version_json = loader_json;
+                let raw = serde_json::to_vec_pretty(&version_json)
+                    .map_err(|e| format!("No se pudo serializar loader json: {e}"))?;
+                tokio::fs::write(&version_json_path, &raw)
+                    .await
+                    .map_err(|e| format!("No se pudo guardar loader json: {e}"))?;
+            }
+            Err(err) => {
+                log::warn!(
+                    "[REDIRECT] No se pudo descargar loader json, continuando con vanilla: {err}"
+                );
+            }
         }
     }
 
