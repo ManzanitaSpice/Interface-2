@@ -703,6 +703,7 @@ fn detect_source_instance_hints(source_path: &Path) -> (Option<String>, Option<S
 
 fn score_version_json_candidate(
     path: &Path,
+    json: &Value,
     version_ids: &[String],
     loader_hint: Option<&str>,
     mc_hint: Option<&str>,
@@ -723,6 +724,46 @@ fn score_version_json_candidate(
         }
     }
 
+    if json.get("inheritsFrom").is_some() {
+        score += 50;
+    }
+
+    let main_class = json
+        .get("mainClass")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if ["fabricmc", "neoforge", "bootstraplauncher", "quilt"]
+        .iter()
+        .any(|needle| main_class.contains(needle))
+    {
+        score += 40;
+    }
+
+    let version_dir_match = version_ids.iter().any(|version_id| {
+        path.parent()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.eq_ignore_ascii_case(version_id))
+    });
+    if version_dir_match {
+        score += 60;
+    }
+
+    if json.get("inheritsFrom").is_none()
+        && ![
+            "fabricmc",
+            "knot",
+            "bootstraplauncher",
+            "quilt",
+            "launchwrapper",
+        ]
+        .iter()
+        .any(|needle| main_class.contains(needle))
+    {
+        score = score.saturating_sub(20);
+    }
+
     if let Some(mc) = mc_hint {
         if lower.contains(&mc.to_ascii_lowercase()) {
             score += 18;
@@ -738,6 +779,26 @@ fn score_version_json_candidate(
     }
 
     score
+}
+
+fn is_loader_version_json(json: &Value, loader: &str) -> bool {
+    let main_class = json.get("mainClass").and_then(Value::as_str).unwrap_or("");
+    let main_lower = main_class.to_ascii_lowercase();
+    let has_inherits = json.get("inheritsFrom").is_some();
+    let loader_lower = loader.to_ascii_lowercase();
+
+    has_inherits
+        || match loader_lower.as_str() {
+            "fabric" => main_lower.contains("fabricmc") || main_lower.contains("knot"),
+            "quilt" => main_lower.contains("quiltmc") || main_lower.contains("knot"),
+            "forge" => {
+                main_lower.contains("launchwrapper") || main_lower.contains("bootstraplauncher")
+            }
+            "neoforge" => {
+                main_lower.contains("bootstraplauncher") || main_lower.contains("neoforged")
+            }
+            _ => false,
+        }
 }
 
 fn resolve_official_version_json(
@@ -866,7 +927,9 @@ fn resolve_official_version_json(
         }
     }
 
-    let mut best: Option<(usize, PathBuf, Value)> = None;
+    let mut scored_loader = Vec::new();
+    let mut scored_vanilla = Vec::new();
+
     for candidate in unique_paths(candidate_files) {
         if !candidate.is_file() {
             continue;
@@ -876,18 +939,28 @@ fn resolve_official_version_json(
         };
         let score = score_version_json_candidate(
             &candidate,
+            &json,
             version_ids,
             loader_hint.as_deref(),
             mc_hint.as_deref(),
         );
 
-        if best
-            .as_ref()
-            .map(|(best_score, _, _)| score > *best_score)
-            .unwrap_or(true)
-        {
-            best = Some((score, candidate, json));
+        if let Some(loader_name) = loader_hint.as_deref() {
+            if is_loader_version_json(&json, loader_name) {
+                scored_loader.push((score, candidate, json));
+                continue;
+            }
         }
+
+        scored_vanilla.push((score, candidate, json));
+    }
+
+    scored_loader.sort_by(|a, b| b.0.cmp(&a.0));
+    scored_vanilla.sort_by(|a, b| b.0.cmp(&a.0));
+
+    let mut best = scored_loader.into_iter().next();
+    if best.is_none() {
+        best = scored_vanilla.into_iter().next();
     }
 
     if let Some((_, path, json)) = best {
@@ -918,8 +991,10 @@ fn resolve_redirect_game_dir(source_path: &Path) -> PathBuf {
         log::info!("[REDIRECT] Contenido de source_path: {:?}", contents);
     }
 
+    let has_game_data = |path: &Path| path.join("mods").is_dir() || path.join("saves").is_dir();
+
     let dot_minecraft = source_path.join(".minecraft");
-    if dot_minecraft.is_dir() {
+    if dot_minecraft.is_dir() && has_game_data(&dot_minecraft) {
         if let Ok(entries) = fs::read_dir(&dot_minecraft) {
             let contents: Vec<String> = entries
                 .flatten()
@@ -935,7 +1010,7 @@ fn resolve_redirect_game_dir(source_path: &Path) -> PathBuf {
     }
 
     let minecraft = source_path.join("minecraft");
-    if minecraft.is_dir() {
+    if minecraft.is_dir() && has_game_data(&minecraft) {
         if let Ok(entries) = fs::read_dir(&minecraft) {
             let contents: Vec<String> = entries
                 .flatten()
@@ -950,15 +1025,7 @@ fn resolve_redirect_game_dir(source_path: &Path) -> PathBuf {
         return minecraft;
     }
 
-    let has_instance_data = source_path.join("mods").is_dir()
-        || source_path.join("saves").is_dir()
-        || source_path.join("options.txt").exists()
-        || source_path.join("config").is_dir()
-        || source_path.join("resourcepacks").is_dir()
-        || source_path.join("shaderpacks").is_dir()
-        || source_path.join("versions").is_dir();
-
-    if has_instance_data {
+    if has_game_data(source_path) {
         log::info!(
             "[REDIRECT] game_dir: source_path contiene datos directamente: {}",
             source_path.display()
@@ -966,46 +1033,27 @@ fn resolve_redirect_game_dir(source_path: &Path) -> PathBuf {
         return source_path.to_path_buf();
     }
 
-    if let Ok(entries) = fs::read_dir(source_path) {
-        let mut best: Option<(u8, PathBuf)> = None;
+    let mut queue = std::collections::VecDeque::from([(source_path.to_path_buf(), 0usize)]);
+    while let Some((current, depth)) = queue.pop_front() {
+        if depth >= 2 {
+            continue;
+        }
+        let Ok(entries) = fs::read_dir(&current) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let candidate = entry.path();
             if !candidate.is_dir() {
                 continue;
             }
-
-            let mut score = 0u8;
-            if candidate.join("versions").is_dir() {
-                score = score.saturating_add(5);
+            if has_game_data(&candidate) {
+                log::info!(
+                    "[REDIRECT] game_dir: subcarpeta detectada con datos de juego: {}",
+                    candidate.display()
+                );
+                return candidate;
             }
-            if candidate.join("mods").is_dir() {
-                score = score.saturating_add(2);
-            }
-            if candidate.join("assets").is_dir() {
-                score = score.saturating_add(2);
-            }
-            if candidate.join("options.txt").is_file() {
-                score = score.saturating_add(1);
-            }
-
-            if score == 0 {
-                continue;
-            }
-            if best
-                .as_ref()
-                .map(|(best_score, _)| score > *best_score)
-                .unwrap_or(true)
-            {
-                best = Some((score, candidate));
-            }
-        }
-
-        if let Some((_, path)) = best {
-            log::info!(
-                "[REDIRECT] game_dir: subcarpeta detectada por heurística: {}",
-                path.display()
-            );
-            return path;
+            queue.push_back((candidate, depth + 1));
         }
     }
 
@@ -1017,79 +1065,102 @@ fn resolve_redirect_game_dir(source_path: &Path) -> PathBuf {
 }
 
 fn merge_version_jsons(parent: &Value, child: &Value) -> Value {
-    let mut merged = parent.clone();
+    use serde_json::Map;
 
-    if let Some(main_class) = child.get("mainClass") {
-        merged["mainClass"] = main_class.clone();
-    }
-
-    let mut libs: Vec<Value> = parent
-        .get("libraries")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    for lib in child
-        .get("libraries")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
-    {
-        let name = lib.get("name").and_then(Value::as_str).unwrap_or("");
-        if !libs
-            .iter()
-            .any(|l| l.get("name").and_then(Value::as_str) == Some(name))
-        {
-            libs.push(lib);
+    fn extract_maven_key(lib: &Value) -> Option<String> {
+        let name = lib.get("name")?.as_str()?;
+        let parts: Vec<&str> = name.splitn(4, ':').collect();
+        match parts.len() {
+            3 => Some(format!("{}:{}", parts[0], parts[1])),
+            4 => Some(format!("{}:{}:{}", parts[0], parts[1], parts[3])),
+            _ => Some(name.to_string()),
         }
     }
-    merged["libraries"] = Value::Array(libs);
 
-    if let (Some(parent_args), Some(child_args)) = (
-        parent.get("arguments").and_then(Value::as_object),
-        child.get("arguments").and_then(Value::as_object),
-    ) {
-        let mut merged_args = parent_args.clone();
-        for key in ["jvm", "game"] {
-            let parent_list = parent_args
-                .get(key)
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            let child_list = child_args
-                .get(key)
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            merged_args.insert(
-                key.to_string(),
-                Value::Array(parent_list.into_iter().chain(child_list).collect()),
-            );
-        }
-        merged["arguments"] = Value::Object(merged_args);
-    } else if let Some(child_args) = child.get("arguments") {
-        merged["arguments"] = child_args.clone();
-    }
+    let mut result: Map<String, Value> = parent.as_object().cloned().unwrap_or_default();
+    let child_obj = match child.as_object() {
+        Some(o) => o.clone(),
+        None => return Value::Object(result),
+    };
 
-    match (
-        parent.get("minecraftArguments").and_then(Value::as_str),
-        child.get("minecraftArguments").and_then(Value::as_str),
-    ) {
-        (Some(parent_args), Some(child_args)) => {
-            let mut tokens: Vec<&str> = parent_args.split_whitespace().collect();
-            for token in child_args.split_whitespace() {
-                if !tokens.contains(&token) {
-                    tokens.push(token);
+    for (key, child_val) in child_obj {
+        match key.as_str() {
+            "inheritsFrom" => {}
+            "libraries" => {
+                let parent_libs = result
+                    .get("libraries")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                let child_libs = child_val.as_array().cloned().unwrap_or_default();
+                let mut deduped = Vec::new();
+                let mut seen = std::collections::HashSet::new();
+                let mut fallback_idx = 0usize;
+
+                for lib in child_libs.into_iter().chain(parent_libs.into_iter()) {
+                    let key = extract_maven_key(&lib).unwrap_or_else(|| {
+                        let marker = format!("__unknown_{fallback_idx}");
+                        fallback_idx += 1;
+                        marker
+                    });
+                    if seen.insert(key) {
+                        deduped.push(lib);
+                    }
+                }
+                result.insert("libraries".to_string(), Value::Array(deduped));
+            }
+            "arguments" => {
+                let parent_args = result
+                    .get("arguments")
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .unwrap_or_default();
+                let Some(child_args) = child_val.as_object().cloned() else {
+                    continue;
+                };
+                let mut merged_args = parent_args.clone();
+
+                let parent_game = parent_args
+                    .get("game")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                let child_game = child_args
+                    .get("game")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                let mut merged_game = parent_game;
+                merged_game.extend(child_game);
+                merged_args.insert("game".to_string(), Value::Array(merged_game));
+
+                let parent_jvm = parent_args
+                    .get("jvm")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                let child_jvm = child_args
+                    .get("jvm")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                let mut merged_jvm = parent_jvm;
+                merged_jvm.extend(child_jvm);
+                merged_args.insert("jvm".to_string(), Value::Array(merged_jvm));
+                result.insert("arguments".to_string(), Value::Object(merged_args));
+            }
+            "assetIndex" | "assets" => {
+                if !result.contains_key(&key) {
+                    result.insert(key, child_val);
                 }
             }
-            merged["minecraftArguments"] = Value::String(tokens.join(" "));
+            _ => {
+                result.insert(key, child_val);
+            }
         }
-        (None, Some(child_args)) => {
-            merged["minecraftArguments"] = Value::String(child_args.to_string());
-        }
-        _ => {}
     }
 
-    merged
+    Value::Object(result)
 }
 
 fn verify_game_dir_has_instance_data(game_dir: &Path) -> Vec<String> {
@@ -1424,6 +1495,37 @@ fn parse_java_runtime_for_redirect(version_json: &Value, version_id: &str) -> Ja
         17..=20 => JavaRuntime::Java17,
         _ => JavaRuntime::Java21,
     }
+}
+
+fn find_loader_jar_in_dirs(libraries_dirs: &[PathBuf], loader: &str) -> Option<PathBuf> {
+    let needle = loader.to_ascii_lowercase();
+    for libraries_dir in libraries_dirs {
+        let mut queue = std::collections::VecDeque::from([libraries_dir.clone()]);
+        while let Some(current) = queue.pop_front() {
+            let Ok(entries) = fs::read_dir(&current) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    queue.push_back(path);
+                    continue;
+                }
+                if path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("jar"))
+                    && path
+                        .to_string_lossy()
+                        .to_ascii_lowercase()
+                        .contains(&needle)
+                {
+                    return Some(path);
+                }
+            }
+        }
+    }
+    None
 }
 
 fn extract_minecraft_version_from_id(version_id: &str) -> String {
@@ -2501,7 +2603,7 @@ async fn download_redirect_runtime(
     let client = build_async_official_client()?;
     let version_json_path = versions_dir.join(format!("{version_id}.json"));
     let version_ids = build_version_id_candidates(version_id, hints);
-    let version_json =
+    let mut version_json =
         match resolve_official_version_json(&version_ids, hints, source_path, source_launcher) {
             Ok((local_path, json)) => {
                 let _ = tokio::fs::copy(&local_path, &version_json_path).await;
@@ -2536,6 +2638,35 @@ async fn download_redirect_runtime(
                 }
             }
         };
+
+    let loader_hint = hints.loader.trim().to_ascii_lowercase();
+    if !loader_hint.is_empty()
+        && loader_hint != "vanilla"
+        && !is_loader_version_json(&version_json, &loader_hint)
+        && !hints.loader_version.trim().is_empty()
+        && hints.loader_version.trim() != "-"
+    {
+        log::warn!(
+            "[REDIRECT] version.json resuelto parece vanilla; intentando descargar json específico del loader {} {}",
+            loader_hint,
+            hints.loader_version
+        );
+        if let Ok(loader_json) = fetch_loader_version_json(
+            &client,
+            &loader_hint,
+            &hints.loader_version,
+            &hints.minecraft_version,
+        )
+        .await
+        {
+            version_json = loader_json;
+            let raw = serde_json::to_vec_pretty(&version_json)
+                .map_err(|e| format!("No se pudo serializar version.json del loader: {e}"))?;
+            tokio::fs::write(&version_json_path, &raw)
+                .await
+                .map_err(|e| format!("No se pudo guardar version.json del loader: {e}"))?;
+        }
+    }
 
     let parent_json = if let Some(parent_id) = version_json
         .get("inheritsFrom")
@@ -3281,7 +3412,7 @@ pub async fn launch_redirect_instance(
     }
     let libraries_dirs: Vec<PathBuf> = libraries_dirs.into_iter().filter(|p| p.is_dir()).collect();
 
-    let classpath = build_classpath_multi(
+    let mut classpath = build_classpath_multi(
         &ctx.version_json,
         &libraries_dirs,
         &ctx.versions_dir,
@@ -3292,6 +3423,17 @@ pub async fn launch_redirect_instance(
     } else {
         ":"
     };
+    let loader_lower = metadata.loader.to_ascii_lowercase();
+    if loader_lower != "vanilla" && !loader_lower.is_empty() {
+        let has_loader_jar = classpath.to_ascii_lowercase().contains(&loader_lower);
+        if !has_loader_jar {
+            log::warn!("[REDIRECT] Loader jar no encontrado en classpath, buscando manualmente...");
+            if let Some(loader_jar) = find_loader_jar_in_dirs(&libraries_dirs, &loader_lower) {
+                classpath.push_str(classpath_separator);
+                classpath.push_str(&loader_jar.display().to_string());
+            }
+        }
+    }
     let classpath_entry_count = classpath.split(classpath_separator).count();
     let natives_dir = app
         .path()

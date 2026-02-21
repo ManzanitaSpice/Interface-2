@@ -11,6 +11,7 @@ use std::{
 };
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
@@ -373,6 +374,9 @@ const INSTANCE_IDENTIFIER_FILES: &[&str] = &[
     "manifest.json",
     "profile.json",
     "instance.cfg",
+    "instance.json",
+    "pack.json",
+    "config.json",
     ".curseclient",
 ];
 
@@ -530,12 +534,28 @@ fn known_paths() -> Vec<(String, PathBuf)> {
 }
 
 fn has_instance_markers(path: &Path) -> bool {
-    INSTANCE_IDENTIFIER_FILES
-        .iter()
-        .any(|file| path.join(file).is_file())
+    INSTANCE_IDENTIFIER_FILES.iter().any(|file| {
+        let marker = path.join(file);
+        if !marker.is_file() {
+            return false;
+        }
+
+        match *file {
+            "manifest.json" => read_json(&marker)
+                .and_then(|json| json.get("minecraft").cloned())
+                .is_some(),
+            "profile.json" => read_json(&marker)
+                .and_then(|json| json.get("game_version").cloned())
+                .is_some(),
+            "config.json" => read_json(&marker)
+                .and_then(|json| json.get("mcVersion").cloned())
+                .is_some(),
+            _ => true,
+        }
+    })
 }
 
-fn has_valid_versions_layout(path: &Path) -> bool {
+fn contains_versions_with_json(path: &Path) -> bool {
     let versions_dir = path.join("versions");
     if !versions_dir.is_dir() {
         return false;
@@ -545,106 +565,75 @@ fn has_valid_versions_layout(path: &Path) -> bool {
         .ok()
         .map(|entries| {
             entries.flatten().any(|entry| {
-                let version_id = entry.file_name().to_string_lossy().to_string();
-                if version_id.is_empty() {
+                let version_dir = entry.path();
+                if !version_dir.is_dir() {
                     return false;
                 }
-                let version_root = entry.path();
-                version_root.is_dir()
-                    && version_root.join(format!("{version_id}.json")).is_file()
-                    && version_root.join(format!("{version_id}.jar")).is_file()
+                let id = entry.file_name().to_string_lossy().to_string();
+                !id.is_empty() && version_dir.join(format!("{id}.json")).is_file()
             })
         })
         .unwrap_or(false)
 }
 
-fn has_version_json_layout(path: &Path) -> bool {
-    let versions_dir = path.join("versions");
-    if !versions_dir.is_dir() {
-        return false;
-    }
-
-    fs::read_dir(&versions_dir)
-        .ok()
-        .map(|entries| {
-            entries.flatten().any(|entry| {
-                let version_id = entry.file_name().to_string_lossy().to_string();
-                if version_id.is_empty() {
-                    return false;
-                }
-                let version_root = entry.path();
-                version_root.is_dir() && version_root.join(format!("{version_id}.json")).is_file()
-            })
-        })
-        .unwrap_or(false)
+fn has_modded_game_data(path: &Path) -> bool {
+    path.join("mods").is_dir() || path.join("saves").is_dir()
 }
 
-fn has_assets_layout(path: &Path) -> bool {
-    let assets_dir = path.join("assets");
-    if !assets_dir.is_dir() {
-        return false;
-    }
-
-    assets_dir.join("indexes").is_dir() || assets_dir.join("objects").is_dir()
-}
-
-fn has_libraries_layout(path: &Path) -> bool {
-    let libraries_dir = path.join("libraries");
-    if !libraries_dir.is_dir() {
-        return false;
-    }
-
-    fs::read_dir(&libraries_dir)
-        .ok()
-        .map(|mut entries| entries.next().is_some())
-        .unwrap_or(false)
+fn is_global_minecraft_runtime(path: &Path) -> bool {
+    let has_versions = path.join("versions").is_dir();
+    let has_assets = path.join("assets").is_dir();
+    let has_game_data = path.join("mods").is_dir()
+        || path.join("saves").is_dir()
+        || path.join("config").is_dir()
+        || path.join("options.txt").is_file();
+    has_versions && has_assets && !has_game_data
 }
 
 fn has_required_instance_layout(path: &Path) -> bool {
-    if is_likely_instance_container(path) {
+    if !path.is_dir() || is_likely_instance_container(path) {
         return false;
     }
 
-    let game_dir = detect_source_minecraft_dir(path).unwrap_or_else(|| path.to_path_buf());
-    let has_manifest_markers = has_instance_markers(path);
-    let has_modded_state = game_dir.join("mods").is_dir()
-        || game_dir.join("saves").is_dir()
-        || game_dir.join("config").is_dir();
-    let has_instance_content = has_modded_state
-        || game_dir.join("resourcepacks").is_dir()
-        || game_dir.join("shaderpacks").is_dir()
-        || game_dir.join("servers.dat").is_file();
-    let has_options = game_dir.join("options.txt").is_file();
-    let has_versions_with_jars = has_valid_versions_layout(&game_dir);
-    let has_versions_json = has_version_json_layout(&game_dir);
-    let has_assets = has_assets_layout(&game_dir);
-    let has_libraries = has_libraries_layout(&game_dir);
-
-    let strong_runtime_signal = has_versions_with_jars || has_versions_json;
-    let runtime_score = usize::from(has_versions_with_jars) * 2
-        + usize::from(has_versions_json)
-        + usize::from(has_assets)
-        + usize::from(has_libraries)
-        + usize::from(has_options)
-        + usize::from(has_modded_state);
-
-    if has_manifest_markers {
-        return strong_runtime_signal || has_modded_state;
-    }
-
-    let is_minecraft_root_dir = path
+    let dir_name = path
         .file_name()
         .and_then(|value| value.to_str())
-        .map(|name| {
-            name.eq_ignore_ascii_case(".minecraft") || name.eq_ignore_ascii_case("minecraft")
-        })
-        .unwrap_or(false);
-
-    if is_minecraft_root_dir {
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_default();
+    let blocked_exact = [
+        ".minecraft",
+        "minecraft",
+        "instances",
+        "profiles",
+        "install",
+        "modpacks",
+    ];
+    if blocked_exact.iter().any(|blocked| dir_name == *blocked) {
         return false;
     }
 
-    strong_runtime_signal && runtime_score >= 3 && has_instance_content
+    if is_global_minecraft_runtime(path) {
+        return false;
+    }
+
+    if has_instance_markers(path) {
+        return true;
+    }
+
+    for nested in INSTANCE_MINECRAFT_DIRS {
+        let game_dir = path.join(nested);
+        if game_dir.is_dir() && has_modded_game_data(&game_dir) {
+            return true;
+        }
+        if game_dir.is_dir() && contains_versions_with_json(&game_dir) {
+            return true;
+        }
+    }
+
+    path.join("mods").is_dir()
+        && (path.join("saves").is_dir()
+            || path.join("config").is_dir()
+            || path.join("options.txt").is_file())
 }
 
 fn is_likely_instance_container(path: &Path) -> bool {
@@ -653,7 +642,7 @@ fn is_likely_instance_container(path: &Path) -> bool {
         .and_then(|value| value.to_str())
         .map(|value| value.to_ascii_lowercase())
         .unwrap_or_default();
-    let known_container_names = ["instances", "profiles", "modpacks", "install", "roaming"];
+    let known_container_names = ["instances", "profiles", "modpacks", "install"];
 
     if known_container_names
         .iter()
@@ -678,7 +667,7 @@ fn is_likely_instance_container(path: &Path) -> bool {
             || child.join(".minecraft").is_dir();
         if child_has_markers {
             child_instances += 1;
-            if child_instances >= 2 {
+            if child_instances >= 3 {
                 return true;
             }
         }
@@ -776,7 +765,22 @@ fn discover_keyword_scan_paths(
             found.push(current.clone());
         }
 
-        if depth >= max_depth {
+        #[cfg(target_os = "windows")]
+        let max_depth_for_current = {
+            let current_lower = current.to_string_lossy().to_ascii_lowercase();
+            if INSTANCE_HINT_KEYWORDS
+                .iter()
+                .any(|keyword| current_lower.contains(keyword))
+            {
+                max_depth.max(4)
+            } else {
+                max_depth
+            }
+        };
+        #[cfg(not(target_os = "windows"))]
+        let max_depth_for_current = max_depth;
+
+        if depth >= max_depth_for_current {
             continue;
         }
 
@@ -789,7 +793,24 @@ fn discover_keyword_scan_paths(
             if path.is_dir() && !should_skip_scan_dir(&path) {
                 let has_keyword_hint =
                     inherited_keyword_hint || directory_name_looks_like_container(&path);
-                if depth < 1 || has_keyword_hint {
+                #[cfg(target_os = "windows")]
+                let allowed_depth = {
+                    let path_lower = path.to_string_lossy().to_ascii_lowercase();
+                    if has_keyword_hint
+                        || INSTANCE_HINT_KEYWORDS
+                            .iter()
+                            .any(|keyword| path_lower.contains(keyword))
+                    {
+                        4usize
+                    } else {
+                        max_depth
+                    }
+                };
+
+                #[cfg(not(target_os = "windows"))]
+                let allowed_depth = max_depth;
+
+                if depth < 1 || (has_keyword_hint && depth < allowed_depth) {
                     queue.push_back((path, depth + 1, has_keyword_hint));
                 }
             }
@@ -803,12 +824,11 @@ fn should_skip_scan_dir(path: &Path) -> bool {
     path.file_name()
         .and_then(|value| value.to_str())
         .map(|value| {
-            if value.starts_with('.') {
-                return true;
-            }
             SCAN_SKIP_DIR_NAMES
                 .iter()
                 .any(|skip| value.eq_ignore_ascii_case(skip))
+                || value.eq_ignore_ascii_case("System32")
+                || value.eq_ignore_ascii_case("$Recycle.Bin")
         })
         .unwrap_or(false)
 }
@@ -849,6 +869,18 @@ fn detect_launcher_from_path(path: &Path) -> String {
     if lower.contains("prism") {
         return "Prism".to_string();
     }
+    if lower.contains("atlauncher") {
+        return "ATLauncher".to_string();
+    }
+    if lower.contains("gdlauncher") {
+        return "GDLauncher".to_string();
+    }
+    if lower.contains("ferium") {
+        return "Ferium".to_string();
+    }
+    if lower.contains("packwiz") {
+        return "Packwiz".to_string();
+    }
     if lower.contains("multimc") || lower.contains("mmc") {
         return "MultiMC".to_string();
     }
@@ -860,6 +892,20 @@ fn detect_launcher_from_path(path: &Path) -> String {
     }
     if lower.contains("\\.minecraft") || lower.ends_with("/minecraft") {
         return "Mojang Official".to_string();
+    }
+    if let Some(ancestor) = path.ancestors().find(|p| {
+        p.file_name()
+            .and_then(|v| v.to_str())
+            .is_some_and(|name| name.eq_ignore_ascii_case("instances"))
+    }) {
+        if let Some(parent_name) = ancestor
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|v| v.to_str())
+            .filter(|name| !name.trim().is_empty())
+        {
+            return parent_name.to_string();
+        }
     }
     "Descubierto".to_string()
 }
@@ -933,6 +979,42 @@ fn detect_loader_from_versions_dir(path: &Path) -> Option<(String, String)> {
         }
     }
     None
+}
+
+fn version_json_matches_loader(version_json: &Value, loader: &str) -> bool {
+    let main_class = version_json
+        .get("mainClass")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let has_inherits = version_json.get("inheritsFrom").is_some();
+    let loader_lower = loader.to_ascii_lowercase();
+    has_inherits
+        || match loader_lower.as_str() {
+            "fabric" => main_class.contains("fabricmc") || main_class.contains("knot"),
+            "quilt" => main_class.contains("quilt") || main_class.contains("knot"),
+            "forge" => {
+                main_class.contains("launchwrapper") || main_class.contains("bootstraplauncher")
+            }
+            "neoforge" => {
+                main_class.contains("bootstraplauncher") || main_class.contains("neoforge")
+            }
+            _ => false,
+        }
+}
+
+fn local_version_id_matches_loader(source_root: &Path, version_id: &str, loader: &str) -> bool {
+    for base in [
+        source_root.join("versions"),
+        source_root.join("minecraft/versions"),
+        source_root.join(".minecraft/versions"),
+    ] {
+        let version_json = base.join(version_id).join(format!("{version_id}.json"));
+        if let Some(json) = read_json(&version_json) {
+            return version_json_matches_loader(&json, loader);
+        }
+    }
+    false
 }
 
 fn resolve_shortcut_version_id(
@@ -1340,6 +1422,59 @@ fn detect_from_manifest(path: &Path) -> DetectionMeta {
         return meta;
     }
 
+    let atlauncher_manifest = path.join("instance.json");
+    if let Some(json) = read_json(&atlauncher_manifest) {
+        meta.importable = true;
+        meta.format = Some("atlauncher".to_string());
+        meta.minecraft_version = json
+            .get("mcVersion")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
+        meta.loader = json
+            .get("loader")
+            .and_then(Value::as_str)
+            .map(|loader| loader.to_ascii_lowercase());
+        meta.loader_version = json
+            .get("loaderVersion")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
+        return meta;
+    }
+
+    let gdlauncher_manifest = path.join("config.json");
+    if let Some(json) = read_json(&gdlauncher_manifest) {
+        let mc = json
+            .get("mcVersion")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
+        if mc.is_some() {
+            meta.importable = true;
+            meta.format = Some("gdlauncher".to_string());
+            meta.minecraft_version = mc;
+            meta.loader = json
+                .get("modLoader")
+                .and_then(Value::as_str)
+                .map(|loader| loader.to_ascii_lowercase());
+            meta.loader_version = json
+                .get("loaderVersion")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned);
+            return meta;
+        }
+    }
+
+    let pack_manifest = path.join("pack.json");
+    if let Some(json) = read_json(&pack_manifest) {
+        meta.importable = true;
+        meta.format = Some("packwiz".to_string());
+        meta.minecraft_version = json
+            .get("mcVersion")
+            .or_else(|| json.get("minecraft"))
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
+        return meta;
+    }
+
     let curse_manifest = path.join("manifest.json");
     if let Some(json) = read_json(&curse_manifest) {
         meta.importable = true;
@@ -1466,6 +1601,19 @@ fn detect_dir(path: &Path, launcher: &str) -> Option<DetectedInstance> {
         .file_name()
         .map(|v| v.to_string_lossy().to_string())
         .unwrap_or_else(|| launcher.to_string());
+
+    if is_unknown_mc_version(meta.minecraft_version.as_deref().unwrap_or("desconocida")) {
+        if let Some((mc_guess, loader_guess)) = infer_from_instance_name(&name) {
+            meta.minecraft_version = Some(mc_guess);
+            if meta.loader.is_none() {
+                meta.loader = loader_guess;
+            }
+        }
+
+        if meta.minecraft_version.is_none() {
+            meta.minecraft_version = infer_mc_from_versions_dir(path);
+        }
+    }
 
     let icon_candidates = ["icon.png", "instance.png", ".minecraft/icon.png"];
     let icon_path = icon_candidates
@@ -1622,7 +1770,7 @@ fn collect_candidate_instance_dirs(root: &Path) -> Vec<PathBuf> {
     let mut visited = HashSet::new();
 
     while let Some((current, depth)) = queue.pop_front() {
-        if depth >= 2 || out.len() >= MAX_ROOT_CHILDREN_TO_SCAN {
+        if depth >= 3 || out.len() >= MAX_ROOT_CHILDREN_TO_SCAN {
             continue;
         }
 
@@ -1653,6 +1801,59 @@ fn collect_candidate_instance_dirs(root: &Path) -> Vec<PathBuf> {
     }
 
     out
+}
+
+fn infer_from_instance_name(name: &str) -> Option<(String, Option<String>)> {
+    let lower = name.to_ascii_lowercase();
+    let mc = regex::Regex::new(r"(?i)\b(1\.\d{1,2}(?:\.\d{1,2})?)\b")
+        .ok()
+        .and_then(|re| re.captures(name))
+        .and_then(|caps| caps.get(1))
+        .map(|m| m.as_str().to_string())?;
+
+    let loader = if lower.contains("fabric") {
+        Some("fabric".to_string())
+    } else if lower.contains("neoforge") {
+        Some("neoforge".to_string())
+    } else if lower.contains("forge") {
+        Some("forge".to_string())
+    } else if lower.contains("quilt") {
+        Some("quilt".to_string())
+    } else {
+        None
+    };
+
+    Some((mc, loader))
+}
+
+fn infer_mc_from_versions_dir(path: &Path) -> Option<String> {
+    let candidates = [
+        path.join("versions"),
+        path.join("minecraft/versions"),
+        path.join(".minecraft/versions"),
+    ];
+
+    for versions in candidates {
+        if !versions.is_dir() {
+            continue;
+        }
+        let Ok(entries) = fs::read_dir(versions) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let version_id = entry.file_name().to_string_lossy().to_string();
+            if let Some(mc) = regex::Regex::new(r"(?i)\b(1\.\d{1,2}(?:\.\d{1,2})?)\b")
+                .ok()
+                .and_then(|re| re.captures(&version_id))
+                .and_then(|caps| caps.get(1))
+                .map(|m| m.as_str().to_string())
+            {
+                return Some(mc);
+            }
+        }
+    }
+
+    None
 }
 
 #[tauri::command]
@@ -2056,12 +2257,32 @@ pub fn execute_import_action(
                 &request.loader,
                 &request.loader_version,
             );
+        let manifest_meta = detect_from_manifest(&source_root);
 
-        let shortcut_mc_version = if is_unknown_mc_version(&resolved_mc_from_manifest) {
+        let shortcut_mc_version = if let Some(mc) = manifest_meta.minecraft_version.clone() {
+            mc
+        } else if is_unknown_mc_version(&resolved_mc_from_manifest) {
             request.minecraft_version.clone()
         } else {
             resolved_mc_from_manifest
         };
+
+        if let Some(manifest_loader) = manifest_meta.loader {
+            let manifest_loader = normalize_loader(&manifest_loader);
+            if is_unknown_loader(&shortcut_loader)
+                || matches!(
+                    normalize_loader(&shortcut_loader).as_str(),
+                    "" | "-" | "vanilla" | "desconocido" | "unknown"
+                )
+            {
+                shortcut_loader = manifest_loader;
+            }
+        }
+        if let Some(manifest_loader_version) = manifest_meta.loader_version {
+            if shortcut_loader_version.trim().is_empty() || shortcut_loader_version == "-" {
+                shortcut_loader_version = manifest_loader_version;
+            }
+        }
 
         let requested_loader_normalized = normalize_loader(&shortcut_loader);
         let request_is_vanilla = matches!(
@@ -2111,6 +2332,23 @@ pub fn execute_import_action(
                     discovered_version_id
                 );
                 effective_version_id = discovered_version_id;
+            }
+        }
+
+        if !loader_is_vanilla
+            && !local_version_id_matches_loader(
+                &source_root,
+                &effective_version_id,
+                &shortcut_loader,
+            )
+        {
+            if let Some(repaired_version_id) = find_loader_version_id_from_external_paths(
+                &source_root,
+                &request.source_launcher,
+                &shortcut_mc_version,
+                &shortcut_loader,
+            ) {
+                effective_version_id = repaired_version_id;
             }
         }
 
