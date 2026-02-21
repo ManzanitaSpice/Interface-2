@@ -38,6 +38,8 @@ pub fn run() {
             app::redirect_launch::validate_redirect_instance,
             app::redirect_launch::get_redirect_cache_info,
             app::redirect_launch::force_cleanup_redirect_cache,
+            app::redirect_launch::repair_instance,
+            app::redirect_launch::repair_all_instances,
             app::settings_service::pick_folder,
             app::settings_service::load_folder_routes,
             app::settings_service::save_folder_routes,

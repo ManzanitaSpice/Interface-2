@@ -21,17 +21,26 @@ use tokio::{io::AsyncWriteExt, time::sleep};
 
 use crate::{
     app::instance_service::{get_instance_metadata, StartInstanceResult},
+    commands::import::resolve_effective_version_id,
     domain::{
+        auth::microsoft::refresh_microsoft_access_token,
+        auth::xbox::{
+            authenticate_with_xbox_live, authorize_xsts, login_minecraft_with_xbox,
+            read_minecraft_profile,
+        },
         minecraft::{
             argument_resolver::{resolve_launch_arguments, LaunchContext},
             rule_engine::{evaluate_rules, RuleContext, RuleFeatures},
         },
-        models::{instance::LaunchAuthSession, java::JavaRuntime},
+        models::{
+            instance::{InstanceMetadata, LaunchAuthSession},
+            java::JavaRuntime,
+        },
     },
     infrastructure::downloader::queue::{
         ensure_official_binary_url, explain_network_error, official_retries, official_timeout,
     },
-    services::java_installer::ensure_embedded_java,
+    services::{instance_builder::build_instance_structure, java_installer::ensure_embedded_java},
 };
 
 const DEFAULT_CACHE_EXPIRY_DAYS: u32 = 7;
@@ -205,6 +214,15 @@ pub struct RedirectCacheEntryInfo {
     pub complete: bool,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepairInstanceResult {
+    pub repaired: bool,
+    pub changes_made: Vec<String>,
+    pub errors: Vec<String>,
+    pub final_state: String,
+}
+
 static REDIRECT_CTX_CACHE: OnceLock<Mutex<HashMap<String, CachedRedirectContext>>> =
     OnceLock::new();
 
@@ -217,6 +235,96 @@ fn now_millis() -> u128 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0)
+}
+
+fn now_unix_millis() -> Option<u64> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_millis() as u64)
+}
+
+fn detect_loader_from_version_id(version_id: &str) -> Option<(String, String)> {
+    let normalized = version_id.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return None;
+    }
+
+    let patterns = [
+        ("fabric-loader-", "fabric"),
+        ("quilt-loader-", "quilt"),
+        ("neoforge-", "neoforge"),
+        ("forge-", "forge"),
+    ];
+
+    for (token, loader_name) in patterns {
+        if let Some(pos) = normalized.find(token) {
+            let raw = &normalized[(pos + token.len())..];
+            let version = raw.split(['+', '-', '_']).next().unwrap_or("-");
+            return Some((loader_name.to_string(), version.to_string()));
+        }
+    }
+
+    None
+}
+
+fn write_instance_metadata(
+    instance_path: &Path,
+    metadata: &InstanceMetadata,
+) -> Result<(), String> {
+    let metadata_path = instance_path.join(".instance.json");
+    let raw = serde_json::to_string_pretty(metadata).map_err(|err| {
+        format!(
+            "No se pudo serializar metadata de {}: {err}",
+            instance_path.display()
+        )
+    })?;
+    fs::write(&metadata_path, raw)
+        .map_err(|err| format!("No se pudo guardar {}: {err}", metadata_path.display()))
+}
+
+async fn refresh_microsoft_token_if_needed(
+    auth_session: LaunchAuthSession,
+) -> Result<LaunchAuthSession, String> {
+    let mut needs_refresh = auth_session.minecraft_access_token.trim().is_empty();
+    if let (Some(expires_at), Some(now)) = (
+        auth_session.minecraft_access_token_expires_at,
+        now_unix_millis(),
+    ) {
+        if expires_at <= now.saturating_add(60_000) {
+            needs_refresh = true;
+        }
+    }
+
+    if !needs_refresh {
+        return Ok(auth_session);
+    }
+
+    let refresh_token = auth_session
+        .microsoft_refresh_token
+        .clone()
+        .ok_or_else(|| {
+            "No hay refresh token de Microsoft para renovar credenciales REDIRECT.".to_string()
+        })?;
+
+    let client = reqwest::Client::new();
+    let ms = refresh_microsoft_access_token(&client, &refresh_token).await?;
+    let xbox = authenticate_with_xbox_live(&client, &ms.access_token).await?;
+    let xsts = authorize_xsts(&client, &xbox.token).await?;
+    let minecraft = login_minecraft_with_xbox(&client, &xsts.uhs, &xsts.token).await?;
+    let profile = read_minecraft_profile(&client, &minecraft.access_token).await?;
+    let expires_at = minecraft.expires_in.and_then(|expires_in| {
+        now_unix_millis().map(|now| now.saturating_add(expires_in.saturating_mul(1000)))
+    });
+
+    Ok(LaunchAuthSession {
+        profile_id: profile.id,
+        profile_name: profile.name,
+        minecraft_access_token: minecraft.access_token,
+        minecraft_access_token_expires_at: expires_at,
+        microsoft_refresh_token: ms.refresh_token.or(auth_session.microsoft_refresh_token),
+        premium_verified: auth_session.premium_verified,
+    })
 }
 
 fn now_rfc3339() -> String {
@@ -2734,6 +2842,9 @@ pub async fn launch_redirect_instance(
     instance_root: String,
     auth_session: LaunchAuthSession,
 ) -> Result<StartInstanceResult, String> {
+    let auth_session = refresh_microsoft_token_if_needed(auth_session)
+        .await
+        .map_err(|e| format!("No se pudo refrescar el token de autenticación: {e}"))?;
     let metadata = get_instance_metadata(instance_root.clone())?;
     let instance_path = PathBuf::from(&instance_root);
     let redirect = read_redirect_file(&instance_path)?;
@@ -2950,10 +3061,7 @@ pub async fn launch_redirect_instance(
         "[REDIRECT] shaderpacks/:    {}",
         ctx.game_dir.join("shaderpacks").exists()
     );
-    log::info!(
-        "[REDIRECT] libs en cp:      {}",
-        classpath_entry_count
-    );
+    log::info!("[REDIRECT] libs en cp:      {}", classpath_entry_count);
 
     if resolved.main_class == "net.minecraft.client.main.Main"
         && !matches!(
@@ -3137,4 +3245,228 @@ pub async fn launch_redirect_instance(
         logs,
         refreshed_auth_session: auth_session,
     })
+}
+
+fn is_loader_vanilla(loader: &str) -> bool {
+    matches!(
+        loader.trim().to_ascii_lowercase().as_str(),
+        "" | "-" | "vanilla" | "desconocido" | "unknown"
+    )
+}
+
+fn repair_loader_version(metadata: &mut InstanceMetadata) -> Option<String> {
+    if !metadata.loader_version.trim().is_empty() && metadata.loader_version != "-" {
+        return None;
+    }
+    if let Some((_, detected_version)) = detect_loader_from_version_id(&metadata.version_id) {
+        metadata.loader_version = detected_version.clone();
+        return Some(format!(
+            "loader_version detectado desde version_id: {}",
+            detected_version
+        ));
+    }
+    None
+}
+
+#[tauri::command]
+pub async fn repair_instance(
+    app: AppHandle,
+    instance_root: String,
+) -> Result<RepairInstanceResult, String> {
+    let instance_path = PathBuf::from(&instance_root);
+    let mut metadata = get_instance_metadata(instance_root.clone())?;
+    let mut changes_made = Vec::new();
+    let mut errors = Vec::new();
+
+    let _ = app.emit(
+        "repair_instance_progress",
+        json!({
+            "instanceRoot": instance_root,
+            "stage": "analyzing",
+            "message": "Analizando metadata de instancia..."
+        }),
+    );
+
+    if let Some(change) = repair_loader_version(&mut metadata) {
+        changes_made.push(change);
+    }
+
+    if metadata.state.eq_ignore_ascii_case("REDIRECT") {
+        match read_redirect_file(&instance_path) {
+            Ok(redirect) => {
+                let source_path = PathBuf::from(&redirect.source_path);
+                if !source_path.exists() {
+                    errors.push(format!(
+                        "source_path no existe para REDIRECT: {}",
+                        source_path.display()
+                    ));
+                } else {
+                    if !is_loader_vanilla(&metadata.loader)
+                        && !metadata
+                            .version_id
+                            .to_ascii_lowercase()
+                            .contains(&metadata.loader.to_ascii_lowercase())
+                    {
+                        let repaired_version = resolve_effective_version_id(
+                            &source_path,
+                            &metadata.minecraft_version,
+                            &metadata.loader,
+                            &metadata.loader_version,
+                        );
+                        if repaired_version != metadata.version_id {
+                            changes_made.push(format!(
+                                "version_id corregido: {} -> {}",
+                                metadata.version_id, repaired_version
+                            ));
+                            metadata.version_id = repaired_version;
+                        }
+                    }
+
+                    let hints = RedirectVersionHints {
+                        minecraft_version: metadata.minecraft_version.clone(),
+                        loader: metadata.loader.clone(),
+                        loader_version: metadata.loader_version.clone(),
+                    };
+                    let _ = app.emit(
+                        "repair_instance_progress",
+                        json!({
+                            "instanceRoot": instance_root,
+                            "stage": "prewarm_redirect",
+                            "message": "Reconstruyendo caché REDIRECT..."
+                        }),
+                    );
+                    if let Err(err) = prewarm_redirect_runtime(
+                        &app,
+                        &source_path,
+                        &redirect.source_launcher,
+                        &metadata.internal_uuid,
+                        &metadata.version_id,
+                        &hints,
+                    )
+                    .await
+                    {
+                        errors.push(format!("No se pudo prewarm REDIRECT: {err}"));
+                    } else {
+                        changes_made.push("Runtime REDIRECT prewarm completado".to_string());
+                    }
+                }
+            }
+            Err(err) => errors.push(format!(".redirect.json inválido o ausente: {err}")),
+        }
+    } else if metadata.state.eq_ignore_ascii_case("READY")
+        || metadata.state.eq_ignore_ascii_case("IMPORTED")
+    {
+        let launcher_root = instance_path
+            .parent()
+            .and_then(Path::parent)
+            .ok_or_else(|| "No se pudo resolver launcher_root para repair_instance".to_string())?;
+        let minecraft_root = if instance_path.join("minecraft").is_dir() {
+            instance_path.join("minecraft")
+        } else {
+            instance_path.clone()
+        };
+
+        let required_java = match metadata.required_java_major {
+            21 => JavaRuntime::Java21,
+            17 => JavaRuntime::Java17,
+            _ => JavaRuntime::Java8,
+        };
+
+        let mut logs = Vec::new();
+        let _ = app.emit(
+            "repair_instance_progress",
+            json!({
+                "instanceRoot": instance_root,
+                "stage": "rebuild_runtime",
+                "message": "Reinstalando runtime/loader de la instancia..."
+            }),
+        );
+        match ensure_embedded_java(launcher_root, required_java, &mut logs).and_then(|java_exec| {
+            build_instance_structure(
+                &instance_path,
+                &minecraft_root,
+                &metadata.minecraft_version,
+                &metadata.loader,
+                &metadata.loader_version,
+                &java_exec,
+                &mut logs,
+                &mut |_progress| {},
+            )
+            .map(|version_id| (java_exec, version_id))
+        }) {
+            Ok((java_exec, version_id)) => {
+                if metadata.version_id != version_id {
+                    changes_made.push(format!(
+                        "version_id reconstruido: {} -> {}",
+                        metadata.version_id, version_id
+                    ));
+                    metadata.version_id = version_id;
+                }
+                metadata.java_path = java_exec.display().to_string();
+                changes_made.push("Runtime/loader reinstalado correctamente".to_string());
+            }
+            Err(err) => errors.push(format!("No se pudo reconstruir runtime: {err}")),
+        }
+    }
+
+    if errors.is_empty() || !changes_made.is_empty() {
+        write_instance_metadata(&instance_path, &metadata)?;
+    }
+
+    Ok(RepairInstanceResult {
+        repaired: errors.is_empty() && !changes_made.is_empty(),
+        changes_made,
+        errors,
+        final_state: metadata.state,
+    })
+}
+
+#[tauri::command]
+pub async fn repair_all_instances(app: AppHandle) -> Result<Vec<RepairInstanceResult>, String> {
+    let instances_root = crate::app::settings_service::resolve_instances_root(&app)?;
+    let mut results = Vec::new();
+
+    let entries = fs::read_dir(&instances_root).map_err(|err| {
+        format!(
+            "No se pudo leer instances_root {}: {err}",
+            instances_root.display()
+        )
+    })?;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let instance_root = path.display().to_string();
+        let metadata = match get_instance_metadata(instance_root.clone()) {
+            Ok(metadata) => metadata,
+            Err(_) => continue,
+        };
+
+        let should_repair = !metadata.state.eq_ignore_ascii_case("READY")
+            || (!is_loader_vanilla(&metadata.loader)
+                && !metadata
+                    .version_id
+                    .to_ascii_lowercase()
+                    .contains(&metadata.loader.to_ascii_lowercase()))
+            || metadata.loader_version.trim().is_empty()
+            || metadata.loader_version == "-";
+
+        if !should_repair {
+            continue;
+        }
+
+        match repair_instance(app.clone(), instance_root).await {
+            Ok(result) => results.push(result),
+            Err(err) => results.push(RepairInstanceResult {
+                repaired: false,
+                changes_made: Vec::new(),
+                errors: vec![err],
+                final_state: metadata.state,
+            }),
+        }
+    }
+
+    Ok(results)
 }
