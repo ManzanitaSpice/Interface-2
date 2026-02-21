@@ -143,6 +143,8 @@ export function ExplorerPage({ uiLanguage }: Props) {
 
   const numberFormatter = useMemo(() => new Intl.NumberFormat(uiLanguage === 'en' ? 'en-US' : uiLanguage === 'pt' ? 'pt-BR' : 'es-ES'), [uiLanguage])
 
+  const dateFormatter = useMemo(() => new Intl.DateTimeFormat(uiLanguage === 'en' ? 'en-US' : uiLanguage === 'pt' ? 'pt-BR' : 'es-ES', { dateStyle: 'medium' }), [uiLanguage])
+
   return (
     <main className="content content-padded">
       <section className="instances-panel huge-panel explorer-page">
@@ -197,10 +199,15 @@ export function ExplorerPage({ uiLanguage }: Props) {
                 {view !== 'titles' && (
                   <>
                     <small className="explorer-description" title={item.description}>{item.description}</small>
-                    <div className="instance-card-meta">
-                      <small><span className={`platform-badge ${item.source.toLowerCase()}`}>{item.source}</span></small><small>{t.author}: {item.author}</small><small><span className="loader-badge">{item.loaders[0] ?? item.projectType}</span></small><small>{t.downloads}: {numberFormatter.format(item.downloads)}</small>
+                    <div className="instance-card-meta explorer-meta-grid">
+                      <small><span className={`platform-badge ${item.source.toLowerCase()}`}>{item.source}</span></small>
+                      <small><span className="loader-badge">{item.loaders[0] ?? item.projectType}</span></small>
+                      <small>{t.author}: {item.author}</small>
+                      <small>{t.downloads}: {numberFormatter.format(item.downloads)}</small>
+                      {item.updatedAt ? <small>{dateFormatter.format(new Date(item.updatedAt))}</small> : null}
+                      {item.minecraftVersions[0] ? <small>MC {item.minecraftVersions[0]}</small> : null}
                     </div>
-                    <div className="explorer-tags">{item.tags.slice(0, 4).map((tag) => <span key={tag}>{tag}</span>)}</div>
+                    <div className="explorer-tags">{item.tags.slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}</div>
                   </>
                 )}
               </div>

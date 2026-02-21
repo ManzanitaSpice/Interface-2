@@ -59,7 +59,9 @@ pub fn search_catalogs(request: CatalogSearchRequest) -> Result<CatalogSearchRes
     let mut output = Vec::new();
     let mut has_more = false;
 
-    let per_source_limit = if request.platform == "Todas" {
+    let platform = request.platform.trim().to_ascii_lowercase();
+
+    let per_source_limit = if platform == "all" || platform == "todas" {
         (limit / 2).max(1)
     } else {
         limit
@@ -68,12 +70,12 @@ pub fn search_catalogs(request: CatalogSearchRequest) -> Result<CatalogSearchRes
     let mut normalized_request = request;
     normalized_request.search = search;
 
-    if normalized_request.platform != "Curseforge" {
+    if platform != "curseforge" {
         let (items, source_has_more) = fetch_modrinth(&client, &normalized_request, per_source_limit, offset)?;
         has_more = has_more || source_has_more;
         output.extend(items);
     }
-    if normalized_request.platform != "Modrinth" {
+    if platform != "modrinth" {
         let (items, source_has_more) = fetch_curseforge(&client, &normalized_request, per_source_limit, offset)?;
         has_more = has_more || source_has_more;
         output.extend(items);
@@ -244,6 +246,11 @@ fn fetch_curseforge(
     if let Some(class_id) = request.curseforge_class_id {
         params.push(("classId", class_id.to_string()));
     }
+    if let Some(loader) = request.loader.as_ref().filter(|v| !v.is_empty()) {
+        if let Some(mod_loader_type) = map_curseforge_loader_type(loader) {
+            params.push(("modLoaderType", mod_loader_type.to_string()));
+        }
+    }
 
     let response = client
         .get("https://api.curseforge.com/v1/mods/search")
@@ -355,4 +362,14 @@ fn fetch_curseforge(
             }
         })
         .collect(), has_more))
+}
+
+fn map_curseforge_loader_type(loader: &str) -> Option<u32> {
+    match loader.trim().to_ascii_lowercase().as_str() {
+        "forge" => Some(1),
+        "fabric" => Some(4),
+        "quilt" => Some(5),
+        "neoforge" => Some(6),
+        _ => None,
+    }
 }
