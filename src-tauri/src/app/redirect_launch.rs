@@ -601,9 +601,14 @@ fn resolve_official_version_json(
         }
     });
 
-    let mut candidate_files = Vec::new();
+    let mut loader_candidates = Vec::new();
+    let mut vanilla_candidates = Vec::new();
     for version_id in version_ids {
-        candidate_files.extend([
+        let is_loader_version = version_id.contains("fabric")
+            || version_id.contains("forge")
+            || version_id.contains("neoforge")
+            || version_id.contains("quilt");
+        let paths = [
             source_path
                 .join(".minecraft/versions")
                 .join(version_id)
@@ -616,19 +621,37 @@ fn resolve_official_version_json(
                 .join("minecraft/versions")
                 .join(version_id)
                 .join(format!("{version_id}.json")),
-        ]);
+        ];
+
+        if is_loader_version {
+            loader_candidates.extend(paths);
+        } else {
+            vanilla_candidates.extend(paths);
+        }
     }
 
     for launcher_root in launcher_roots_for_source(source_launcher) {
         for version_id in version_ids {
-            candidate_files.push(
-                launcher_root
-                    .join("versions")
-                    .join(version_id)
-                    .join(format!("{version_id}.json")),
-            );
+            let path = launcher_root
+                .join("versions")
+                .join(version_id)
+                .join(format!("{version_id}.json"));
+            let is_loader = version_id.contains("fabric")
+                || version_id.contains("forge")
+                || version_id.contains("neoforge")
+                || version_id.contains("quilt");
+            if is_loader {
+                loader_candidates.push(path);
+            } else {
+                vanilla_candidates.push(path);
+            }
         }
     }
+
+    let mut candidate_files: Vec<PathBuf> = loader_candidates
+        .into_iter()
+        .chain(vanilla_candidates)
+        .collect();
 
     if let Some(system_root) = system_minecraft_root() {
         for version_id in version_ids {
@@ -681,18 +704,105 @@ fn resolve_official_version_json(
 }
 
 fn resolve_redirect_game_dir(source_path: &Path) -> PathBuf {
-    let preferred = [
-        source_path.join("minecraft"),
-        source_path.join(".minecraft"),
-    ]
-    .into_iter()
-    .find(|candidate| candidate.is_dir())
-    .unwrap_or_else(|| source_path.to_path_buf());
-    log::info!(
-        "[REDIRECT] game_dir seleccionado (carpeta detectada completa): {}",
-        preferred.display()
+    let dot_minecraft = source_path.join(".minecraft");
+    if dot_minecraft.is_dir() {
+        log::info!(
+            "[REDIRECT] game_dir: subcarpeta .minecraft: {}",
+            dot_minecraft.display()
+        );
+        return dot_minecraft;
+    }
+
+    let minecraft = source_path.join("minecraft");
+    if minecraft.is_dir() {
+        log::info!(
+            "[REDIRECT] game_dir: subcarpeta minecraft/: {}",
+            minecraft.display()
+        );
+        return minecraft;
+    }
+
+    let has_instance_data = source_path.join("mods").is_dir()
+        || source_path.join("saves").is_dir()
+        || source_path.join("options.txt").exists()
+        || source_path.join("config").is_dir()
+        || source_path.join("resourcepacks").is_dir()
+        || source_path.join("shaderpacks").is_dir();
+
+    if has_instance_data {
+        log::info!(
+            "[REDIRECT] game_dir: source_path contiene datos directamente: {}",
+            source_path.display()
+        );
+        return source_path.to_path_buf();
+    }
+
+    log::warn!(
+        "[REDIRECT] game_dir: sin estructura clara, usando source_path: {}",
+        source_path.display()
     );
-    preferred
+    source_path.to_path_buf()
+}
+
+fn merge_version_jsons(parent: &Value, child: &Value) -> Value {
+    let mut merged = parent.clone();
+
+    if let Some(main_class) = child.get("mainClass") {
+        merged["mainClass"] = main_class.clone();
+    }
+
+    let mut libs: Vec<Value> = parent
+        .get("libraries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    for lib in child
+        .get("libraries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        let name = lib.get("name").and_then(Value::as_str).unwrap_or("");
+        if !libs
+            .iter()
+            .any(|l| l.get("name").and_then(Value::as_str) == Some(name))
+        {
+            libs.push(lib);
+        }
+    }
+    merged["libraries"] = Value::Array(libs);
+
+    if let (Some(parent_args), Some(child_args)) = (
+        parent.get("arguments").and_then(Value::as_object),
+        child.get("arguments").and_then(Value::as_object),
+    ) {
+        let mut merged_args = parent_args.clone();
+        for key in ["jvm", "game"] {
+            let parent_list = parent_args
+                .get(key)
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let child_list = child_args
+                .get(key)
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            merged_args.insert(
+                key.to_string(),
+                Value::Array(parent_list.into_iter().chain(child_list).collect()),
+            );
+        }
+        merged["arguments"] = Value::Object(merged_args);
+    }
+
+    if child.get("minecraftArguments").is_none() {
+        if let Some(legacy_args) = parent.get("minecraftArguments") {
+            merged["minecraftArguments"] = legacy_args.clone();
+        }
+    }
+
+    merged
 }
 
 fn verify_game_dir_has_instance_data(game_dir: &Path) -> Vec<String> {
@@ -899,6 +1009,32 @@ pub fn resolve_redirect_launch_context(
 
     let (version_json_path, version_json) =
         resolve_official_version_json(&version_ids, hints, source_path, source_launcher)?;
+    let parent_json = if let Some(parent_id) = version_json
+        .get("inheritsFrom")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        let parent_ids = build_version_id_candidates(parent_id, hints);
+        match resolve_official_version_json(&parent_ids, hints, source_path, source_launcher) {
+            Ok((_, json)) => Some(json),
+            Err(err) => {
+                log::warn!(
+                    "[REDIRECT] No se pudo resolver parent {} para merge local: {}",
+                    parent_id,
+                    err
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let final_version_json = if let Some(parent) = &parent_json {
+        merge_version_jsons(parent, &version_json)
+    } else {
+        version_json.clone()
+    };
 
     let minecraft_jar_candidates =
         minecraft_jar_candidates(source_path, &version_ids, source_launcher);
@@ -945,7 +1081,7 @@ Asegúrate de que la versión esté completamente instalada en el launcher de or
     let ctx = RedirectLaunchContext {
         resolved_version_id,
         version_json_path: version_json_path.clone(),
-        version_json,
+        version_json: final_version_json,
         game_dir,
         versions_dir,
         libraries_dir,
@@ -1028,9 +1164,9 @@ fn maven_library_path(name: &str) -> Option<PathBuf> {
     Some(path)
 }
 
-pub fn build_classpath(
-    version_json: &serde_json::Value,
-    libraries_dir: &Path,
+pub fn build_classpath_multi(
+    merged_version_json: &serde_json::Value,
+    libraries_dirs: &[PathBuf],
     versions_dir: &Path,
     version_id: &str,
 ) -> Result<String, String> {
@@ -1042,7 +1178,7 @@ pub fn build_classpath(
     let ctx = RuleContext::current();
     let mut entries = Vec::new();
 
-    for library in version_json
+    for library in merged_version_json
         .get("libraries")
         .and_then(Value::as_array)
         .cloned()
@@ -1060,16 +1196,22 @@ pub fn build_classpath(
         let Some(name) = library.get("name").and_then(Value::as_str) else {
             continue;
         };
+        let Some(relative) = maven_library_path(name) else {
+            continue;
+        };
 
-        if let Some(relative) = maven_library_path(name) {
-            let full = libraries_dir.join(relative);
+        let found = libraries_dirs.iter().find_map(|dir| {
+            let full = dir.join(&relative);
             if full.exists() {
-                entries.push(full.display().to_string());
+                Some(full)
             } else {
-                log::warn!(
-                    "Library faltante: {name}. La instancia puede no funcionar correctamente."
-                );
+                None
             }
+        });
+
+        match found {
+            Some(path) => entries.push(path.display().to_string()),
+            None => log::warn!("[REDIRECT] Library faltante en todas las rutas: {name}"),
         }
     }
 
@@ -1077,22 +1219,24 @@ pub fn build_classpath(
         .join(version_id)
         .join(format!("{version_id}.jar"));
     if !main_jar.exists() {
-        return Err(format!("No se encontró {version_id}.jar. La versión puede no estar completamente instalada en Minecraft."));
+        return Err(format!(
+            "No se encontró {version_id}.jar en {}",
+            versions_dir.display()
+        ));
     }
     entries.push(main_jar.display().to_string());
 
-    let normalized = entries
-        .into_iter()
-        .map(|entry| {
+    Ok(entries
+        .iter()
+        .map(|e| {
             if cfg!(target_os = "windows") {
-                entry.replace('/', "\\")
+                e.replace('/', "\\")
             } else {
-                entry
+                e.clone()
             }
         })
-        .collect::<Vec<_>>();
-
-    Ok(normalized.join(sep))
+        .collect::<Vec<_>>()
+        .join(sep))
 }
 
 fn current_os_name() -> &'static str {
@@ -1876,6 +2020,55 @@ async fn fetch_version_json_from_manifest(
         .map_err(|err| format!("No se pudo parsear version json oficial para {version_id}: {err}"))
 }
 
+async fn fetch_loader_version_json(
+    client: &reqwest::Client,
+    loader: &str,
+    loader_version: &str,
+    minecraft_version: &str,
+) -> Result<Value, String> {
+    let url = match loader.trim().to_ascii_lowercase().as_str() {
+        "fabric" => format!(
+            "https://meta.fabricmc.net/v2/versions/loader/{}/{}/profile/json",
+            minecraft_version, loader_version
+        ),
+        "quilt" => format!(
+            "https://meta.quiltmc.org/v3/versions/loader/{}/{}/profile/json",
+            minecraft_version, loader_version
+        ),
+        "forge" => {
+            return Err(format!(
+                "Forge {loader_version} no encontrado localmente. Instala esta versión en cualquier launcher externo primero."
+            ));
+        }
+        "neoforge" => {
+            return Err(format!(
+                "NeoForge {loader_version} no encontrado localmente. Instala esta versión en cualquier launcher externo primero."
+            ));
+        }
+        _ => {
+            return Err(format!(
+                "Loader '{loader}' no tiene descarga automática de metadata."
+            ));
+        }
+    };
+
+    log::info!("[REDIRECT] Descargando version.json del loader desde: {url}");
+
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("No se pudo descargar version.json del loader {loader}: {e}"))?;
+    let response = response
+        .error_for_status()
+        .map_err(|e| format!("No se pudo descargar version.json del loader {loader}: {e}"))?;
+
+    response
+        .json()
+        .await
+        .map_err(|e| format!("No se pudo parsear version.json del loader {loader}: {e}"))
+}
+
 async fn download_redirect_runtime(
     app: &AppHandle,
     source_path: &Path,
@@ -1916,27 +2109,36 @@ async fn download_redirect_runtime(
     let version_json =
         match resolve_official_version_json(&version_ids, hints, source_path, source_launcher) {
             Ok((local_path, json)) => {
-                tokio::fs::copy(&local_path, &version_json_path)
-                    .await
-                    .map_err(|err| {
-                        format!(
-                            "No se pudo copiar version json local {} a caché ({}): {err}",
-                            local_path.display(),
-                            version_json_path.display()
-                        )
-                    })?;
+                let _ = tokio::fs::copy(&local_path, &version_json_path).await;
                 json
             }
             Err(_) => {
-                let json = fetch_version_json_from_manifest(&client, version_id).await?;
-                let raw = serde_json::to_vec_pretty(&json)
-                    .map_err(|err| format!("No se pudo serializar version json oficial: {err}"))?;
-                tokio::fs::write(&version_json_path, &raw)
+                let loader = hints.loader.trim().to_ascii_lowercase();
+                if !loader.is_empty() && loader != "vanilla" && !hints.loader_version.is_empty() {
+                    match fetch_loader_version_json(
+                        &client,
+                        &loader,
+                        &hints.loader_version,
+                        &hints.minecraft_version,
+                    )
                     .await
-                    .map_err(|err| {
-                        format!("No se pudo guardar {}: {err}", version_json_path.display())
-                    })?;
-                json
+                    {
+                        Ok(json) => {
+                            let raw = serde_json::to_vec_pretty(&json).map_err(|e| {
+                                format!("No se pudo serializar version.json del loader: {e}")
+                            })?;
+                            tokio::fs::write(&version_json_path, &raw)
+                                .await
+                                .map_err(|e| {
+                                    format!("No se pudo guardar version.json del loader: {e}")
+                                })?;
+                            json
+                        }
+                        Err(_) => fetch_version_json_from_manifest(&client, version_id).await?,
+                    }
+                } else {
+                    fetch_version_json_from_manifest(&client, version_id).await?
+                }
             }
         };
 
@@ -1956,6 +2158,17 @@ async fn download_redirect_runtime(
     } else {
         None
     };
+    let final_version_json = if let Some(parent) = &parent_json {
+        merge_version_jsons(parent, &version_json)
+    } else {
+        version_json.clone()
+    };
+
+    let raw_merged = serde_json::to_vec_pretty(&final_version_json)
+        .map_err(|err| format!("No se pudo serializar version json mergeado: {err}"))?;
+    tokio::fs::write(&version_json_path, &raw_merged)
+        .await
+        .map_err(|err| format!("No se pudo guardar version json mergeado: {err}"))?;
 
     emit_redirect_cache_status(
         app,
@@ -1972,12 +2185,12 @@ async fn download_redirect_runtime(
     );
 
     let jar_path = versions_dir.join(format!("{version_id}.jar"));
-    let jar_source_json = if version_json
+    let jar_source_json = if final_version_json
         .get("downloads")
         .and_then(|v| v.get("client"))
         .is_some()
     {
-        &version_json
+        &final_version_json
     } else {
         parent_json.as_ref().ok_or_else(|| {
             "version json no contiene downloads.client ni se pudo resolver inheritsFrom".to_string()
@@ -2017,23 +2230,11 @@ async fn download_redirect_runtime(
 
     let rule_context = RuleContext::current();
     let system_libs = system_minecraft_root().map(|p| p.join("libraries"));
-    let mut libraries_to_sync = Vec::new();
-    if let Some(parent) = &parent_json {
-        libraries_to_sync.extend(
-            parent
-                .get("libraries")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default(),
-        );
-    }
-    libraries_to_sync.extend(
-        version_json
-            .get("libraries")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default(),
-    );
+    let libraries_to_sync = final_version_json
+        .get("libraries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
 
     for lib in libraries_to_sync {
         if let Some(rules) = lib.get("rules").and_then(Value::as_array) {
@@ -2604,9 +2805,18 @@ pub async fn launch_redirect_instance(
         )
     })?;
 
-    let classpath = build_classpath(
+    let mut libraries_dirs = vec![ctx.libraries_dir.clone()];
+    if let Some(system_root) = system_minecraft_root() {
+        libraries_dirs.push(system_root.join("libraries"));
+    }
+    for launcher_root in launcher_roots_for_source(&redirect.source_launcher) {
+        libraries_dirs.push(launcher_root.join("libraries"));
+    }
+    let libraries_dirs: Vec<PathBuf> = libraries_dirs.into_iter().filter(|p| p.is_dir()).collect();
+
+    let classpath = build_classpath_multi(
         &ctx.version_json,
-        &ctx.libraries_dir,
+        &libraries_dirs,
         &ctx.versions_dir,
         &ctx.resolved_version_id,
     )?;
@@ -2721,28 +2931,46 @@ pub async fn launch_redirect_instance(
         log::warn!("[REDIRECT] Advertencia game_dir: {warning}");
     }
 
-    log::info!("=== REDIRECT LAUNCH DIAGNOSTICS ===");
-    log::info!("version_id:      {}", metadata.version_id);
-    log::info!("source_launcher: {}", redirect.source_launcher);
-    log::info!("source_path:     {}", source_path.display());
-    log::info!("game_dir:        {}", ctx.game_dir.display());
-    log::info!("version_json:    {}", ctx.version_json_path.display());
-    log::info!("libraries_dir:   {}", ctx.libraries_dir.display());
-    log::info!("assets_dir:      {}", ctx.assets_dir.display());
-    log::info!("natives_dir:     {}", natives_dir.display());
-    log::info!("java_path:       {}", java_exec.display());
-    log::info!("ram_mb:          {}", metadata.ram_mb.max(512));
-    log::info!("game_dir exists: {}", ctx.game_dir.exists());
-    log::info!("mods found:      {}", ctx.game_dir.join("mods").exists());
+    let sep = if cfg!(target_os = "windows") {
+        ";"
+    } else {
+        ":"
+    };
+    log::info!("[REDIRECT] === DIAGNÓSTICO DE LOADER ===");
+    log::info!("[REDIRECT] loader:          {}", metadata.loader);
+    log::info!("[REDIRECT] loader_version:  {}", metadata.loader_version);
+    log::info!("[REDIRECT] version_id:      {}", ctx.resolved_version_id);
+    log::info!("[REDIRECT] mainClass:       {}", resolved.main_class);
+    log::info!("[REDIRECT] game_dir:        {}", ctx.game_dir.display());
     log::info!(
-        "options found:   {}",
-        ctx.game_dir.join("options.txt").exists()
+        "[REDIRECT] mods/:           {}",
+        ctx.game_dir.join("mods").exists()
     );
     log::info!(
-        "shaders found:   {}",
+        "[REDIRECT] config/:         {}",
+        ctx.game_dir.join("config").exists()
+    );
+    log::info!(
+        "[REDIRECT] shaderpacks/:    {}",
         ctx.game_dir.join("shaderpacks").exists()
     );
-    log::info!("===================================");
+    log::info!(
+        "[REDIRECT] libs en cp:      {}",
+        classpath.split(sep).count()
+    );
+
+    if resolved.main_class == "net.minecraft.client.main.Main"
+        && !matches!(
+            metadata.loader.to_ascii_lowercase().as_str(),
+            "vanilla" | "" | "-"
+        )
+    {
+        log::error!(
+            "[REDIRECT] ALERTA: mainClass es vanilla pero loader es {}. El loader no se activará. Verifica que el version.json del loader se resolvió correctamente.",
+            metadata.loader
+        );
+    }
+    log::info!("[REDIRECT] ==============================");
 
     let mut command = Command::new(&java_exec);
     command
