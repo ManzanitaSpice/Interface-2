@@ -1479,14 +1479,20 @@ pub fn execute_import_action(
         persist_shortcut_visual_meta(&instance_root, Path::new(&request.source_path));
 
         let source_path = PathBuf::from(&request.source_path);
-        let _ =
+        if let Err(err) =
             tauri::async_runtime::block_on(crate::app::redirect_launch::prewarm_redirect_runtime(
                 &app,
                 &source_path,
                 &request.source_launcher,
                 &metadata.internal_uuid,
                 &metadata.version_id,
+            ))
+        {
+            let _ = fs::remove_dir_all(&instance_root);
+            return Err(format!(
+                "No se pudo completar la descarga/instalación de runtime oficial para el atajo (assets, libraries o jar): {err}"
             ));
+        }
 
         return Ok(ImportActionResult {
             success: true,
