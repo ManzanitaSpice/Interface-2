@@ -12,12 +12,35 @@ use reqwest::blocking::Client;
 
 use crate::{infrastructure::checksum::sha1::compute_file_sha1, shared::result::AppResult};
 
-const OFFICIAL_BINARY_HOSTS: [&str; 5] = [
-    "libraries.minecraft.net",
+const OFFICIAL_BINARY_HOSTS: [&str; 24] = [
+    // Mojang / Microsoft
+    "launchermeta.mojang.com",
+    "launcher.mojang.com",
     "resources.download.minecraft.net",
+    "libraries.minecraft.net",
     "piston-data.mojang.com",
     "piston-meta.mojang.com",
-    "launchermeta.mojang.com",
+    "assets.minecraft.net",
+    "authserver.mojang.com",
+    "sessionserver.mojang.com",
+    "api.mojang.com",
+    "api.minecraftservices.com",
+    // Forge / NeoForge
+    "maven.minecraftforge.net",
+    "files.minecraftforge.net",
+    "maven.neoforged.net",
+    // Fabric / Quilt
+    "meta.fabricmc.net",
+    "maven.fabricmc.net",
+    "meta.quiltmc.org",
+    "maven.quiltmc.org",
+    // Official upstream Maven/CDN used by loaders
+    "repo1.maven.org",
+    "repo.maven.apache.org",
+    "jcenter.bintray.com",
+    "dl.google.com",
+    "oss.sonatype.org",
+    "s3.amazonaws.com",
 ];
 
 fn normalize_host(host: &str) -> String {
@@ -26,9 +49,9 @@ fn normalize_host(host: &str) -> String {
 
 fn is_official_binary_host(host: &str) -> bool {
     let normalized_host = normalize_host(host);
-    OFFICIAL_BINARY_HOSTS
-        .iter()
-        .any(|allowed| normalized_host == *allowed)
+    OFFICIAL_BINARY_HOSTS.iter().any(|allowed| {
+        normalized_host == *allowed || normalized_host.ends_with(&format!(".{allowed}"))
+    })
 }
 
 #[derive(Clone, Debug)]
