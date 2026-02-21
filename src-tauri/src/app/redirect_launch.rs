@@ -2247,6 +2247,20 @@ async fn ensure_redirect_cache_context(
     resolve_from_cache(app, instance_uuid, version_id, source_path)
 }
 
+pub async fn prewarm_redirect_runtime(
+    app: &AppHandle,
+    source_path: &Path,
+    source_launcher: &str,
+    instance_uuid: &str,
+    version_id: &str,
+) -> Result<(), String> {
+    let _ =
+        ensure_redirect_cache_context(app, source_path, source_launcher, instance_uuid, version_id)
+            .await?;
+    touch_cache_entry_last_used(app, instance_uuid);
+    Ok(())
+}
+
 fn touch_cache_entry_last_used(app: &AppHandle, instance_uuid: &str) {
     if let Ok(cache_root) = redirect_cache_root(app) {
         let mut index = load_redirect_cache_index(&cache_root);

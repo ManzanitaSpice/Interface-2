@@ -15,8 +15,11 @@ use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
 use crate::{
+    domain::java::java_requirement::determine_required_java,
     domain::models::instance::InstanceMetadata,
+    domain::models::java::JavaRuntime,
     infrastructure::filesystem::paths::sanitize_path_segment,
+    services::{instance_builder::build_instance_structure, java_installer::ensure_embedded_java},
 };
 
 #[derive(Clone, serde::Serialize)]
@@ -123,6 +126,169 @@ struct DetectionMeta {
     loader_version: Option<String>,
     format: Option<String>,
     importable: bool,
+}
+
+fn runtime_name(runtime: JavaRuntime) -> &'static str {
+    match runtime {
+        JavaRuntime::Java8 => "java8",
+        JavaRuntime::Java17 => "java17",
+        JavaRuntime::Java21 => "java21",
+    }
+}
+
+fn detect_source_minecraft_dir(source_root: &Path) -> Option<PathBuf> {
+    [
+        source_root.join("minecraft"),
+        source_root.join(".minecraft"),
+    ]
+    .into_iter()
+    .find(|candidate| candidate.is_dir())
+    .or_else(|| {
+        if source_root.join("versions").is_dir() {
+            Some(source_root.to_path_buf())
+        } else {
+            None
+        }
+    })
+}
+
+fn normalize_import_layout(instance_root: &Path, source_root: &Path) -> Result<PathBuf, String> {
+    let minecraft_root = instance_root.join("minecraft");
+    if minecraft_root.is_dir() {
+        return Ok(minecraft_root);
+    }
+
+    let dot_minecraft_root = instance_root.join(".minecraft");
+    if dot_minecraft_root.is_dir() {
+        fs::rename(&dot_minecraft_root, &minecraft_root).map_err(|err| {
+            format!(
+                "No se pudo normalizar .minecraft -> minecraft en {}: {err}",
+                instance_root.display()
+            )
+        })?;
+        return Ok(minecraft_root);
+    }
+
+    fs::create_dir_all(&minecraft_root).map_err(|err| {
+        format!(
+            "No se pudo crear carpeta minecraft en {}: {err}",
+            instance_root.display()
+        )
+    })?;
+
+    if let Some(source_mc) = detect_source_minecraft_dir(source_root) {
+        let mut copied = 0usize;
+        copy_dir_recursive_limited(&source_mc, &minecraft_root, &mut copied, None)?;
+    }
+
+    Ok(minecraft_root)
+}
+
+fn copy_dir_recursive_limited(
+    src: &Path,
+    dst: &Path,
+    copied: &mut usize,
+    max_files: Option<usize>,
+) -> Result<(), String> {
+    if max_files.is_some_and(|max| *copied >= max) || !src.exists() {
+        return Ok(());
+    }
+
+    fs::create_dir_all(dst).map_err(|err| {
+        format!(
+            "No se pudo crear carpeta de destino {}: {err}",
+            dst.display()
+        )
+    })?;
+
+    let entries =
+        fs::read_dir(src).map_err(|err| format!("No se pudo leer {}: {err}", src.display()))?;
+
+    for entry in entries.flatten() {
+        if max_files.is_some_and(|max| *copied >= max) {
+            break;
+        }
+
+        let path = entry.path();
+        let target = dst.join(entry.file_name());
+
+        if path.is_dir() {
+            let dir_name = path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .map(|value| value.to_ascii_lowercase())
+                .unwrap_or_default();
+            if ["cache", "temp", "tmp", "natives"].contains(&dir_name.as_str()) {
+                continue;
+            }
+            copy_dir_recursive_limited(&path, &target, copied, max_files)?;
+            continue;
+        }
+
+        fs::copy(&path, &target).map_err(|err| {
+            format!(
+                "No se pudo copiar {} -> {}: {err}",
+                path.display(),
+                target.display()
+            )
+        })?;
+        *copied += 1;
+    }
+
+    Ok(())
+}
+
+fn finalize_import_runtime(
+    app: &AppHandle,
+    instance_root: &Path,
+    source_root: &Path,
+    metadata: &mut InstanceMetadata,
+) -> Result<(), String> {
+    let launcher_root = instance_root
+        .parent()
+        .and_then(Path::parent)
+        .ok_or_else(|| {
+            format!(
+                "No se pudo resolver launcher root desde {}",
+                instance_root.display()
+            )
+        })?;
+    let minecraft_root = normalize_import_layout(instance_root, source_root)?;
+
+    let required_java = determine_required_java(&metadata.minecraft_version, &metadata.loader)?;
+    let mut logs = vec![format!(
+        "[IMPORT] Preparando runtime oficial para {} ({})",
+        metadata.name, metadata.version_id
+    )];
+    let java_exec = ensure_embedded_java(launcher_root, required_java, &mut logs)?;
+    let effective_version_id = build_instance_structure(
+        instance_root,
+        &minecraft_root,
+        &metadata.minecraft_version,
+        &metadata.loader,
+        &metadata.loader_version,
+        &java_exec,
+        &mut logs,
+        &mut |_progress| {},
+    )?;
+
+    metadata.version_id = effective_version_id;
+    metadata.java_path = java_exec.display().to_string();
+    metadata.java_runtime = runtime_name(required_java).to_string();
+    metadata.java_version = format!("{}.0.x", required_java.major());
+    metadata.required_java_major = u32::from(required_java.major());
+    metadata.state = "READY".to_string();
+
+    let _ = app.emit(
+        "import_execution_progress",
+        serde_json::json!({
+            "instanceName": metadata.name,
+            "step": "runtime_ready",
+            "message": "Runtime oficial, assets y loader verificados para importación."
+        }),
+    );
+
+    Ok(())
 }
 
 static CANCEL_IMPORT: OnceLock<Arc<AtomicBool>> = OnceLock::new();
@@ -1071,60 +1237,6 @@ pub fn import_specific(path: String) -> Result<Vec<DetectedInstance>, String> {
 pub fn execute_import(app: AppHandle, requests: Vec<ImportRequest>) -> Result<(), String> {
     use crate::app::settings_service::resolve_instances_root;
 
-    fn copy_recursive_limited(
-        src: &Path,
-        dst: &Path,
-        copied: &mut usize,
-        max_files: Option<usize>,
-    ) -> Result<(), String> {
-        if max_files.is_some_and(|max| *copied >= max) || !src.exists() {
-            return Ok(());
-        }
-
-        fs::create_dir_all(dst).map_err(|err| {
-            format!(
-                "No se pudo crear carpeta de destino {}: {err}",
-                dst.display()
-            )
-        })?;
-
-        let entries =
-            fs::read_dir(src).map_err(|err| format!("No se pudo leer {}: {err}", src.display()))?;
-
-        for entry in entries.flatten() {
-            if max_files.is_some_and(|max| *copied >= max) {
-                break;
-            }
-
-            let path = entry.path();
-            let target = dst.join(entry.file_name());
-
-            if path.is_dir() {
-                let dir_name = path
-                    .file_name()
-                    .and_then(|value| value.to_str())
-                    .map(|value| value.to_ascii_lowercase())
-                    .unwrap_or_default();
-                if ["cache", "temp", "tmp", "natives"].contains(&dir_name.as_str()) {
-                    continue;
-                }
-                copy_recursive_limited(&path, &target, copied, max_files)?;
-                continue;
-            }
-
-            fs::copy(&path, &target).map_err(|err| {
-                format!(
-                    "No se pudo copiar {} -> {}: {err}",
-                    path.display(),
-                    target.display()
-                )
-            })?;
-            *copied += 1;
-        }
-
-        Ok(())
-    }
-
     let instances_root = resolve_instances_root(&app)?;
     fs::create_dir_all(&instances_root)
         .map_err(|err| format!("No se pudo preparar el directorio de instancias: {err}"))?;
@@ -1177,7 +1289,7 @@ pub fn execute_import(app: AppHandle, requests: Vec<ImportRequest>) -> Result<()
             })?;
 
             let mut copied_files = 0usize;
-            copy_recursive_limited(&source_root, &instance_root, &mut copied_files, None)?;
+            copy_dir_recursive_limited(&source_root, &instance_root, &mut copied_files, None)?;
 
             let effective_version_id = resolve_effective_version_id(
                 &source_root,
@@ -1187,7 +1299,7 @@ pub fn execute_import(app: AppHandle, requests: Vec<ImportRequest>) -> Result<()
             );
 
             let internal_uuid = uuid::Uuid::new_v4().to_string();
-            let metadata = InstanceMetadata {
+            let mut metadata = InstanceMetadata {
                 name: req.target_name.clone(),
                 group: req.target_group.clone(),
                 minecraft_version: req.minecraft_version.clone(),
@@ -1205,6 +1317,8 @@ pub fn execute_import(app: AppHandle, requests: Vec<ImportRequest>) -> Result<()
                 last_used: None,
                 internal_uuid,
             };
+
+            finalize_import_runtime(&app, &instance_root, &source_root, &mut metadata)?;
 
             let metadata_path = instance_root.join(".instance.json");
             let metadata_raw = serde_json::to_string_pretty(&metadata)
@@ -1363,6 +1477,16 @@ pub fn execute_import_action(
             .map_err(|err| format!("No se pudo guardar redirección de atajo: {err}"))?;
 
         persist_shortcut_visual_meta(&instance_root, Path::new(&request.source_path));
+
+        let source_path = PathBuf::from(&request.source_path);
+        let _ =
+            tauri::async_runtime::block_on(crate::app::redirect_launch::prewarm_redirect_runtime(
+                &app,
+                &source_path,
+                &request.source_launcher,
+                &metadata.internal_uuid,
+                &metadata.version_id,
+            ));
 
         return Ok(ImportActionResult {
             success: true,
