@@ -1084,6 +1084,17 @@ function App() {
     return () => { cancelled = true }
   }, [cards])
 
+  const refreshCardStatsForRoot = useCallback(async (instanceRoot: string) => {
+    try {
+      const stats = await invoke<InstanceCardStats>('get_instance_card_stats', { instanceRoot })
+      setInstanceStatsByRoot((prev) => ({ ...prev, [instanceRoot]: stats }))
+      const metadata = await invoke<InstanceMetadataView>('get_instance_metadata', { instanceRoot })
+      setInstanceMetaByRoot((prev) => ({ ...prev, [instanceRoot]: metadata }))
+    } catch {
+      // No-op: refresco de stats best-effort para tooltips.
+    }
+  }, [])
+
   useEffect(() => {
     if (!selectedCard?.instanceRoot) {
       setRuntimeConsole([])
@@ -1220,6 +1231,8 @@ function App() {
               appendRuntimeForRoot(selectedCard.instanceRoot, makeConsoleEntry('WARN', 'game', `stderr (últimas ${status.stderrTail.length} líneas): ${status.stderrTail.join(' | ')}`))
             }
             setLastRuntimeExitKey(exitKey)
+            const runningRoot = selectedCard.instanceRoot
+            if (runningRoot) void refreshCardStatsForRoot(runningRoot)
           }
         }
       } catch {
@@ -1238,7 +1251,7 @@ function App() {
       cancelled = true
       if (timer !== null) window.clearInterval(timer)
     }
-  }, [lastRuntimeExitKey, selectedCard?.instanceRoot])
+  }, [lastRuntimeExitKey, refreshCardStatsForRoot, selectedCard?.instanceRoot])
 
   useEffect(() => {
     if (isInstanceRunning) {
@@ -1278,9 +1291,15 @@ function App() {
   useEffect(() => {
     const onEscapePress = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
-      event.preventDefault()
+
+      const activeElement = document.activeElement as HTMLElement | null
+      if (activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeElement.tagName)) {
+        activeElement.blur()
+        return
+      }
 
       if (activePage === 'Editar Instancia') {
+        event.preventDefault()
         if (selectedEditSection === 'Configuración' && selectedSettingsTab !== 'General') {
           setSelectedSettingsTab('General')
           return
@@ -1294,31 +1313,40 @@ function App() {
           return
         }
         setCreationProgress((prev) => prev ? { completed: prev.total, total: prev.total } : prev)
-      navigateToPage('Mis Modpacks')
+        if (backHistory.length > 0) {
+          navigateBack()
+        } else {
+          navigateToPage('Mis Modpacks')
+        }
         return
       }
 
       if (activePage === 'Creador de Instancias') {
+        event.preventDefault()
         setCreationProgress((prev) => prev ? { completed: prev.total, total: prev.total } : prev)
-      navigateToPage('Mis Modpacks')
+        if (backHistory.length > 0) {
+          navigateBack()
+        } else {
+          navigateToPage('Mis Modpacks')
+        }
         return
       }
 
       if (activePage === 'Mis Modpacks' && selectedCard) {
+        event.preventDefault()
         setSelectedCard(null)
         return
       }
 
-      if (activePage !== 'Mis Modpacks') {
-        setCreationProgress((prev) => prev ? { completed: prev.total, total: prev.total } : prev)
-      navigateToPage('Mis Modpacks')
+      if (backHistory.length > 0) {
+        event.preventDefault()
+        navigateBack()
       }
     }
 
     window.addEventListener('keydown', onEscapePress)
     return () => window.removeEventListener('keydown', onEscapePress)
-  }, [activePage, isInstanceRunning, isStartingInstance, selectedCard, selectedEditSection, selectedSettingsTab])
-
+  }, [activePage, backHistory.length, isInstanceRunning, isStartingInstance, selectedCard, selectedEditSection, selectedSettingsTab])
 
   useEffect(() => {
     let cancelled = false

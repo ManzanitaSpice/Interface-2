@@ -1088,7 +1088,6 @@ pub fn execute_import(app: AppHandle, requests: Vec<ImportRequest>) -> Result<()
             instance_root = instances_root.join(format!("{}-{}", sanitized_name, &suffix[..8]));
         }
 
-        let minecraft_root = instance_root.join("minecraft");
         let _ = app.emit(
             "import_execution_progress",
             serde_json::json!({
@@ -1104,63 +1103,15 @@ pub fn execute_import(app: AppHandle, requests: Vec<ImportRequest>) -> Result<()
         );
 
         let result = (|| -> Result<(), String> {
-            fs::create_dir_all(&minecraft_root).map_err(|err| {
+            fs::create_dir_all(&instance_root).map_err(|err| {
                 format!(
                     "No se pudo crear la instancia {}: {err}",
                     instance_root.display()
                 )
             })?;
 
-            let source_minecraft_root = resolve_source_minecraft_root(&source_root);
-
             let mut copied_files = 0usize;
-            copy_recursive_limited(
-                &source_minecraft_root,
-                &minecraft_root,
-                &mut copied_files,
-                None,
-            )?;
-
-            if req.copy_mods {
-                copy_recursive_limited(
-                    &source_minecraft_root.join("mods"),
-                    &minecraft_root.join("mods"),
-                    &mut copied_files,
-                    None,
-                )?;
-            }
-            if req.copy_worlds {
-                copy_recursive_limited(
-                    &source_minecraft_root.join("saves"),
-                    &minecraft_root.join("saves"),
-                    &mut copied_files,
-                    None,
-                )?;
-            }
-            if req.copy_resourcepacks {
-                copy_recursive_limited(
-                    &source_minecraft_root.join("resourcepacks"),
-                    &minecraft_root.join("resourcepacks"),
-                    &mut copied_files,
-                    None,
-                )?;
-            }
-            if req.copy_screenshots {
-                copy_recursive_limited(
-                    &source_minecraft_root.join("screenshots"),
-                    &minecraft_root.join("screenshots"),
-                    &mut copied_files,
-                    None,
-                )?;
-            }
-            if req.copy_logs {
-                copy_recursive_limited(
-                    &source_minecraft_root.join("logs"),
-                    &minecraft_root.join("logs"),
-                    &mut copied_files,
-                    None,
-                )?;
-            }
+            copy_recursive_limited(&source_root, &instance_root, &mut copied_files, None)?;
 
             let internal_uuid = uuid::Uuid::new_v4().to_string();
             let metadata = InstanceMetadata {
@@ -1458,13 +1409,4 @@ pub fn cancel_import() {
     if let Some(flag) = CANCEL_IMPORT.get() {
         flag.store(true, Ordering::Relaxed);
     }
-}
-fn resolve_source_minecraft_root(source_root: &Path) -> PathBuf {
-    if source_root.join(".minecraft").is_dir() {
-        return source_root.join(".minecraft");
-    }
-    if source_root.join("minecraft").is_dir() {
-        return source_root.join("minecraft");
-    }
-    source_root.to_path_buf()
 }
