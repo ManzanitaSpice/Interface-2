@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
+    env,
     fs,
     hash::{Hash, Hasher},
     io::{BufRead, BufReader},
