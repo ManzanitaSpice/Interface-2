@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "tauri": "tauri",
-    "build:secure": "vite build --mode secure"
+    "build:secure": "cargo clean --manifest-path src-tauri/Cargo.toml && npm run build && npx tauri build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
@@ -17,7 +17,8 @@
     "react-dom": "^19.2.0",
     "three": "^0.183.0",
     "zustand": "^5.0.11",
-    "vite-plugin-compression": "^0.5.1"
+    "vite-plugin-compression": "^0.5.1",
+    "@tauri-apps/plugin-updater": "^2.9.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
