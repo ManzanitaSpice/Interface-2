@@ -2295,6 +2295,89 @@ fn copy_missing_forge_jars_to_cache(
     copied
 }
 
+fn hydrate_missing_module_path_jars(
+    jvm_args: &[String],
+    cache_lib_dir: &Path,
+    candidate_lib_roots: &[PathBuf],
+    logs: &mut Vec<String>,
+) -> u32 {
+    let mut copied = 0u32;
+    let separator = if cfg!(target_os = "windows") {
+        ';'
+    } else {
+        ':'
+    };
+
+    for idx in 0..jvm_args.len() {
+        if jvm_args[idx] != "--module-path" {
+            continue;
+        }
+        let Some(raw_paths) = jvm_args.get(idx + 1) else {
+            continue;
+        };
+
+        for segment in raw_paths.split(separator).map(str::trim) {
+            if segment.is_empty() {
+                continue;
+            }
+
+            let target = PathBuf::from(segment);
+            if target.exists() {
+                continue;
+            }
+
+            let normalized = segment.replace('\\', "/").to_ascii_lowercase();
+            let Some(libraries_pos) = normalized.find("/libraries/") else {
+                continue;
+            };
+
+            let relative =
+                segment[libraries_pos + "/libraries/".len()..].trim_start_matches(['/', '\\']);
+            let relative_path = PathBuf::from(relative.replace('/', std::path::MAIN_SEPARATOR_STR));
+            let cache_target = cache_lib_dir.join(&relative_path);
+
+            if cache_target.exists() {
+                continue;
+            }
+
+            let source = candidate_lib_roots
+                .iter()
+                .map(|root| root.join(&relative_path))
+                .find(|candidate| candidate.is_file());
+
+            let Some(source) = source else {
+                logs.push(format!(
+                    "[FORGE-FIX] No se encontró JAR faltante de --module-path en ningún libraries root: {}",
+                    relative_path.display()
+                ));
+                continue;
+            };
+
+            if let Some(parent) = cache_target.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+
+            match fs::copy(&source, &cache_target) {
+                Ok(_) => {
+                    copied += 1;
+                    logs.push(format!(
+                        "[FORGE-FIX] JAR faltante de module-path hidratado en cache: {}",
+                        cache_target.display()
+                    ));
+                }
+                Err(err) => logs.push(format!(
+                    "[FORGE-FIX] Error hidratando {} desde {}: {}",
+                    cache_target.display(),
+                    source.display(),
+                    err
+                )),
+            }
+        }
+    }
+
+    copied
+}
+
 fn forge_critical_jars_present(lib_dir: &Path, mc_version: &str, forge_version: &str) -> bool {
     if mc_version.trim().is_empty() || forge_version.trim().is_empty() {
         return false;
@@ -2326,10 +2409,7 @@ fn forge_critical_jars_present(lib_dir: &Path, mc_version: &str, forge_version: 
             }
             if let Ok(files) = fs::read_dir(&path) {
                 for file in files.flatten() {
-                    let name = file
-                        .file_name()
-                        .to_string_lossy()
-                        .to_ascii_lowercase();
+                    let name = file.file_name().to_string_lossy().to_ascii_lowercase();
                     if name.ends_with("-srg.jar") {
                         has_client_srg = true;
                     }
@@ -4895,7 +4975,7 @@ pub async fn launch_redirect_instance(
             );
 
             for arg in &mut jvm_args {
-                if arg.starts_with("-DlibraryDirectory=") || arg.starts_with("-DlegacyClassPath=") {
+                if arg.starts_with("-DlibraryDirectory=") {
                     let key = arg.split('=').next().unwrap_or("").to_string();
                     *arg = format!("{}={}", key, real_lib_dir.display());
                     log::info!("[FORGE-FIX] Reemplazado: {}", arg);
@@ -4959,6 +5039,22 @@ pub async fn launch_redirect_instance(
                     .collect();
                 *arg = fixed_segments.join(&sep.to_string());
             }
+        }
+
+        let mut module_roots = libraries_dirs.clone();
+        module_roots.push(real_lib_dir.clone());
+        module_roots.push(cache_lib_dir.clone());
+        let hydrated = hydrate_missing_module_path_jars(
+            &jvm_args,
+            &cache_lib_dir,
+            &unique_paths(module_roots),
+            &mut lib_logs,
+        );
+        if hydrated > 0 {
+            log::info!(
+                "[FORGE-FIX] JARs faltantes en --module-path recuperados al cache: {}",
+                hydrated
+            );
         }
 
         for line in lib_logs {
