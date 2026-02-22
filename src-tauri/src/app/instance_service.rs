@@ -1684,8 +1684,18 @@ pub async fn start_instance(
     };
 
     let mut command = Command::new(&prepared.java_path);
+    let mut effective_jvm_args = prepared.jvm_args.clone();
+
+    if cfg!(target_os = "windows") {
+        if let Some(classpath) = strip_classpath_from_jvm_args(&mut effective_jvm_args) {
+            command.env("CLASSPATH", classpath);
+        }
+    }
+
+    let launch_jvm_args = effective_jvm_args.clone();
+
     command
-        .args(&prepared.jvm_args)
+        .args(&effective_jvm_args)
         .arg(&prepared.main_class)
         .args(&prepared.game_args)
         .stdout(Stdio::piped())
@@ -1865,7 +1875,7 @@ pub async fn start_instance(
             format!(
                 "Comando final ejecutado: {}",
                 std::iter::once(prepared.java_path)
-                    .chain(prepared.jvm_args.iter().cloned())
+                    .chain(launch_jvm_args.iter().cloned())
                     .chain(std::iter::once(prepared.main_class.clone()))
                     .chain(prepared.game_args.iter().cloned())
                     .collect::<Vec<_>>()
@@ -2963,6 +2973,36 @@ fn contains_classpath_switch(jvm_args: &[String]) -> bool {
     jvm_args
         .windows(2)
         .any(|window| matches!(window, [flag, _value] if flag == "-cp" || flag == "-classpath"))
+}
+
+fn strip_classpath_from_jvm_args(jvm_args: &mut Vec<String>) -> Option<String> {
+    let mut index = 0usize;
+    while index < jvm_args.len() {
+        let current = jvm_args[index].clone();
+        if current == "-cp" || current == "-classpath" {
+            if index + 1 >= jvm_args.len() {
+                jvm_args.remove(index);
+                return None;
+            }
+            let value = jvm_args.remove(index + 1);
+            jvm_args.remove(index);
+            return Some(value);
+        }
+
+        if let Some(value) = current.strip_prefix("-cp=") {
+            jvm_args.remove(index);
+            return Some(value.to_string());
+        }
+
+        if let Some(value) = current.strip_prefix("-classpath=") {
+            jvm_args.remove(index);
+            return Some(value.to_string());
+        }
+
+        index += 1;
+    }
+
+    None
 }
 
 #[derive(Debug, Clone)]
@@ -4093,6 +4133,27 @@ mod tests {
         let jvm_args = vec!["-Xmx2G".to_string(), "-classpath=/tmp/cp".to_string()];
 
         assert!(contains_classpath_switch(&jvm_args));
+    }
+
+    #[test]
+    fn strip_classpath_moves_value_out_of_jvm_args() {
+        let mut jvm_args = vec![
+            "-Xmx2G".to_string(),
+            "-cp".to_string(),
+            "/tmp/libs/a.jar;/tmp/libs/b.jar".to_string(),
+            "-Dfile.encoding=UTF-8".to_string(),
+        ];
+
+        let classpath = strip_classpath_from_jvm_args(&mut jvm_args);
+
+        assert_eq!(
+            classpath.as_deref(),
+            Some("/tmp/libs/a.jar;/tmp/libs/b.jar")
+        );
+        assert_eq!(
+            jvm_args,
+            vec!["-Xmx2G".to_string(), "-Dfile.encoding=UTF-8".to_string()]
+        );
     }
 
     #[test]
