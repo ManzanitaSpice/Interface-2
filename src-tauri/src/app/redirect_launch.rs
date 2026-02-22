@@ -4773,6 +4773,26 @@ pub async fn launch_redirect_instance(
                 if !Path::new(&relinked_game_dir).exists() {
                     return Err(format!("External gameDir no existe: {relinked_game_dir}"));
                 }
+                let mut shortcut_logs = vec![format!(
+                    "[SHORTCUT][launch] BASE_DIR={} instance_root={}",
+                    crate::infrastructure::filesystem::paths::resolve_launcher_root(&app)
+                        .map_err(|err| err.to_string())?
+                        .display(),
+                    instance_root
+                )];
+                match crate::app::shortcut_instance::ensure_runtime_incremental(
+                    &app,
+                    &instance_path,
+                    &shortcut_state,
+                    &mut shortcut_logs,
+                ) {
+                    Ok(rebuilt) => launch_plan = rebuilt,
+                    Err(err) => {
+                        shortcut_logs.push(format!(
+                            "[SHORTCUT][launch] ensure_runtime_incremental error: {err}"
+                        ));
+                    }
+                }
                 for arg in &mut launch_plan.game_args {
                     *arg = arg.replace(&shortcut_state.external_game_dir, &relinked_game_dir);
                     if arg == "Player" {
@@ -4785,7 +4805,27 @@ pub async fn launch_redirect_instance(
                         *arg = auth_session.minecraft_access_token.clone();
                     }
                 }
-                crate::app::shortcut_instance::validate_preflight(&launch_plan)?;
+                if let Err(preflight_error) =
+                    crate::app::shortcut_instance::validate_preflight(&launch_plan)
+                {
+                    shortcut_logs.push(format!(
+                        "[SHORTCUT][launch] preflight inicial falló: {preflight_error}"
+                    ));
+                    let repaired = crate::app::shortcut_instance::ensure_runtime_incremental(
+                        &app,
+                        &instance_path,
+                        &shortcut_state,
+                        &mut shortcut_logs,
+                    )?;
+                    launch_plan = repaired;
+                    for arg in &mut launch_plan.game_args {
+                        *arg = arg.replace(&shortcut_state.external_game_dir, &relinked_game_dir);
+                    }
+                    crate::app::shortcut_instance::validate_preflight(&launch_plan)?;
+                }
+                for line in shortcut_logs {
+                    log::info!("{line}");
+                }
                 let cp_paths: Vec<PathBuf> =
                     launch_plan.classpath.iter().map(PathBuf::from).collect();
                 let java_args = crate::app::shortcut_instance::build_java_args(

@@ -1,5 +1,5 @@
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     fs,
     path::{Path, PathBuf},
     process::Command,
@@ -28,6 +28,8 @@ use crate::{
     },
 };
 
+const SHARED_ROOT_ENABLED: bool = false;
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ShortcutLaunchPlan {
@@ -45,6 +47,17 @@ pub struct ShortcutLaunchPlan {
     pub libraries_root: String,
     pub versions_root: String,
     pub version_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ShortcutRuntimeState {
+    pub java_path: String,
+    pub libraries_root: String,
+    pub assets_root: String,
+    pub versions_root: String,
+    pub loader_root: String,
+    pub natives_dir: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,12 +93,21 @@ pub struct ShortcutState {
     pub created_at: String,
     pub updated_at: String,
     pub adopt_mode: String,
+    #[serde(default)]
+    pub runtime: ShortcutRuntimeState,
     pub locator: ExternalLocator,
     #[serde(default)]
     pub launch_plan: ShortcutLaunchPlan,
 }
 fn default_creating() -> String {
     "CREATING".to_string()
+}
+
+#[derive(Debug, Clone)]
+pub struct ShortcutMetadata {
+    pub mc_version: String,
+    pub loader: String,
+    pub loader_version: String,
 }
 
 #[derive(Debug, Clone)]
@@ -137,6 +159,7 @@ pub fn create_shortcut_instance(
     app: &AppHandle,
     req: ShortcutCreateRequest,
 ) -> Result<ShortcutCreateResult, String> {
+    let base_dir = resolve_launcher_root(app).map_err(|err| err.to_string())?;
     let (external_game_dir, external_root_dir) = normalize_external_dirs(&req.selected_path);
     if !external_game_dir.exists() {
         return Err(format!(
@@ -169,22 +192,50 @@ pub fn create_shortcut_instance(
         fs::create_dir_all(&dir).map_err(|e| format!("No se pudo crear {}: {e}", dir.display()))?;
     }
 
-    let (mut mc_version, mut loader, mut loader_version) =
-        read_instance_manifest_strict(&external_root_dir);
-    if mc_version.is_empty() {
-        mc_version = req.fallback_mc;
-    }
-    if loader.is_empty() {
-        loader = req.fallback_loader;
-    }
-    if loader_version.is_empty() || loader_version == "-" {
-        loader_version = req.fallback_loader_version;
-    }
-    if mc_version.trim().is_empty() {
-        return Err("No se pudo detectar mc_version para el atajo.".to_string());
-    }
+    let metadata = resolve_shortcut_metadata(
+        &external_root_dir,
+        &external_game_dir,
+        &req.fallback_mc,
+        &req.fallback_loader,
+        &req.fallback_loader_version,
+    )?;
+    let mc_version = metadata.mc_version;
+    let loader = metadata.loader;
+    let loader_version = metadata.loader_version;
 
     let now = chrono::Utc::now().to_rfc3339();
+    let runtime = runtime_for_mc(&mc_version, &loader)?;
+    let mut logs = vec![format!(
+        "[SHORTCUT][create] BASE_DIR={}",
+        base_dir.display()
+    )];
+    let java_exec = select_embedded_java(app, runtime, &mut logs)?;
+    let runtime_state = bind_runtime_roots(&base_dir, &instance_root, &runtime_root, &java_exec);
+    logs.push(format!(
+        "[SHORTCUT][create] external_game_dir={}",
+        external_game_dir.display()
+    ));
+    logs.push(format!(
+        "[SHORTCUT][create] external_root_dir={}",
+        external_root_dir.display()
+    ));
+    logs.push(format!(
+        "[SHORTCUT][create] libraries_root={}",
+        runtime_state.libraries_root
+    ));
+    logs.push(format!(
+        "[SHORTCUT][create] assets_root={}",
+        runtime_state.assets_root
+    ));
+    logs.push(format!(
+        "[SHORTCUT][create] versions_root={}",
+        runtime_state.versions_root
+    ));
+    logs.push(format!(
+        "[SHORTCUT][create] natives_dir={}",
+        runtime_state.natives_dir
+    ));
+
     let mut state = ShortcutState {
         id: uuid::Uuid::new_v4().to_string(),
         name: req.name.clone(),
@@ -197,6 +248,7 @@ pub fn create_shortcut_instance(
         created_at: now.clone(),
         updated_at: now,
         adopt_mode: "off".to_string(),
+        runtime: runtime_state,
         locator: ExternalLocator {
             last_known_path: external_game_dir.display().to_string(),
             signature: compute_signature(&external_game_dir, &external_root_dir),
@@ -211,9 +263,16 @@ pub fn create_shortcut_instance(
     };
     save_shortcut_state(&instance_root, &state)?;
 
-    let runtime = runtime_for_mc(&mc_version, &loader)?;
-    let mut logs = vec!["[SHORTCUT][create] ensure runtime interno".to_string()];
-    let java_exec = select_embedded_java(app, runtime, &mut logs)?;
+    let libraries_root_path = PathBuf::from(&state.runtime.libraries_root);
+    let assets_root_path = PathBuf::from(&state.runtime.assets_root);
+    let versions_root_path = PathBuf::from(&state.runtime.versions_root);
+    let natives_root_path = PathBuf::from(&state.runtime.natives_dir);
+    fs::create_dir_all(&libraries_root_path).map_err(|e| e.to_string())?;
+    fs::create_dir_all(assets_root_path.join("indexes")).map_err(|e| e.to_string())?;
+    fs::create_dir_all(assets_root_path.join("objects")).map_err(|e| e.to_string())?;
+    fs::create_dir_all(&versions_root_path).map_err(|e| e.to_string())?;
+    fs::create_dir_all(&natives_root_path).map_err(|e| e.to_string())?;
+
     let effective_version_id = build_instance_structure(
         &instance_root,
         &runtime_root,
@@ -237,14 +296,21 @@ pub fn create_shortcut_instance(
         .map_err(|e| format!("Forge processors no ejecutados; jars faltantes: {e}"))?;
     }
 
-    let plan = build_launch_plan(
-        app,
-        &state,
-        &runtime_root,
-        &effective_version_id,
-        &java_exec,
-    )?;
-    validate_preflight(&plan)?;
+    let mut plan = build_launch_plan(app, &state, &effective_version_id)?;
+    if let Err(initial_error) = validate_preflight(&plan) {
+        logs.push(format!(
+            "[SHORTCUT][create] preflight falló: {initial_error}"
+        ));
+        repair_shortcut_instance(
+            app,
+            &instance_root,
+            &state,
+            &effective_version_id,
+            &mut logs,
+        )?;
+        plan = build_launch_plan(app, &state, &effective_version_id)?;
+        validate_preflight(&plan)?;
+    }
 
     let metadata = crate::domain::models::instance::InstanceMetadata {
         name: req.name,
@@ -274,6 +340,9 @@ pub fn create_shortcut_instance(
     state.status = "READY".to_string();
     state.updated_at = chrono::Utc::now().to_rfc3339();
     state.launch_plan = plan;
+    for line in logs {
+        log::info!("{line}");
+    }
     save_shortcut_state(&instance_root, &state)?;
     Ok(ShortcutCreateResult { instance_root })
 }
@@ -281,15 +350,20 @@ pub fn create_shortcut_instance(
 pub fn build_launch_plan(
     app: &AppHandle,
     state: &ShortcutState,
-    runtime_root: &Path,
     version_id: &str,
-    java_exec: &Path,
 ) -> Result<ShortcutLaunchPlan, String> {
-    let versions_root = runtime_root.join("versions");
+    let runtime_root = PathBuf::from(&state.runtime.loader_root)
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from(&state.runtime.versions_root).join(".."));
+    let versions_root = PathBuf::from(&state.runtime.versions_root);
+    let libraries_root = PathBuf::from(&state.runtime.libraries_root);
+    let assets_root = PathBuf::from(&state.runtime.assets_root);
+    let natives_dir = PathBuf::from(&state.runtime.natives_dir);
     let version_json = merge_version_json_chain(&versions_root, version_id)?;
     let classpath = build_classpath_multi(
         &version_json,
-        &[runtime_root.join("libraries")],
+        &[libraries_root.clone()],
         &versions_root,
         version_id,
     )?;
@@ -306,17 +380,12 @@ pub fn build_launch_plan(
         .and_then(Value::as_str)
         .unwrap_or("legacy")
         .to_string();
-    let assets_root = runtime_root.join("assets");
-    let natives_dir = runtime_root
-        .parent()
-        .unwrap_or(runtime_root)
-        .join("natives");
     let _ = fs::remove_dir_all(&natives_dir);
     tauri::async_runtime::block_on(prepare_redirect_natives(
         app,
         &version_json,
         version_id,
-        &runtime_root.join("libraries"),
+        &libraries_root,
         runtime_root,
         &natives_dir,
         "shortcut",
@@ -355,7 +424,7 @@ pub fn build_launch_plan(
     };
     let resolved = resolve_launch_arguments(&version_json, &launch, &RuleContext::current())?;
     Ok(ShortcutLaunchPlan {
-        java_path: java_exec.display().to_string(),
+        java_path: state.runtime.java_path.clone(),
         main_class: resolved.main_class,
         jvm_args: resolved.jvm,
         game_args: resolved.game,
@@ -363,7 +432,7 @@ pub fn build_launch_plan(
         assets_root: assets_root.display().to_string(),
         asset_index: assets_index,
         natives_dir: natives_dir.display().to_string(),
-        libraries_root: runtime_root.join("libraries").display().to_string(),
+        libraries_root: libraries_root.display().to_string(),
         versions_root: versions_root.display().to_string(),
         version_id: version_id.to_string(),
     })
@@ -444,6 +513,151 @@ pub fn validate_preflight(plan: &ShortcutLaunchPlan) -> Result<(), String> {
         .collect();
     if !missing.is_empty() {
         return Err(format!("Classpath faltante: {}", missing.join(" | ")));
+    }
+    Ok(())
+}
+
+pub fn ensure_runtime_incremental(
+    app: &AppHandle,
+    instance_root: &Path,
+    state: &ShortcutState,
+    logs: &mut Vec<String>,
+) -> Result<ShortcutLaunchPlan, String> {
+    let runtime = runtime_for_mc(&state.mc_version, &state.loader)?;
+    let _java_exec = select_embedded_java(app, runtime, logs)?;
+    let runtime_root = PathBuf::from(&state.runtime.loader_root)
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| "runtime.loader_root inválido".to_string())?;
+    let effective_version_id = build_instance_structure(
+        instance_root,
+        &runtime_root,
+        &state.mc_version,
+        &state.loader,
+        &state.loader_version,
+        Path::new(&state.runtime.java_path),
+        logs,
+        &mut |_| {},
+    )
+    .map_err(|e| format!("ensure runtime incremental falló: {e}"))?;
+    if state.loader.eq_ignore_ascii_case("forge") {
+        let _ = install_loader_if_needed(
+            &runtime_root,
+            &state.mc_version,
+            &state.loader,
+            &state.loader_version,
+            Path::new(&state.runtime.java_path),
+            logs,
+        )
+        .map_err(|e| format!("Forge install processors missing; jars not generated: {e}"))?;
+    }
+    build_launch_plan(app, state, &effective_version_id)
+}
+
+fn bind_runtime_roots(
+    base_dir: &Path,
+    _instance_dir: &Path,
+    instance_runtime: &Path,
+    java_exec: &Path,
+) -> ShortcutRuntimeState {
+    let shared_root = base_dir.join("shared");
+    let libraries_root = if SHARED_ROOT_ENABLED {
+        shared_root.join("libraries")
+    } else {
+        instance_runtime.join("libraries")
+    };
+    let assets_root = if SHARED_ROOT_ENABLED {
+        shared_root.join("assets")
+    } else {
+        instance_runtime.join("assets")
+    };
+    let versions_root = if SHARED_ROOT_ENABLED {
+        shared_root.join("versions")
+    } else {
+        instance_runtime.join("versions")
+    };
+    ShortcutRuntimeState {
+        java_path: java_exec.display().to_string(),
+        libraries_root: libraries_root.display().to_string(),
+        assets_root: assets_root.display().to_string(),
+        versions_root: versions_root.display().to_string(),
+        loader_root: instance_runtime.join("loader").display().to_string(),
+        natives_dir: instance_runtime
+            .parent()
+            .unwrap_or(instance_runtime)
+            .join("natives")
+            .display()
+            .to_string(),
+    }
+}
+
+fn resolve_shortcut_metadata(
+    external_root_dir: &Path,
+    external_game_dir: &Path,
+    fallback_mc: &str,
+    fallback_loader: &str,
+    fallback_loader_version: &str,
+) -> Result<ShortcutMetadata, String> {
+    let (mut mc_version, mut loader, mut loader_version) =
+        read_instance_manifest_strict(external_root_dir);
+    if mc_version.is_empty() {
+        mc_version = fallback_mc.to_string();
+    }
+    if loader.is_empty() {
+        loader = fallback_loader.to_string();
+    }
+    if loader_version.is_empty() || loader_version == "-" {
+        loader_version = fallback_loader_version.to_string();
+    }
+    if loader.trim().is_empty() {
+        loader = "vanilla".to_string();
+    }
+    if loader.eq_ignore_ascii_case("vanilla") {
+        loader_version = "-".to_string();
+    }
+    if mc_version.trim().is_empty()
+        || loader.trim().is_empty()
+        || (!loader.eq_ignore_ascii_case("vanilla") && loader_version.trim().is_empty())
+    {
+        return Err(format!(
+            "No se pudo resolver metadata de atajo en {} / {}. Se requiere mc_version + loader + loader_version.",
+            external_root_dir.display(),
+            external_game_dir.display()
+        ));
+    }
+    Ok(ShortcutMetadata {
+        mc_version,
+        loader,
+        loader_version,
+    })
+}
+
+fn repair_shortcut_instance(
+    app: &AppHandle,
+    instance_root: &Path,
+    state: &ShortcutState,
+    version_id: &str,
+    logs: &mut Vec<String>,
+) -> Result<(), String> {
+    logs.push("[SHORTCUT][repair] rehidratando faltantes de runtime".to_string());
+    let _ = ensure_runtime_incremental(app, instance_root, state, logs)?;
+    let plan = build_launch_plan(app, state, version_id)?;
+    let missing: HashSet<String> = plan
+        .classpath
+        .iter()
+        .filter(|path| !Path::new(path).exists())
+        .cloned()
+        .collect();
+    if !missing.is_empty() {
+        return Err(format!(
+            "repair_shortcut_instance no pudo recuperar {} artefactos. Ejemplos: {}",
+            missing.len(),
+            missing
+                .into_iter()
+                .take(20)
+                .collect::<Vec<String>>()
+                .join(" | ")
+        ));
     }
     Ok(())
 }
