@@ -2496,6 +2496,7 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
   display: grid;
   grid-template-rows: auto 1fr;
   min-height: 0;
+  position: relative;
 }
 
 .mods-topbar {
@@ -2526,7 +2527,7 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
 .mods-list-head,
 .mods-row {
   display: grid;
-  grid-template-columns: 70px 50px 1.4fr .7fr 1fr .75fr .65fr .6fr;
+  grid-template-columns: 88px 56px minmax(240px, var(--mods-name-col, 320px)) 10px minmax(120px,.75fr) minmax(170px,1fr) minmax(110px,.8fr) minmax(90px,.72fr) minmax(80px,.52fr);
   gap: .4rem;
   align-items: center;
 }
@@ -2579,7 +2580,7 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
 .mods-list-panel { min-height: 680px; max-height: 680px; position: sticky; top: .35rem; }
 .mods-list-body { align-content: start; }
 .mods-empty { padding: .8rem; color: var(--text-muted); }
-.mods-row { grid-template-columns: 88px 42px 1.8fr .8fr 1fr .8fr .7fr .45fr; cursor: pointer; transition: transform .14s ease, border-color .14s ease, background .16s ease; }
+.mods-row { cursor: pointer; transition: transform .14s ease, border-color .14s ease, background .16s ease; }
 .mods-row:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
 .mods-tag { font-size: .66rem; }
 .chip-toggle { min-width: 56px; border-radius: 999px; font-size: .7rem; padding: .12rem .42rem; }
@@ -2651,19 +2652,79 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
 .mods-list-head,
 .mods-row { font-size: .72rem; }
 .mods-list-head { font-size: .66rem; }
-.mods-row { grid-template-columns: 82px 34px 1.9fr .75fr 1fr .8fr .72fr .52fr; }
 .mods-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mods-col-resizer,
+.mods-col-resizer-spacer { width: 10px; min-width: 10px; }
+.mods-col-resizer { cursor: col-resize; height: 18px; border-left: 1px solid color-mix(in srgb, var(--border) 65%, transparent); border-right: 1px solid color-mix(in srgb, var(--border) 65%, transparent); border-radius: 3px; justify-self: center; }
+.mods-col-resizer:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
 .mods-downloader-sidebar.hidden { display: none; }
 .mods-downloader-layout:has(.mods-downloader-sidebar.hidden) { grid-template-columns: 240px 1fr; }
 .mods-downloader-panels { grid-template-columns: 1fr 1fr; align-items: stretch; }
 .mods-preview-panel, .mods-catalog-panel { font-size: .82rem; }
-.mods-preview-links { display: grid; gap: .3rem; }
-.mods-preview-description { max-height: 220px; font-size: .78rem; }
+.mods-preview-links { display: grid; gap: .22rem; }
+.mods-preview-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mods-preview-description { max-height: 220px; font-size: .8rem; line-height: 1.45; text-align: justify; padding: .55rem .65rem; }
+.mods-preview-description img { max-width: 100%; height: auto; display: block; margin: .4rem auto; border-radius: 8px; }
+.mods-preview-description p { margin: 0 0 .45rem; }
 .mods-filter-btn { min-width: 130px; }
 .mods-sort-select { min-width: 180px; }
 .mods-downloader-compact-bars { gap: .25rem; }
 .mods-compact-bar { min-height: 32px; padding: .15rem .3rem; }
 
-.mods-row-icon { width: 28px; height: 28px; object-fit: cover; border: 1px solid var(--border); border-radius: 4px; }
+.mods-row-icon { width: 44px; height: 44px; object-fit: cover; border: 1px solid var(--border); border-radius: 7px; image-rendering: auto; }
 .mods-version-modal { width: min(1200px, 96vw); }
 .mods-version-modal-panels { min-height: 460px; }
+
+.mods-downloader-panels { grid-template-columns: 1.25fr .75fr; }
+.mods-preview-panel.compact-info { padding: .45rem; gap: .3rem; }
+
+.mods-downloader-compact-bars.premium-footer {
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: color-mix(in srgb, var(--bg-surface) 88%, #0a101a);
+  backdrop-filter: blur(6px);
+  border: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+  border-radius: 12px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
+  padding: .45rem .6rem;
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  grid-template-rows: auto auto;
+  row-gap: .5rem;
+  column-gap: .6rem;
+}
+.mods-downloader-compact-bars.premium-footer::after {
+  content: '';
+  grid-column: 1 / -1;
+  grid-row: 1;
+  align-self: end;
+  height: 1px;
+  background: color-mix(in srgb, var(--border) 58%, transparent);
+}
+.mods-downloader-compact-bars.premium-footer .mods-compact-bar {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  min-height: 36px;
+}
+.sort-block { grid-column: 1; grid-row: 1; }
+.versions-block { grid-column: 2; grid-row: 1; display: grid; grid-template-columns: 1fr auto; align-items: end; gap: .5rem; }
+.actions-row { grid-column: 1 / -1; grid-row: 2; display: flex; justify-content: space-between; align-items: center; padding-top: .1rem; }
+.mods-compact-bar label { display: grid; gap: .18rem; font-size: 12px; color: color-mix(in srgb, var(--text-muted) 82%, transparent); }
+.mods-compact-bar select { height: 36px; padding: 0 12px; border-radius: 8px; }
+.mods-channel-chip { align-self: center; font-size: .68rem; border: 1px solid color-mix(in srgb, var(--accent) 48%, var(--border)); border-radius: 999px; padding: .2rem .55rem; }
+.actions-group-right { display: inline-flex; gap: .4rem; }
+.actions-row .secondary,
+.actions-row .ghost-btn,
+.actions-row .primary { height: 38px; }
+.actions-row .primary { min-width: 170px; }
+
+.mods-downloader-topbar input,
+.mods-downloader-compact-bars select { font-size: .86rem; }
+.mods-downloader-topbar input::placeholder { color: color-mix(in srgb, var(--text-muted) 75%, transparent); }
+.mods-downloader-topbar input:focus,
+.mods-downloader-compact-bars select:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 26%, transparent); }
+
+.mods-editor-view .floating-modal-overlay {
+  position: absolute;
+  inset: 0;
+}
