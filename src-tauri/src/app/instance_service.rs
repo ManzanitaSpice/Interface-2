@@ -350,6 +350,10 @@ fn prepare_runtime_instance_root(app: &AppHandle, instance_root: &str) -> Result
         fs::create_dir_all(&cache_root)
             .map_err(|err| format!("No se pudo crear cache temporal de atajo: {err}"))?;
         copy_dir_recursive(Path::new(&redirect.source_path), &cache_root)?;
+        let redirect_raw = serde_json::to_string_pretty(&redirect)
+            .map_err(|err| format!("No se pudo serializar metadata redirect runtime: {err}"))?;
+        fs::write(cache_root.join(".redirect.json"), redirect_raw)
+            .map_err(|err| format!("No se pudo guardar metadata redirect runtime: {err}"))?;
     }
 
     let target_mc = cache_root.join("minecraft");
@@ -421,6 +425,159 @@ fn prepare_runtime_instance_root(app: &AppHandle, instance_root: &str) -> Result
     );
 
     Ok(cache_root.display().to_string())
+}
+
+fn launcher_roots_for_source(source_launcher: &str) -> Vec<PathBuf> {
+    let launcher = source_launcher.to_ascii_lowercase();
+    let mut roots = vec![];
+
+    if cfg!(target_os = "windows") {
+        if let Ok(app_data) = std::env::var("APPDATA") {
+            roots.push(PathBuf::from(app_data).join("PrismLauncher"));
+            roots.push(PathBuf::from(app_data).join("MultiMC"));
+        }
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            roots.push(PathBuf::from(local_app_data).join("PrismLauncher"));
+            roots.push(PathBuf::from(local_app_data).join("MultiMC"));
+        }
+    } else {
+        if let Ok(home) = std::env::var("HOME") {
+            roots.push(PathBuf::from(&home).join(".local/share/PrismLauncher"));
+            roots.push(PathBuf::from(&home).join(".local/share/MultiMC"));
+        }
+    }
+
+    if launcher.contains("prism") {
+        roots.sort();
+        roots.dedup();
+        return roots;
+    }
+
+    if launcher.contains("multimc") {
+        roots.sort();
+        roots.dedup();
+        return roots;
+    }
+
+    roots.sort();
+    roots.dedup();
+    roots
+}
+
+fn find_redirect_context(mc_root: &Path) -> Option<ShortcutRedirect> {
+    let redirect_path = mc_root.parent()?.join(".redirect.json");
+    let raw = fs::read_to_string(redirect_path).ok()?;
+    serde_json::from_str::<ShortcutRedirect>(&raw).ok()
+}
+
+fn libraries_dir_candidates(mc_root: &Path, redirect: Option<&ShortcutRedirect>) -> Vec<PathBuf> {
+    let mut candidates = vec![mc_root.join("libraries")];
+    if let Some(redirect) = redirect {
+        let source_path = PathBuf::from(&redirect.source_path);
+        candidates.extend([
+            source_path.join("libraries"),
+            source_path.join(".minecraft/libraries"),
+            source_path.join("minecraft/libraries"),
+        ]);
+        for root in launcher_roots_for_source(&redirect.source_launcher) {
+            candidates.push(root.join("libraries"));
+        }
+    }
+    candidates.sort();
+    candidates.dedup();
+    candidates
+}
+
+fn find_library_by_filename(root: &Path, target_name: &str) -> Option<PathBuf> {
+    let Ok(entries) = fs::read_dir(root) else {
+        return None;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(found) = find_library_by_filename(&path, target_name) {
+                return Some(found);
+            }
+        } else if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name.eq_ignore_ascii_case(target_name))
+            .unwrap_or(false)
+        {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn try_resolve_missing_library_path(original: &Path, library_roots: &[PathBuf]) -> Option<PathBuf> {
+    let normalized = original.to_string_lossy().replace('\\', "/");
+    if let Some(idx) = normalized.to_ascii_lowercase().find("/libraries/") {
+        let rel = normalized[idx + "/libraries/".len()..].trim_start_matches('/');
+        for root in library_roots {
+            let candidate = root.join(rel);
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+    }
+
+    let file_name = original.file_name().and_then(|n| n.to_str())?;
+    for root in library_roots {
+        if let Some(found) = find_library_by_filename(root, file_name) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn resolve_forge_module_path_value(
+    module_value: &str,
+    library_roots: &[PathBuf],
+) -> Result<String, String> {
+    let separator = if module_value.contains(';') { ';' } else { ':' };
+    let mut resolved = Vec::new();
+    let mut missing = Vec::new();
+
+    for raw in module_value
+        .split(separator)
+        .filter(|entry| !entry.trim().is_empty())
+    {
+        let entry = raw.trim();
+        let path = PathBuf::from(entry);
+        if path.exists() {
+            resolved.push(path.display().to_string());
+            continue;
+        }
+
+        if let Some(fixed) = try_resolve_missing_library_path(&path, library_roots) {
+            resolved.push(fixed.display().to_string());
+            continue;
+        }
+
+        missing.push(entry.to_string());
+    }
+
+    if !missing.is_empty() {
+        let searched = library_roots
+            .iter()
+            .map(|root| root.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(format!(
+            "Forge --module-path contiene rutas inexistentes. Faltan [{}]. Rutas buscadas: [{}]",
+            missing.join(", "),
+            searched
+        ));
+    }
+
+    Ok(resolved.join(&separator.to_string()))
+}
+
+#[derive(Debug, Clone)]
+struct ForgeArgsResolution {
+    args: Vec<String>,
+    library_directory: PathBuf,
 }
 
 #[tauri::command]
@@ -978,10 +1135,11 @@ en ningún JAR del classpath del loader '{}'.\n{}",
         classpath_entries.len()
     ));
 
+    let default_libraries_dir = mc_root.join("libraries");
     let launch_context = LaunchContext {
         classpath: classpath.clone(),
         classpath_separator: sep.to_string(),
-        library_directory: mc_root.join("libraries").display().to_string(),
+        library_directory: default_libraries_dir.display().to_string(),
         natives_dir: natives_dir.display().to_string(),
         launcher_name: "Interface-2".to_string(),
         launcher_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -1017,7 +1175,7 @@ en ningún JAR del classpath del loader '{}'.\n{}",
 
     let mut resolved = resolve_launch_arguments(&version_json, &launch_context, &launch_rules)?;
 
-    let forge_extra_jvm_args = if is_forge && forge_generation == ForgeGeneration::Modern {
+    let forge_args_resolution = if is_forge && forge_generation == ForgeGeneration::Modern {
         match load_forge_args_file(&mc_root, &selected_version_id, &launch_context, &mut logs)? {
             Some(args) => args,
             None => {
@@ -1028,8 +1186,13 @@ en ningún JAR del classpath del loader '{}'.\n{}",
             }
         }
     } else {
-        Vec::new()
+        ForgeArgsResolution {
+            args: Vec::new(),
+            library_directory: default_libraries_dir.clone(),
+        }
     };
+    let forge_library_directory = forge_args_resolution.library_directory.clone();
+    let forge_extra_jvm_args = forge_args_resolution.args;
 
     let memory_args = vec![
         format!("-Xms{}M", metadata.ram_mb.max(512) / 2),
@@ -1061,7 +1224,12 @@ en ningún JAR del classpath del loader '{}'.\n{}",
         ) {
             resolved.main_class = fixed_main;
         }
-        forge_inject_system_properties(&mut jvm_args, &mc_root, &mut logs);
+        forge_inject_system_properties(
+            &mut jvm_args,
+            &forge_library_directory,
+            &mc_root,
+            &mut logs,
+        );
     }
 
     logs.push(format!(
@@ -2128,7 +2296,7 @@ fn load_forge_args_file(
     version_id: &str,
     launch_context: &LaunchContext,
     logs: &mut Vec<String>,
-) -> Result<Option<Vec<String>>, String> {
+) -> Result<Option<ForgeArgsResolution>, String> {
     let filename = if cfg!(target_os = "windows") {
         "win_args.txt"
     } else {
@@ -2148,6 +2316,16 @@ fn load_forge_args_file(
 
     let content = fs::read_to_string(&path)
         .map_err(|e| format!("No se pudo leer {}: {e}", path.display()))?;
+
+    let redirect_context = find_redirect_context(mc_root);
+    let library_roots = libraries_dir_candidates(mc_root, redirect_context.as_ref())
+        .into_iter()
+        .filter(|candidate| candidate.exists())
+        .collect::<Vec<_>>();
+    let effective_library_dir = library_roots
+        .first()
+        .cloned()
+        .unwrap_or_else(|| mc_root.join("libraries"));
 
     let mut args: Vec<String> = Vec::new();
 
@@ -2171,6 +2349,20 @@ fn load_forge_args_file(
         }
     }
 
+    if let Some(module_idx) = args.iter().position(|arg| arg == "--module-path") {
+        if let Some(module_value) = args.get(module_idx + 1).cloned() {
+            let fixed_value = resolve_forge_module_path_value(&module_value, &library_roots)?;
+            args[module_idx + 1] = fixed_value;
+        }
+    }
+
+    if let Some(library_arg_idx) = args
+        .iter()
+        .position(|arg| arg.starts_with("-DlibraryDirectory="))
+    {
+        args[library_arg_idx] = format!("-DlibraryDirectory={}", effective_library_dir.display());
+    }
+
     let module_path_present = args
         .windows(2)
         .any(|window| matches!(window, [flag, _] if flag == "--module-path"));
@@ -2184,6 +2376,10 @@ fn load_forge_args_file(
             "✗ FALTA"
         }
     ));
+    logs.push(format!(
+        "Forge libraryDirectory efectivo: {}",
+        effective_library_dir.display()
+    ));
 
     if !module_path_present {
         logs.push(
@@ -2192,7 +2388,10 @@ fn load_forge_args_file(
         );
     }
 
-    Ok(Some(args))
+    Ok(Some(ForgeArgsResolution {
+        args,
+        library_directory: effective_library_dir,
+    }))
 }
 
 fn validate_required_online_launch_flags(
@@ -2652,20 +2851,15 @@ fn forge_resolve_main_class(
 
 fn forge_inject_system_properties(
     jvm_args: &mut Vec<String>,
+    libraries_dir: &Path,
     mc_root: &Path,
     logs: &mut Vec<String>,
 ) {
     let java_home_value = mc_root.join("java").display().to_string();
     let java_home_key = ["java", "home"].join(".");
     let properties = vec![
-        (
-            "legacyClassPath",
-            mc_root.join("libraries").display().to_string(),
-        ),
-        (
-            "libraryDirectory",
-            mc_root.join("libraries").display().to_string(),
-        ),
+        ("legacyClassPath", libraries_dir.display().to_string()),
+        ("libraryDirectory", libraries_dir.display().to_string()),
         (
             "ignoreList",
             "bootstraplauncher,securejarhandler".to_string(),
@@ -3494,6 +3688,9 @@ mod tests {
             "--module-path /libraries/one:/libraries/two\n--add-modules\nALL-MODULE-PATH\n",
         )
         .expect("args file");
+        fs::create_dir_all(root.join("libraries")).expect("libraries dir");
+        fs::write(root.join("libraries/one"), "").expect("module one");
+        fs::write(root.join("libraries/two"), "").expect("module two");
 
         let mut logs = Vec::new();
         let parsed =
@@ -3503,12 +3700,14 @@ mod tests {
 
         assert!(
             parsed
+                .args
                 .windows(2)
                 .any(|w| matches!(w, [f, _] if f == "--module-path")),
             "--module-path con su valor debe quedar separado"
         );
         assert!(
             parsed
+                .args
                 .windows(2)
                 .any(|w| matches!(w, [f, v] if f == "--add-modules" && v == "ALL-MODULE-PATH")),
             "--add-modules debe preservar su valor en la siguiente posición"
