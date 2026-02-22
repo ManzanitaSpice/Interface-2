@@ -1777,6 +1777,14 @@
   vertical-align: top;
 }
 
+.updates-table tbody tr {
+  cursor: pointer;
+}
+
+.updates-table tbody tr.selected {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
 .updates-table th {
   color: var(--text-muted);
   font-size: 0.76rem;
@@ -1786,6 +1794,27 @@
 
 .tauri-updater-guide code {
   color: color-mix(in srgb, var(--accent-hover) 86%, white);
+}
+
+.updates-release-detail {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.updates-notes-label {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.updates-release-detail textarea {
+  width: 100%;
+  resize: vertical;
+  border-radius: 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--bg-surface-muted) 92%, black);
+  color: var(--text-main);
+  padding: 0.6rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
 }
 
 .appearance-preview.detailed {
