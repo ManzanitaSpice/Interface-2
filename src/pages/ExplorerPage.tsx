@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, type ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 
 type Category = 'all' | 'modpacks' | 'mods' | 'datapacks' | 'resourcepacks' | 'shaders' | 'worlds' | 'addons' | 'customization'
 type SortMode = 'relevance' | 'popularity' | 'updated' | 'stable' | 'downloads' | 'name' | 'author'
@@ -185,6 +185,8 @@ export function ExplorerPage({ uiLanguage }: Props) {
   const [installModalOpen, setInstallModalOpen] = useState(false)
   const [installQuery, setInstallQuery] = useState('')
   const [selectedVersionForInstall, setSelectedVersionForInstall] = useState<CatalogVersion | null>(null)
+  const deferredVersionSearch = useDeferredValue(versionSearch)
+  const deferredInstallQuery = useDeferredValue(installQuery)
   const cacheRef = useRef<Record<string, CatalogSearchResponse>>({})
   const detailCacheRef = useRef<Record<string, CatalogDetail>>({})
   const requestSeq = useRef(0)
@@ -266,21 +268,27 @@ export function ExplorerPage({ uiLanguage }: Props) {
 
   const dateFormatter = useMemo(() => new Intl.DateTimeFormat(uiLanguage === 'en' ? 'en-US' : uiLanguage === 'pt' ? 'pt-BR' : 'es-ES', { dateStyle: 'medium' }), [uiLanguage])
 
-  const compatibleInstances = [
+  const compatibleInstances = useMemo(() => [
     { id: 'inst-1', name: 'Survival Fabric 1.20.1', mc: '1.20.1', loader: 'fabric', compatible: true, hasDependency: false },
     { id: 'inst-2', name: 'Forge RPG 1.19.4', mc: '1.19.4', loader: 'forge', compatible: false, hasDependency: true },
     { id: 'inst-3', name: 'NeoForge Tech 1.21.1', mc: '1.21.1', loader: 'neoforge', compatible: true, hasDependency: true },
-  ].filter((entry) => !installQuery || entry.name.toLowerCase().includes(installQuery.toLowerCase()))
+  ], [])
+
+  const filteredCompatibleInstances = useMemo(() => {
+    const term = deferredInstallQuery.trim().toLowerCase()
+    return compatibleInstances.filter((entry) => !term || entry.name.toLowerCase().includes(term))
+  }, [compatibleInstances, deferredInstallQuery])
 
   const filteredVersions = useMemo(() => {
     const list = selectedDetail?.versions ?? []
     return list.filter((version) => {
-      const bySearch = !versionSearch || version.name.toLowerCase().includes(versionSearch.toLowerCase())
+      const searchTerm = deferredVersionSearch.trim().toLowerCase()
+      const bySearch = !searchTerm || version.name.toLowerCase().includes(searchTerm)
       const byMc = versionMcFilter === 'all' || version.gameVersion.toLowerCase().includes(versionMcFilter.toLowerCase())
       const byLoader = versionLoaderFilter === 'all' || version.modLoader.toLowerCase().includes(versionLoaderFilter.toLowerCase())
       return bySearch && byMc && byLoader
     })
-  }, [selectedDetail?.versions, versionLoaderFilter, versionMcFilter, versionSearch])
+  }, [deferredVersionSearch, selectedDetail?.versions, versionLoaderFilter, versionMcFilter])
   const versionsPerPage = 8
   const totalVersionPages = Math.max(1, Math.ceil(filteredVersions.length / versionsPerPage))
   const pagedVersions = filteredVersions.slice((versionPage - 1) * versionsPerPage, versionPage * versionsPerPage)
@@ -290,35 +298,45 @@ export function ExplorerPage({ uiLanguage }: Props) {
       <section className="instances-panel huge-panel explorer-page">
         {!selectedItem && (
           <>
-            <header className="panel-actions explorer-actions-compact">
-              <input className="instance-search-compact" placeholder={t.search} value={search} onChange={(e) => setSearch(e.target.value)} />
-              <label>{t.categories}
-                <select value={category} onChange={(e) => { setCategory(e.target.value as Category); setPage(1) }}>{Object.keys(categoryToProjectType).map((value) => <option key={value} value={value}>{labels.category[value as Category][uiLanguage]}</option>)}</select>
-              </label>
-              <label>{t.sort}
-                <select value={sort} onChange={(e) => { setSort(e.target.value as SortMode); setPage(1) }}><option value="relevance">{t.relevance}</option><option value="popularity">{t.popularity}</option><option value="updated">{t.updated}</option><option value="stable">{t.stable}</option><option value="downloads">{t.byDownloads}</option><option value="name">{t.byName}</option><option value="author">{t.byAuthor}</option></select>
-              </label>
-              <label>{t.platform}
-                <select value={platform} onChange={(e) => { setPlatform(e.target.value as Platform); setPage(1) }}><option value="all">{t.all}</option><option value="curseforge">CurseForge</option><option value="modrinth">Modrinth</option></select>
-              </label>
-              <label>{t.view}
-                <select value={view} onChange={(e) => setView(e.target.value as ViewMode)}><option value="list">{t.list}</option><option value="grid">{t.grid}</option><option value="titles">{t.titles}</option></select>
-              </label>
-              <button className="secondary" onClick={() => setShowAdvanced((v) => !v)}>{showAdvanced ? t.hideAdvanced : t.advanced}</button>
-              {showAdvanced && (
-                <div className="advanced-filter-body inline">
-                  <label>{t.mcVersion}
-                    <select value={mcVersion} onChange={(e) => { setMcVersion(e.target.value); setPage(1) }}>
-                      <option value="">{t.all}</option>
-                      {officialVersions.map((version) => <option key={version} value={version}>{version}</option>)}</select>
+            <div className="explorer-workspace">
+              <aside className="explorer-left-sidebar">
+                <div className="explorer-sidebar-section">
+                  <input className="instance-search-compact" placeholder={t.search} value={search} onChange={(e) => setSearch(e.target.value)} />
+                </div>
+                <div className="explorer-sidebar-section">
+                  <label>{t.categories}
+                    <select value={category} onChange={(e) => { setCategory(e.target.value as Category); setPage(1) }}>{Object.keys(categoryToProjectType).map((value) => <option key={value} value={value}>{labels.category[value as Category][uiLanguage]}</option>)}</select>
                   </label>
-                  <label>{t.loader}
-                    <select value={loader} onChange={(e) => { setLoader(e.target.value as LoaderFilter); setPage(1) }}>
-                      <option value="all">{t.all}</option><option value="fabric">Fabric</option><option value="forge">Forge</option><option value="neoforge">NeoForge</option><option value="quilt">Quilt</option></select>
+                  <label>{t.sort}
+                    <select value={sort} onChange={(e) => { setSort(e.target.value as SortMode); setPage(1) }}><option value="relevance">{t.relevance}</option><option value="popularity">{t.popularity}</option><option value="updated">{t.updated}</option><option value="stable">{t.stable}</option><option value="downloads">{t.byDownloads}</option><option value="name">{t.byName}</option><option value="author">{t.byAuthor}</option></select>
+                  </label>
+                  <label>{t.platform}
+                    <select value={platform} onChange={(e) => { setPlatform(e.target.value as Platform); setPage(1) }}><option value="all">{t.all}</option><option value="curseforge">CurseForge</option><option value="modrinth">Modrinth</option></select>
+                  </label>
+                  <label>{t.view}
+                    <select value={view} onChange={(e) => setView(e.target.value as ViewMode)}><option value="list">{t.list}</option><option value="grid">{t.grid}</option><option value="titles">{t.titles}</option></select>
                   </label>
                 </div>
-              )}
-            </header>
+                <div className="explorer-sidebar-section">
+                  <button className="secondary square" onClick={() => setShowAdvanced((v) => !v)}>{showAdvanced ? t.hideAdvanced : t.advanced}</button>
+                  <button className="secondary square" onClick={() => { setSearch(''); setCategory('all'); setSort('relevance'); setPlatform('all'); setMcVersion(''); setLoader('all'); setPage(1) }}>Reset filtros</button>
+                  <button className="secondary square" onClick={() => setReloadTick((v) => v + 1)}>{t.retry}</button>
+                </div>
+                {showAdvanced && (
+                  <div className="explorer-sidebar-section">
+                    <label>{t.mcVersion}
+                      <select value={mcVersion} onChange={(e) => { setMcVersion(e.target.value); setPage(1) }}>
+                        <option value="">{t.all}</option>
+                        {officialVersions.map((version) => <option key={version} value={version}>{version}</option>)}</select>
+                    </label>
+                    <label>{t.loader}
+                      <select value={loader} onChange={(e) => { setLoader(e.target.value as LoaderFilter); setPage(1) }}>
+                        <option value="all">{t.all}</option><option value="fabric">Fabric</option><option value="forge">Forge</option><option value="neoforge">NeoForge</option><option value="quilt">Quilt</option></select>
+                    </label>
+                  </div>
+                )}
+              </aside>
+              <div className="explorer-main-content">
 
             <div className="catalog-panel-header">
               <strong>{t.headerTitle}</strong>
@@ -367,6 +385,8 @@ export function ExplorerPage({ uiLanguage }: Props) {
               <span>{t.page} {page}</span>
               <button className="secondary" onClick={() => setPage((p) => p + 1)} disabled={loading || !hasMore}>{t.next}</button>
             </footer>
+              </div>
+            </div>
           </>
         )}
 
@@ -484,7 +504,7 @@ export function ExplorerPage({ uiLanguage }: Props) {
             <h3>{t.installInInstances}</h3>
             <input type="search" value={installQuery} onChange={(event) => setInstallQuery(event.target.value)} placeholder="Buscar instancia" />
             <div className="explorer-install-list">
-              {compatibleInstances.map((instance) => (
+              {filteredCompatibleInstances.map((instance) => (
                 <label key={instance.id} className={instance.compatible ? '' : 'disabled'}>
                   <input type="checkbox" disabled={!instance.compatible} /> {instance.name} · {instance.mc} · {instance.loader}
                   {instance.hasDependency && <small>{t.dependencies}: ya instalada en esta instancia</small>}
