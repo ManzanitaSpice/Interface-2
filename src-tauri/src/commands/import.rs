@@ -2529,324 +2529,34 @@ pub fn execute_import_action(
     }
 
     if action == "crear_atajo" {
-        let source_game_dir = if requested_source
-            .file_name()
-            .and_then(|s| s.to_str())
-            .is_some_and(|name| name.eq_ignore_ascii_case("minecraft"))
-        {
-            requested_source.clone()
-        } else {
-            source_root.join("minecraft")
-        };
-        if !source_root.exists() {
-            return Err(format!(
-                "No se puede crear el atajo porque la instancia origen no existe: {}",
-                requested_source.display()
-            ));
-        }
-        if !source_root.is_dir() {
-            return Err(format!(
-                "No se puede crear el atajo porque el origen no es una carpeta válida: {}",
-                requested_source.display()
-            ));
-        }
-
-        let instances_root = crate::app::settings_service::resolve_instances_root(&app)?;
-        fs::create_dir_all(&instances_root)
-            .map_err(|err| format!("No se pudo preparar directorio de instancias: {err}"))?;
-
-        let mut sanitized_name = sanitize_path_segment(&request.target_name);
-        if sanitized_name.trim().is_empty() {
-            sanitized_name = "instancia-atajo".to_string();
-        }
-
-        let mut instance_root = instances_root.join(&sanitized_name);
-        let mut suffix = 1u32;
-        while instance_root.exists() {
-            instance_root = instances_root.join(format!("{}-atajo-{}", sanitized_name, suffix));
-            suffix += 1;
-        }
-
-        fs::create_dir_all(&instance_root)
-            .map_err(|err| format!("No se pudo crear carpeta del atajo: {err}"))?;
-
-        let (manifest_mc, manifest_loader, manifest_loader_version) =
-            read_instance_manifest_strict(&source_root);
-
-        let shortcut_mc_version = if !manifest_mc.is_empty() {
-            manifest_mc
-        } else {
-            request.minecraft_version.clone()
-        };
-
-        let mut shortcut_loader = if !manifest_loader.is_empty() {
-            normalize_loader(&manifest_loader)
-        } else {
-            normalize_loader(&request.loader)
-        };
-
-        let mut shortcut_loader_version =
-            if !manifest_loader_version.is_empty() && manifest_loader_version != "-" {
-                manifest_loader_version
-            } else {
-                request.loader_version.clone()
-            };
-
-        let loader_is_vanilla = matches!(
-            shortcut_loader.as_str(),
-            "" | "-" | "vanilla" | "desconocido" | "unknown"
-        );
-
-        let mut effective_version_id = if !loader_is_vanilla
-            && !shortcut_loader_version.is_empty()
-            && shortcut_loader_version != "-"
-            && shortcut_loader_version != shortcut_mc_version
-        {
-            match shortcut_loader.as_str() {
-                "fabric" => {
-                    format!(
-                        "fabric-loader-{}-{}",
-                        shortcut_loader_version, shortcut_mc_version
-                    )
-                }
-                "quilt" => {
-                    format!(
-                        "quilt-loader-{}-{}",
-                        shortcut_loader_version, shortcut_mc_version
-                    )
-                }
-                "forge" => format!("{}-forge-{}", shortcut_mc_version, shortcut_loader_version),
-                "neoforge" => {
-                    format!(
-                        "{}-neoforge-{}",
-                        shortcut_mc_version, shortcut_loader_version
-                    )
-                }
-                _ => shortcut_mc_version.clone(),
-            }
-        } else if loader_is_vanilla {
-            shortcut_mc_version.clone()
-        } else {
-            resolve_effective_version_id(
-                &source_root,
-                &shortcut_mc_version,
-                &shortcut_loader,
-                &shortcut_loader_version,
-                &request.source_launcher,
-            )
-        };
-
-        log::info!(
-            "[REDIRECT] crear_atajo → mc={} loader={} loader_ver={} version_id={}",
-            shortcut_mc_version,
-            shortcut_loader,
-            shortcut_loader_version,
-            effective_version_id
-        );
-
-        if !loader_is_vanilla
-            && !version_id_contains_loader(&effective_version_id, &shortcut_loader)
-        {
-            if let Some(discovered_version_id) = find_loader_version_id_from_external_paths(
-                &source_root,
-                &request.source_launcher,
-                &request.minecraft_version,
-                &shortcut_loader,
-            ) {
-                log::info!(
-                    "[REDIRECT] version_id de loader resuelto desde rutas externas: {}",
-                    discovered_version_id
-                );
-                effective_version_id = discovered_version_id;
-            }
-        }
-
-        if !loader_is_vanilla
-            && !local_version_id_matches_loader(
-                &source_root,
-                &effective_version_id,
-                &shortcut_loader,
-            )
-        {
-            if let Some(repaired_version_id) = find_loader_version_id_from_external_paths(
-                &source_root,
-                &request.source_launcher,
-                &shortcut_mc_version,
-                &shortcut_loader,
-            ) {
-                effective_version_id = repaired_version_id;
-            }
-        }
-
-        if let Some((detected_loader, detected_loader_version)) =
-            detect_loader_from_version_id(&effective_version_id)
-        {
-            if is_unknown_loader(&shortcut_loader) {
-                shortcut_loader = detected_loader;
-            }
-            if shortcut_loader_version.is_empty() || shortcut_loader_version == "-" {
-                shortcut_loader_version = detected_loader_version;
-                log::info!(
-                    "[REDIRECT] loader_version detectado desde version_id: {}",
-                    shortcut_loader_version
-                );
-            }
-        }
-
-        let mut metadata = InstanceMetadata {
-            name: request.target_name.clone(),
-            group: "Atajos".to_string(),
-            minecraft_version: shortcut_mc_version,
-            version_id: effective_version_id,
-            loader: shortcut_loader,
-            loader_version: shortcut_loader_version,
-            ram_mb: 4096,
-            java_args: vec!["-XX:+UnlockExperimentalVMOptions".to_string()],
-            java_path: "".to_string(),
-            java_runtime: "shortcut".to_string(),
-            java_version: "".to_string(),
-            required_java_major: 0,
-            created_at: chrono::Utc::now().to_rfc3339(),
-            state: "REDIRECT".to_string(),
-            last_used: None,
-            internal_uuid: uuid::Uuid::new_v4().to_string(),
-        };
-
-        let metadata_path = instance_root.join(".instance.json");
-        let metadata_raw = serde_json::to_string_pretty(&metadata)
-            .map_err(|err| format!("No se pudo serializar metadata de atajo: {err}"))?;
-        fs::write(&metadata_path, metadata_raw)
-            .map_err(|err| format!("No se pudo guardar metadata de atajo: {err}"))?;
-
-        let redirect = ShortcutRedirect {
-            source_path: source_root.display().to_string(),
-            source_launcher: request.source_launcher.clone(),
-        };
-        let redirect_path = instance_root.join(".redirect.json");
-        let redirect_raw = serde_json::to_string_pretty(&redirect)
-            .map_err(|err| format!("No se pudo serializar redirección de atajo: {err}"))?;
-        fs::write(&redirect_path, redirect_raw)
-            .map_err(|err| format!("No se pudo guardar redirección de atajo: {err}"))?;
-
-        let shortcut_state = crate::app::shortcut_instance::ShortcutState {
-            id: metadata.internal_uuid.clone(),
-            name: metadata.name.clone(),
-            external_game_dir: source_game_dir.display().to_string(),
-            external_root_dir: source_root.display().to_string(),
-            mc_version: metadata.minecraft_version.clone(),
-            loader: metadata.loader.clone(),
-            loader_version: metadata.loader_version.clone(),
-            created_at: metadata.created_at.clone(),
-            updated_at: chrono::Utc::now().to_rfc3339(),
-            adopt_mode: "off".to_string(),
-            locator: crate::app::shortcut_instance::ExternalLocator {
-                last_known_path: source_game_dir.display().to_string(),
-                signature: crate::app::shortcut_instance::compute_signature(
-                    &source_game_dir,
-                    &source_root,
-                ),
-                hints: vec![request.source_launcher.clone(), metadata.loader.clone()],
-                scan_roots: vec![source_root
-                    .parent()
-                    .unwrap_or(&source_root)
-                    .display()
-                    .to_string()],
+        let result = crate::app::shortcut_instance::create_shortcut_instance(
+            &app,
+            crate::app::shortcut_instance::ShortcutCreateRequest {
+                name: request.target_name.clone(),
+                target_group: "Atajos".to_string(),
+                source_launcher: request.source_launcher.clone(),
+                selected_path: requested_source.clone(),
+                fallback_mc: request.minecraft_version.clone(),
+                fallback_loader: normalize_loader(&request.loader),
+                fallback_loader_version: request.loader_version.clone(),
             },
-        };
-        crate::app::shortcut_instance::save_shortcut_state(&instance_root, &shortcut_state)?;
+        )?;
 
-        persist_shortcut_visual_meta(&instance_root, Path::new(&request.source_path));
-
-        let source_path = source_root.clone();
-        let hints = crate::app::redirect_launch::RedirectVersionHints {
-            minecraft_version: metadata.minecraft_version.clone(),
-            loader: metadata.loader.clone(),
-            loader_version: metadata.loader_version.clone(),
-        };
-
-        let mut prewarm_candidates = Vec::new();
-        prewarm_candidates.push(metadata.version_id.clone());
-        prewarm_candidates.push(resolve_shortcut_version_id(
-            &metadata.minecraft_version,
-            &metadata.loader,
-            &metadata.loader_version,
-        ));
-        prewarm_candidates.push(metadata.minecraft_version.clone());
-
-        let mut seen_candidates = HashSet::new();
-        prewarm_candidates.retain(|candidate| {
-            let key = candidate.trim().to_ascii_lowercase();
-            !key.is_empty() && seen_candidates.insert(key)
-        });
-
-        let mut prewarm_errors = Vec::new();
-        let mut selected_runtime_version: Option<String> = None;
-        for candidate in prewarm_candidates {
-            match tauri::async_runtime::block_on(
-                crate::app::redirect_launch::prewarm_redirect_runtime(
-                    &app,
-                    &source_path,
-                    &request.source_launcher,
-                    &metadata.internal_uuid,
-                    &candidate,
-                    &hints,
-                ),
-            ) {
-                Ok(()) => {
-                    selected_runtime_version = Some(candidate);
-                    break;
-                }
-                Err(err) => {
-                    prewarm_errors.push(format!("{candidate}: {err}"));
-                }
-            }
-        }
-
-        if let Some(runtime_version) = selected_runtime_version {
-            if runtime_version != metadata.version_id {
-                metadata.version_id = runtime_version;
-                let metadata_raw = serde_json::to_string_pretty(&metadata)
-                    .map_err(|err| format!("No se pudo serializar metadata de atajo: {err}"))?;
-                fs::write(&metadata_path, metadata_raw)
-                    .map_err(|err| format!("No se pudo guardar metadata de atajo: {err}"))?;
-            }
-        } else {
-            let warning = if prewarm_errors.is_empty() {
-                "No se pudo validar runtime REDIRECT durante la creación; se reintentará al iniciar la instancia.".to_string()
-            } else {
-                format!(
-                    "No se pudo completar prewarm REDIRECT en la creación; la instancia fue creada y se reintentará al iniciar. Detalle: {}",
-                    prewarm_errors.join(" | ")
-                )
-            };
-            log::warn!("[REDIRECT] {}", warning);
-            let _ = app.emit(
-                "import_execution_progress",
-                serde_json::json!({
-                    "instanceId": request.detected_instance_id,
-                    "instanceName": request.target_name,
-                    "action": "crear_atajo",
-                    "step": "runtime_warning",
-                    "message": warning,
-                    "stepIndex": 2,
-                    "totalSteps": 3,
-                }),
-            );
-        }
+        persist_shortcut_visual_meta(&result.instance_root, Path::new(&request.source_path));
 
         let _ = app.emit(
             "instances_changed",
             serde_json::json!({
                 "action": "created",
                 "instanceName": request.target_name,
-                "instancePath": instance_root.display().to_string(),
+                "instancePath": result.instance_root.display().to_string(),
             }),
         );
 
         return Ok(ImportActionResult {
             success: true,
             target_name: request.target_name,
-            target_path: Some(instance_root.display().to_string()),
+            target_path: Some(result.instance_root.display().to_string()),
             error: None,
         });
     }
