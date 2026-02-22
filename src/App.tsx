@@ -1134,7 +1134,11 @@ function App() {
       await refreshLauncherReleases()
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      setUpdatesStatus(`Error en updater nativo: ${message}`)
+      if (message.includes('Could not fetch a valid release JSON from the remote')) {
+        setUpdatesStatus('El updater nativo no encontró un JSON de release válido. Usa "Recargar releases" para instalar desde la lista estable mientras se corrige el feed remoto.')
+      } else {
+        setUpdatesStatus(`Error en updater nativo: ${message}`)
+      }
     } finally {
       setUpdatesLoading(false)
     }
@@ -3589,7 +3593,6 @@ function App() {
               <div className="updates-actions">
                 <button className="primary" onClick={() => void checkLauncherUpdates()} disabled={updatesLoading}>Actualizar ahora</button>
                 <button onClick={() => void refreshLauncherReleases()} disabled={updatesLoading}>Recargar releases</button>
-                <button onClick={() => void invoke('open_url_in_browser', { url: launcherUpdatesUrl, browserId: 'default' })}>Abrir en GitHub</button>
               </div>
             </header>
 
