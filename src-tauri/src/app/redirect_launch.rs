@@ -1918,6 +1918,57 @@ fn walkdir_contains(root: &Path, pattern: &str) -> bool {
     false
 }
 
+fn missing_forge_runtime_artifacts(version_json: &Value, libraries_dir: &Path) -> Vec<String> {
+    let libraries = version_json
+        .get("libraries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    let mut missing = Vec::new();
+
+    for lib in libraries {
+        let Some(name) = lib.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+
+        let artifact = lib.get("downloads").and_then(|d| d.get("artifact"));
+        let artifact_path = artifact
+            .and_then(|artifact| artifact.get("path"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| {
+                if is_forge_installer_artifact(name, None) {
+                    maven_library_path(name).map(|path| path.to_string_lossy().replace('\\', "/"))
+                } else {
+                    None
+                }
+            });
+
+        let Some(artifact_path) = artifact_path else {
+            continue;
+        };
+
+        let artifact_url = artifact
+            .and_then(|artifact| artifact.get("url"))
+            .and_then(Value::as_str);
+
+        if !is_forge_installer_artifact(name, artifact_url) {
+            continue;
+        }
+
+        let relative = artifact_path.replace('/', std::path::MAIN_SEPARATOR_STR);
+        let full_path = libraries_dir.join(&relative);
+        if !full_path.is_file() {
+            missing.push(artifact_path);
+        }
+    }
+
+    missing.sort();
+    missing.dedup();
+    missing
+}
+
 pub fn build_classpath_multi(
     merged_version_json: &serde_json::Value,
     libraries_dirs: &[PathBuf],
@@ -3647,11 +3698,18 @@ async fn ensure_redirect_cache_context(
         let needs_installer_jars = matches!(loader_lower.as_str(), "forge" | "neoforge");
 
         let cache_valid = if needs_installer_jars && cache_libs.is_dir() {
-            let has_srg = walkdir_contains(&cache_libs, "client-srg");
-            let has_extra = walkdir_contains(&cache_libs, "client-extra");
-            if !has_srg || !has_extra {
+            let quick_has_srg = walkdir_contains(&cache_libs, "client-srg");
+            let quick_has_extra = walkdir_contains(&cache_libs, "client-extra");
+            let missing_artifacts = if quick_has_srg && quick_has_extra {
+                missing_forge_runtime_artifacts(&entry.version_json, &cache_libs)
+            } else {
+                vec!["forge-client-generated".to_string()]
+            };
+
+            if !missing_artifacts.is_empty() {
                 log::warn!(
-                    "[REDIRECT] Cache de Forge incompleto (faltan JARs SRG/extra) — invalidando y re-procesando"
+                    "[REDIRECT] Cache de Forge/NeoForge incompleto ({} artifacts faltantes) — invalidando y re-procesando",
+                    missing_artifacts.len()
                 );
                 false
             } else {
