@@ -6,3 +6,4 @@ pub mod redirect_launch;
 pub mod version_service;
 
 pub mod settings_service;
+pub mod shortcut_instance;

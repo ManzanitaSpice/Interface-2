@@ -20,7 +20,13 @@ use zip::ZipArchive;
 use tokio::{io::AsyncWriteExt, time::sleep};
 
 use crate::{
-    app::instance_service::{get_instance_metadata, StartInstanceResult},
+    app::{
+        instance_service::{get_instance_metadata, StartInstanceResult},
+        shortcut_instance::{
+            resolve_external_game_dir_with_relink, select_embedded_java, validate_classpath_exists,
+            ShortcutState,
+        },
+    },
     commands::import::resolve_effective_version_id,
     domain::{
         auth::microsoft::refresh_microsoft_access_token,
@@ -4727,7 +4733,28 @@ pub async fn launch_redirect_instance(
     let instance_path = PathBuf::from(&instance_root);
     let redirect = read_redirect_file(&instance_path)?;
 
-    let source_path = PathBuf::from(&redirect.source_path);
+    let mut source_path = PathBuf::from(&redirect.source_path);
+    let state_path = instance_path.join("state.json");
+    if let Ok(raw) = fs::read_to_string(&state_path) {
+        if let Ok(mut state) = serde_json::from_str::<ShortcutState>(&raw) {
+            if let Some(relinked) = resolve_external_game_dir_with_relink(
+                &state.locator,
+                3000,
+                std::time::Duration::from_secs(8),
+            ) {
+                source_path = crate::app::shortcut_instance::normalize_external_root(&relinked);
+                state.external_game_dir = relinked.display().to_string();
+                state.external_root_dir = source_path.display().to_string();
+                state.updated_at = chrono::Utc::now().to_rfc3339();
+                let _ = crate::app::shortcut_instance::save_shortcut_state(&instance_path, &state);
+                log::info!(
+                    "[SHORTCUT] relink OK root={} game={}",
+                    source_path.display(),
+                    relinked.display()
+                );
+            }
+        }
+    }
     let _ = app.emit(
         "redirect_launch_status",
         json!({
@@ -4758,53 +4785,16 @@ pub async fn launch_redirect_instance(
         loader: metadata.loader.clone(),
         loader_version: metadata.loader_version.clone(),
     };
+    let ctx = resolve_redirect_launch_context(
+        &source_path,
+        &metadata.version_id,
+        &redirect.source_launcher,
+        &hints,
+    )?;
 
-    let loader_is_vanilla = matches!(
-        metadata.loader.trim().to_ascii_lowercase().as_str(),
-        "" | "-" | "vanilla" | "desconocido" | "unknown"
-    );
-
-    let ctx = if loader_is_vanilla {
-        match resolve_redirect_launch_context(
-            &source_path,
-            &metadata.version_id,
-            &redirect.source_launcher,
-            &hints,
-        ) {
-            Ok(ctx) => ctx,
-            Err(_) => {
-                ensure_redirect_cache_context(
-                    &app,
-                    &source_path,
-                    &redirect.source_launcher,
-                    &metadata.internal_uuid,
-                    &metadata.version_id,
-                    &hints,
-                )
-                .await?
-            }
-        }
-    } else {
-        ensure_redirect_cache_context(
-            &app,
-            &source_path,
-            &redirect.source_launcher,
-            &metadata.internal_uuid,
-            &metadata.version_id,
-            &hints,
-        )
-        .await?
-    };
-    touch_cache_entry_last_used(&app, &metadata.internal_uuid);
     let runtime = parse_java_runtime_for_redirect(&ctx.version_json, &ctx.resolved_version_id);
-
-    let launcher_root = instance_path
-        .parent()
-        .and_then(Path::parent)
-        .ok_or_else(|| "No se pudo resolver launcher_root para atajo REDIRECT.".to_string())?;
-
     let mut logs = Vec::new();
-    let java_exec = ensure_embedded_java(launcher_root, runtime, &mut logs).map_err(|_| {
+    let java_exec = select_embedded_java(&app, runtime, &mut logs).map_err(|_| {
         format!(
             "Se requiere Java {} para esta instancia. Verifica que el runtime esté descargado en el launcher.",
             runtime.major()
@@ -4842,13 +4832,31 @@ pub async fn launch_redirect_instance(
             }
         }
     }
+    let classpath_entries_vec: Vec<PathBuf> = classpath
+        .split(classpath_separator)
+        .filter(|e| !e.trim().is_empty())
+        .map(PathBuf::from)
+        .collect();
+    if let Err(missing) = validate_classpath_exists(&classpath_entries_vec) {
+        let top_missing: Vec<String> = missing
+            .iter()
+            .take(10)
+            .map(|p| p.display().to_string())
+            .collect();
+        log::error!(
+            "[SHORTCUT] Preflight classpath fail ({} faltantes): {}",
+            missing.len(),
+            top_missing.join(" | ")
+        );
+        return Err(format!(
+            "Preflight classpath falló. Faltan {} JAR(s). Primeros: {}",
+            missing.len(),
+            top_missing.join(" | ")
+        ));
+    }
     let classpath_entry_count = classpath.split(classpath_separator).count();
-    let natives_dir = app
-        .path()
-        .app_cache_dir()
-        .map_err(|err| format!("No se pudo resolver cache del launcher: {err}"))?
-        .join("natives")
-        .join(format!("{}-{}", metadata.internal_uuid, now_millis()));
+    let natives_dir = instance_path.join("natives");
+    let _ = fs::remove_dir_all(&natives_dir);
 
     let _ = app.emit(
         "redirect_launch_status",
@@ -4861,7 +4869,7 @@ pub async fn launch_redirect_instance(
             "error": Value::Null
         }),
     );
-    let redirect_cache_dir = redirect_cache_root(&app)?.join(&metadata.internal_uuid);
+    let redirect_cache_dir = instance_path.join("runtime-temp");
     prepare_redirect_natives(
         &app,
         &ctx.version_json,

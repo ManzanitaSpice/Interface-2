@@ -2449,7 +2449,7 @@ pub fn execute_import_action(
     }
 
     if action == "eliminar_instancia" {
-        let source_path = PathBuf::from(&request.source_path);
+        let source_path = source_root.clone();
         if !source_path.exists() {
             return Err(format!(
                 "La instancia ya no existe en {}",
@@ -2473,7 +2473,7 @@ pub fn execute_import_action(
     }
 
     if action == "ejecutar" {
-        let source_path = PathBuf::from(&request.source_path);
+        let source_path = source_root.clone();
         if !source_path.exists() {
             return Err(format!("La carpeta original de la instancia ya no existe en: {}. Es posible que el launcher externo haya movido o eliminado la instancia.", source_path.display()));
         }
@@ -2527,17 +2527,27 @@ pub fn execute_import_action(
     }
 
     if action == "crear_atajo" {
-        let source_root = PathBuf::from(&request.source_path);
+        let requested_source = PathBuf::from(&request.source_path);
+        let source_root = crate::app::shortcut_instance::normalize_external_root(&requested_source);
+        let source_game_dir = if requested_source
+            .file_name()
+            .and_then(|s| s.to_str())
+            .is_some_and(|name| name.eq_ignore_ascii_case("minecraft"))
+        {
+            requested_source.clone()
+        } else {
+            source_root.join("minecraft")
+        };
         if !source_root.exists() {
             return Err(format!(
                 "No se puede crear el atajo porque la instancia origen no existe: {}",
-                source_root.display()
+                requested_source.display()
             ));
         }
         if !source_root.is_dir() {
             return Err(format!(
                 "No se puede crear el atajo porque el origen no es una carpeta válida: {}",
-                source_root.display()
+                requested_source.display()
             ));
         }
 
@@ -2709,7 +2719,7 @@ pub fn execute_import_action(
             .map_err(|err| format!("No se pudo guardar metadata de atajo: {err}"))?;
 
         let redirect = ShortcutRedirect {
-            source_path: request.source_path.clone(),
+            source_path: source_root.display().to_string(),
             source_launcher: request.source_launcher.clone(),
         };
         let redirect_path = instance_root.join(".redirect.json");
@@ -2718,9 +2728,36 @@ pub fn execute_import_action(
         fs::write(&redirect_path, redirect_raw)
             .map_err(|err| format!("No se pudo guardar redirección de atajo: {err}"))?;
 
+        let shortcut_state = crate::app::shortcut_instance::ShortcutState {
+            id: metadata.internal_uuid.clone(),
+            name: metadata.name.clone(),
+            external_game_dir: source_game_dir.display().to_string(),
+            external_root_dir: source_root.display().to_string(),
+            mc_version: metadata.minecraft_version.clone(),
+            loader: metadata.loader.clone(),
+            loader_version: metadata.loader_version.clone(),
+            created_at: metadata.created_at.clone(),
+            updated_at: chrono::Utc::now().to_rfc3339(),
+            adopt_mode: "off".to_string(),
+            locator: crate::app::shortcut_instance::ExternalLocator {
+                last_known_path: source_game_dir.display().to_string(),
+                signature: crate::app::shortcut_instance::compute_signature(
+                    &source_game_dir,
+                    &source_root,
+                ),
+                hints: vec![request.source_launcher.clone(), metadata.loader.clone()],
+                scan_roots: vec![source_root
+                    .parent()
+                    .unwrap_or(&source_root)
+                    .display()
+                    .to_string()],
+            },
+        };
+        crate::app::shortcut_instance::save_shortcut_state(&instance_root, &shortcut_state)?;
+
         persist_shortcut_visual_meta(&instance_root, Path::new(&request.source_path));
 
-        let source_path = PathBuf::from(&request.source_path);
+        let source_path = source_root.clone();
         let hints = crate::app::redirect_launch::RedirectVersionHints {
             minecraft_version: metadata.minecraft_version.clone(),
             loader: metadata.loader.clone(),
@@ -2833,7 +2870,7 @@ pub fn execute_import_action(
     execute_import(app.clone(), vec![import_request])?;
 
     if action == "migrar" {
-        let source_path = PathBuf::from(&request.source_path);
+        let source_path = source_root.clone();
         if source_path.exists() && source_path.is_dir() {
             fs::remove_dir_all(&source_path).map_err(|err| {
                 format!("No se pudo eliminar la instancia original tras migrar: {err}")
