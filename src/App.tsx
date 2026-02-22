@@ -734,6 +734,7 @@ function App() {
   const [modsPage, setModsPage] = useState(1)
   const [modsAdvancedOpen, setModsAdvancedOpen] = useState(false)
   const [modsAdvancedFilter, setModsAdvancedFilter] = useState<ModsAdvancedFilter>({ tag: 'all', state: 'all' })
+  const [modsNameColumnWidth, setModsNameColumnWidth] = useState(320)
   const [modVersionLoading, setModVersionLoading] = useState(false)
   const [modVersionError, setModVersionError] = useState('')
   const [modVersionOptions, setModVersionOptions] = useState<ModVersionOption[]>([])
@@ -2748,6 +2749,47 @@ function App() {
     }
   }
 
+  const escapeHtml = (value: string) => value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+
+  const renderCatalogBody = (value?: string) => {
+    if (!value) return ''
+    const raw = value.trim()
+    if (!raw) return ''
+    if (/<\/?[a-z][\s\S]*>/i.test(raw)) return raw
+
+    const escaped = escapeHtml(raw)
+    const withImages = escaped.replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<img src="$2" alt="$1" loading="lazy" />')
+    const withLinks = withImages.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+    const paragraphs = withLinks
+      .split(/\n{2,}/)
+      .map((block) => block.trim())
+      .filter(Boolean)
+      .map((block) => `<p>${block.replace(/\n/g, '<br />')}</p>`)
+      .join('')
+    return paragraphs
+  }
+
+  const startModNameColumnDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    const startX = event.clientX
+    const initialWidth = modsNameColumnWidth
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      const delta = moveEvent.clientX - startX
+      setModsNameColumnWidth(Math.max(240, Math.min(560, initialWidth + delta)))
+    }
+    const stopDrag = () => {
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', stopDrag)
+      window.removeEventListener('pointercancel', stopDrag)
+    }
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', stopDrag)
+    window.addEventListener('pointercancel', stopDrag)
+  }
+
   const resolveProviderLabel = (provider: string) => {
     if (provider === 'Desconocido') return 'Local'
     return provider
@@ -3936,16 +3978,17 @@ function App() {
                       <div className="mods-list-panel">
                         {modsLoading && <p>Cargando mods...</p>}
                         {modsError && <p className="error-banner">{modsError}</p>}
-                        <div className="mods-list-head">
-                          <span>Habilitar</span><span>Icono</span><span>Nombre</span><span>Versión</span><span>Última modificación</span><span>Proveedor</span><span>Tamaño</span><span>Etiqueta</span>
+                        <div className="mods-list-head" style={{ '--mods-name-col': `${modsNameColumnWidth}px` } as CSSProperties}>
+                          <span>Habilitar</span><span>Icono</span><span>Nombre</span><span className="mods-col-resizer" role="separator" aria-label="Redimensionar columna nombre" onPointerDown={startModNameColumnDrag} /><span>Versión</span><span>Última modificación</span><span>Proveedor</span><span>Tamaño</span><span>Etiqueta</span>
                         </div>
                         <div className="mods-list-body">
                           {pagedMods.length === 0 && <p className="mods-empty">No hay mods para los filtros seleccionados.</p>}
                           {pagedMods.map((mod) => (
-                            <div key={mod.id} role="button" tabIndex={0} className={`mods-row ${selectedModId === mod.id ? 'active' : ''}`} onClick={() => setSelectedModId(mod.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelectedModId(mod.id) }}>
+                            <div key={mod.id} role="button" tabIndex={0} className={`mods-row ${selectedModId === mod.id ? 'active' : ''}`} style={{ '--mods-name-col': `${modsNameColumnWidth}px` } as CSSProperties} onClick={() => setSelectedModId(mod.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelectedModId(mod.id) }}>
                               <span><button className={`chip-toggle ${mod.enabled ? 'on' : 'off'}`} onClick={(event) => { event.stopPropagation(); void toggleModEnabled(mod, !mod.enabled) }}>{mod.enabled ? 'ON' : 'OFF'}</button></span>
                               <span>{modIconById[mod.id] ? <img className="mods-row-icon" src={modIconById[mod.id]} alt={`Icono de ${mod.name}`} loading="lazy" /> : (resolveProviderLabel(mod.provider) === 'CurseForge' ? '🔥' : resolveProviderLabel(mod.provider) === 'Modrinth' ? '🟢' : resolveProviderLabel(mod.provider) === 'Externo' ? '🌐' : '📁')}</span>
                               <span>{mod.name}</span>
+                              <span className="mods-col-resizer-spacer" />
                               <span>{mod.version}</span>
                               <span>{mod.modifiedAt ? new Date(mod.modifiedAt * 1000).toLocaleString() : '-'}</span>
                               <span>{resolveProviderLabel(mod.provider)}</span>
@@ -4028,7 +4071,7 @@ function App() {
                               )
                             }) : <p className="mods-empty">Esta fuente está reservada para integración manual/local.</p>}
                           </section>
-                          <section className="mods-preview-panel">
+                          <section className="mods-preview-panel compact-info">
                             {selectedCatalogMod ? (
                               <>
                                 <h3>{selectedCatalogMod.name}</h3>
@@ -4037,22 +4080,22 @@ function App() {
                                 {selectedCatalogDetail?.links && selectedCatalogDetail.links.length > 0 && (
                                   <div className="mods-preview-links">
                                     {selectedCatalogDetail.links.map((link) => (
-                                      <button key={link.url} className="secondary" onClick={() => window.open(link.url, '_blank', 'noopener,noreferrer')}>
+                                      <a key={link.url} className="mods-preview-link" href={link.url} target="_blank" rel="noopener noreferrer">
                                         {link.label}: {shortenUrl(link.url)}
-                                      </button>
+                                      </a>
                                     ))}
                                   </div>
                                 )}
-                                {selectedCatalogDetail?.bodyHtml && <div className="mods-preview-description" dangerouslySetInnerHTML={{ __html: selectedCatalogDetail.bodyHtml }} />}
+                                {selectedCatalogDetail?.bodyHtml && <div className="mods-preview-description" dangerouslySetInnerHTML={{ __html: renderCatalogBody(selectedCatalogDetail.bodyHtml) }} />}
                                 <p>Descargas: {selectedCatalogMod.downloads.toLocaleString()} · Actualizado: {new Date(selectedCatalogMod.updatedAt).toLocaleDateString()}</p>
                               </>
                             ) : <p className="mods-empty">Selecciona un mod para ver su detalle.</p>}
                           </section>
                           
                         </div>
-                        <div className="mods-downloader-compact-bars">
-                          <div className="mods-compact-bar">
-                            <label>
+                        <div className="mods-downloader-compact-bars premium-footer">
+                          <div className="mods-compact-bar sort-block">
+                            <label>Ordenar
                               <select className="mods-sort-select" value={modsDownloaderSort} onChange={(event) => setModsDownloaderSort(event.target.value as ModsDownloaderSort)}>
                                 <option value="relevance">Relevancia</option>
                                 <option value="downloads">Descargas</option>
@@ -4062,7 +4105,7 @@ function App() {
                               </select>
                             </label>
                           </div>
-                          <div className="mods-compact-bar vertical">
+                          <div className="mods-compact-bar versions-block">
                             <label>Versiones del mod
                               <select value={selectedCatalogVersion?.id ?? ''} disabled={!selectedCatalogMod}>
                                 {selectedCatalogVersions.map((version) => (
@@ -4070,11 +4113,14 @@ function App() {
                                 ))}
                               </select>
                             </label>
-                            <button className="action-elevated" onClick={stageSelectedMod} disabled={!selectedCatalogVersion}>{stagedDownloads[selectedCatalogModId] ? 'Deseleccionar' : 'Seleccionar para descargar'}</button>
+                            <span className="mods-channel-chip">{(selectedCatalogVersion?.versionType ?? 'release').toUpperCase()}</span>
                           </div>
-                          <div className="mods-compact-bar actions">
-                            <button className="primary" onClick={() => setReviewModalOpen(true)}>Revisar y confirmar</button>
-                            <button onClick={closeDownloaderWithValidation}>Cancelar</button>
+                          <div className="mods-compact-bar actions-row">
+                            <button className="secondary" onClick={stageSelectedMod} disabled={!selectedCatalogVersion}>{stagedDownloads[selectedCatalogModId] ? 'Deseleccionar' : 'Seleccionar para descargar'}</button>
+                            <div className="actions-group-right">
+                              <button className="ghost-btn" onClick={closeDownloaderWithValidation}>Cancelar</button>
+                              <button className="primary" onClick={() => setReviewModalOpen(true)}>Revisar y confirmar</button>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -4090,7 +4136,7 @@ function App() {
                             <section className="mods-preview-panel">
                               <h4>{selectedMod.name}</h4>
                               <p>{modVersionDetail?.description || 'Sin descripción del catálogo para este mod.'}</p>
-                              {modVersionDetail?.bodyHtml && <div className="mods-preview-description" dangerouslySetInnerHTML={{ __html: modVersionDetail.bodyHtml }} />}
+                              {modVersionDetail?.bodyHtml && <div className="mods-preview-description" dangerouslySetInnerHTML={{ __html: renderCatalogBody(modVersionDetail.bodyHtml) }} />}
                             </section>
                             <section className="mods-catalog-panel">
                               <label>Versiones disponibles</label>
