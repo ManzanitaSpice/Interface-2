@@ -1375,6 +1375,7 @@ en ningún JAR del classpath del loader '{}'.\n{}",
             &mut jvm_args,
             &mc_root,
             &forge_library_directory,
+            &resolved_libraries.classpath_entries,
             &mut logs,
         );
     }
@@ -3316,12 +3317,28 @@ fn forge_inject_system_properties(
     jvm_args: &mut Vec<String>,
     mc_root: &Path,
     forge_lib_dir: &Path,
+    classpath_entries: &[String],
     logs: &mut Vec<String>,
 ) {
+    let legacy_classpath_value = if classpath_entries.is_empty() {
+        forge_lib_dir.display().to_string()
+    } else {
+        env::join_paths(classpath_entries.iter().map(Path::new))
+            .ok()
+            .map(|joined| joined.to_string_lossy().into_owned())
+            .unwrap_or_else(|| {
+                classpath_entries.join(if cfg!(target_os = "windows") {
+                    ";"
+                } else {
+                    ":"
+                })
+            })
+    };
+
     let java_home_value = mc_root.join("java").display().to_string();
     let java_home_key = ["java", "home"].join(".");
     let properties = vec![
-        ("legacyClassPath", forge_lib_dir.display().to_string()),
+        ("legacyClassPath", legacy_classpath_value),
         ("libraryDirectory", forge_lib_dir.display().to_string()),
         (
             "ignoreList",
@@ -4179,6 +4196,35 @@ mod tests {
                 .windows(2)
                 .any(|w| matches!(w, [f, v] if f == "--add-modules" && v == "ALL-MODULE-PATH")),
             "--add-modules debe preservar su valor en la siguiente posición"
+        );
+    }
+
+    #[test]
+    fn forge_inject_system_properties_uses_classpath_for_legacy_classpath() {
+        let mut jvm_args = Vec::new();
+        let mc_root = Path::new("/tmp/instance");
+        let forge_lib_dir = Path::new("/tmp/instance/libraries");
+        let classpath_entries = vec![
+            "/tmp/instance/libraries/a.jar".to_string(),
+            "/tmp/instance/libraries/b.jar".to_string(),
+        ];
+        let mut logs = Vec::new();
+
+        forge_inject_system_properties(
+            &mut jvm_args,
+            mc_root,
+            forge_lib_dir,
+            &classpath_entries,
+            &mut logs,
+        );
+
+        let legacy_arg = jvm_args
+            .iter()
+            .find(|arg| arg.starts_with("-DlegacyClassPath="))
+            .expect("legacyClassPath injected");
+        assert!(
+            legacy_arg.contains("a.jar") && legacy_arg.contains("b.jar"),
+            "legacyClassPath debe contener los jars del classpath y no solo el directorio libraries"
         );
     }
 
