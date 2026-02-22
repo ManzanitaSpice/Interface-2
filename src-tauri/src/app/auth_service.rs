@@ -103,6 +103,16 @@ pub fn list_available_browsers() -> Vec<BrowserOption> {
         .collect()
 }
 
+fn is_allowed_oauth_host(host: &str) -> bool {
+    matches!(
+        host,
+        "login.microsoftonline.com"
+            | "login.live.com"
+            | "microsoft.com"
+            | "www.microsoft.com"
+    )
+}
+
 fn open_with_browser_command(url: &str) -> Result<(), String> {
     webbrowser::open(url)
         .map(|_| ())
@@ -239,12 +249,27 @@ pub fn open_url_in_browser(url: String, browser_id: String) -> Result<(), String
     }
 
     let normalized_url = url.trim().to_string();
-    if !normalized_url.starts_with("http://") && !normalized_url.starts_with("https://") {
-        return Err("La URL OAuth debe comenzar con http:// o https://.".to_string());
+    if normalized_url.len() > 2048 {
+        return Err("La URL OAuth excede el tamaño permitido (2048 caracteres).".to_string());
+    }
+
+    let parsed = normalized_url
+        .parse::<tauri::Url>()
+        .map_err(|err| format!("La URL OAuth no es válida: {err}"))?;
+
+    if parsed.scheme() != "https" {
+        return Err("La URL OAuth debe usar HTTPS.".to_string());
+    }
+
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "La URL OAuth no tiene host válido.".to_string())?;
+
+    if !is_allowed_oauth_host(host) {
+        return Err("El dominio de OAuth no está permitido.".to_string());
     }
 
     let _ = browser_id;
-    println!("Microsoft OAuth authorize URL: {normalized_url}");
     open_with_browser_command(&normalized_url)
 }
 
