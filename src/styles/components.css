@@ -2743,3 +2743,53 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
 }
 
 .mods-updates-modal .mods-review-card strong { color: color-mix(in srgb, var(--text-main) 92%, var(--accent)); }
+
+
+.elevated-floating {
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, var(--accent));
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.42);
+  animation: floatIn .2s ease-out;
+}
+
+@keyframes floatIn {
+  from { opacity: 0; transform: translateY(12px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.mods-editor-view .floating-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(5, 10, 18, .58);
+  backdrop-filter: blur(3px);
+}
+
+.mods-downloader-layout {
+  border-radius: 14px;
+}
+
+.mods-catalog-panel,
+.mods-preview-panel,
+.mods-downloader-advanced-sidebar,
+.mods-catalog-item {
+  border-radius: 10px;
+}
+
+.versions-scroll-wrap {
+  display: grid;
+  grid-template-columns: 36px 1fr 36px;
+  align-items: stretch;
+  gap: .35rem;
+}
+
+.versions-scroll-wrap .square { min-height: 92px; }
+
+.versions-scroll-wrap select {
+  min-height: 92px;
+}
+
+.versions-block {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
