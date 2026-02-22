@@ -1,6 +1,8 @@
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import { getVersion } from '@tauri-apps/api/app'
+import { check } from '@tauri-apps/plugin-updater'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import './App.css'
@@ -534,7 +536,8 @@ const fontOptions: FontOption[] = [
   { id: 'manrope', label: 'Manrope', family: "Manrope, 'Segoe UI', Inter, sans-serif" },
 ]
 
-const launcherUpdatesUrl = 'https://github.com/TU_USUARIO/TU_REPO/releases'
+const launcherUpdatesUrl = 'https://github.com/ManzanitaSpice/Interface-2/releases'
+const launcherReleasesApiUrl = 'https://api.github.com/repos/ManzanitaSpice/Interface-2/releases'
 
 const instanceActions = ['Iniciar', 'Forzar Cierre', 'Editar', 'Cambiar Grupo', 'Carpeta (Interface)', 'Exportar', 'Copiar', 'Crear atajo']
 const defaultGroup = 'Sin grupo'
@@ -576,12 +579,14 @@ const sanitizeFolderRoutes = (routes: FolderRouteItem[]) => {
   })
 }
 
-const launcherUpdatesFeed: LauncherUpdateItem[] = [
-  { version: 'v0.3.0', releaseDate: '2026-02-19', channel: 'Stable', summary: 'Nuevo panel de updates, perfiles de apariencia pastel y mejoras de carpetas globales.', status: 'Disponible' },
-  { version: 'v0.2.5', releaseDate: '2026-02-10', channel: 'Stable', summary: 'Correcciones en gestión de cuentas, mejora de logs y estabilidad de inicio.', status: 'Instalada' },
-  { version: 'v0.2.0', releaseDate: '2026-01-28', channel: 'Stable', summary: 'Integración de creador de instancias con más metadatos del runtime.', status: 'Histórica' },
-  { version: 'v0.1.8', releaseDate: '2026-01-14', channel: 'Preview', summary: 'Primer experimento de consola avanzada y tarjetas dinámicas.', status: 'Histórica' },
-]
+function buildReleaseSummary(body: string): string {
+  const normalized = body.replace(/\r\n/g, '\n').trim()
+  if (!normalized) return 'Release publicada sin notas detalladas.'
+  const firstLine = normalized.split('\n').find((line) => line.trim().length > 0)
+  return (firstLine ?? normalized).replace(/^[-*#\s]+/, '').slice(0, 220)
+}
+
+
 
 function nowTimestamp() {
   return new Date().toLocaleTimeString('es-ES', { hour12: false })
@@ -849,6 +854,9 @@ function App() {
   const [updatesAutoCheck, setUpdatesAutoCheck] = useState(true)
   const [updatesChannel, setUpdatesChannel] = useState<'Stable' | 'Preview'>('Stable')
   const [updatesStatus, setUpdatesStatus] = useState('Listo para buscar updates.')
+  const [updatesLoading, setUpdatesLoading] = useState(false)
+  const [launcherCurrentVersion, setLauncherCurrentVersion] = useState('')
+  const [launcherUpdatesFeed, setLauncherUpdatesFeed] = useState<LauncherUpdateItem[]>([])
   const { progress: migrationProgress, isMigrating, migrateLauncherRoot, changeInstancesFolder } = useMigration()
   const [launcherFolders, setLauncherFolders] = useState<LauncherFolders | null>(null)
   const [launcherMigrationPath, setLauncherMigrationPath] = useState<string | null>(null)
@@ -1014,16 +1022,82 @@ function App() {
   }
 
 
-  const checkLauncherUpdates = async () => {
-    setUpdatesStatus('Consultando endpoint de versiones del launcher...')
+  const refreshLauncherReleases = useCallback(async () => {
+    setUpdatesLoading(true)
+    setUpdatesStatus('Consultando releases reales desde GitHub...')
     try {
-      await invoke('open_url_in_browser', { url: launcherUpdatesUrl, browserId: 'default' })
-      setUpdatesStatus('Se abrió el canal de releases. Estructura lista para conectar updater nativo de Tauri.')
+      const response = await fetch(launcherReleasesApiUrl, {
+        headers: {
+          Accept: 'application/vnd.github+json',
+        },
+      })
+      if (!response.ok) throw new Error(`GitHub API ${response.status}`)
+      const releases = await response.json() as Array<{ tag_name?: string; published_at?: string; prerelease?: boolean; body?: string }>
+      const mapped: LauncherUpdateItem[] = releases
+        .filter((release) => typeof release.tag_name === 'string' && release.tag_name.trim().length > 0)
+        .slice(0, 12)
+        .map((release, index) => {
+          const version = release.tag_name ?? '-'
+          const releaseDate = release.published_at ? release.published_at.slice(0, 10) : '-'
+          const channel: LauncherUpdateItem['channel'] = release.prerelease ? 'Preview' : 'Stable'
+          const normalizedCurrent = launcherCurrentVersion.startsWith('v') ? launcherCurrentVersion : `v${launcherCurrentVersion}`
+          const status: LauncherUpdateItem['status'] = version === normalizedCurrent ? 'Instalada' : index === 0 ? 'Disponible' : 'Histórica'
+          return {
+            version,
+            releaseDate,
+            channel,
+            summary: buildReleaseSummary(release.body ?? ''),
+            status,
+          }
+        })
+      setLauncherUpdatesFeed(mapped)
+      setUpdatesStatus(mapped.length > 0 ? `Releases sincronizadas (${mapped.length}) desde GitHub.` : 'No hay releases publicadas aún.')
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      setUpdatesStatus(`No se pudo abrir el canal de updates: ${message}`)
+      setUpdatesStatus(`No se pudieron cargar releases reales: ${message}`)
+    } finally {
+      setUpdatesLoading(false)
+    }
+  }, [launcherCurrentVersion])
+
+  const checkLauncherUpdates = async () => {
+    setUpdatesStatus('Buscando actualización nativa con Tauri Updater...')
+    setUpdatesLoading(true)
+    try {
+      const update = await check()
+      if (!update) {
+        setUpdatesStatus('No hay actualizaciones disponibles. Ya estás en la versión más reciente.')
+        await refreshLauncherReleases()
+        return
+      }
+      setUpdatesStatus(`Update detectada (${update.currentVersion} → ${update.version}). Descargando e instalando...`)
+      await update.downloadAndInstall()
+      setUpdatesStatus(`Actualización ${update.version} instalada correctamente. Reinicia la app para aplicar cambios.`)
+      await refreshLauncherReleases()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setUpdatesStatus(`Error en updater nativo: ${message}`)
+    } finally {
+      setUpdatesLoading(false)
     }
   }
+
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const version = await getVersion()
+        setLauncherCurrentVersion(version)
+      } catch {
+        setLauncherCurrentVersion('')
+      }
+    })()
+  }, [])
+
+  useEffect(() => {
+    if (activePage !== 'Updates') return
+    void refreshLauncherReleases()
+  }, [activePage, refreshLauncherReleases])
 
   const syncManagedAccountFromSession = (session: AuthSession, email = '-') => {
     setManagedAccounts((prev) => {
@@ -3439,11 +3513,12 @@ function App() {
             <header className="news-panel-header updates-header">
               <div>
                 <h2>Updates</h2>
-                <p>Historial de versiones, fechas y descripciones. Preparado para auto-update nativo de Tauri + GitHub Releases.</p>
+                <p>Historial real conectado a GitHub Releases + updater nativo de Tauri (sin datos falsos).</p>
               </div>
               <div className="updates-actions">
-                <button className="primary" onClick={() => void checkLauncherUpdates()}>Actualizar a la última versión</button>
+                <button className="primary" onClick={() => void checkLauncherUpdates()} disabled={updatesLoading}>Actualizar a la última versión</button>
                 <button onClick={() => void invoke('open_url_in_browser', { url: launcherUpdatesUrl, browserId: 'default' })}>Ver releases</button>
+                <button onClick={() => void refreshLauncherReleases()} disabled={updatesLoading}>Sincronizar</button>
               </div>
             </header>
 
@@ -3461,8 +3536,13 @@ function App() {
                   </tr>
                 </thead>
                 <tbody>
+                  {launcherUpdatesFeed.length === 0 && (
+                    <tr>
+                      <td colSpan={5}>{updatesLoading ? 'Cargando releases...' : 'Sin releases publicadas o sin conexión al endpoint.'}</td>
+                    </tr>
+                  )}
                   {launcherUpdatesFeed.map((item) => (
-                    <tr key={item.version}>
+                    <tr key={`${item.version}-${item.releaseDate}`}>
                       <td>{item.version}</td>
                       <td>{formatIsoDate(item.releaseDate)}</td>
                       <td>{item.channel}</td>
@@ -3475,11 +3555,10 @@ function App() {
             </div>
 
             <article className="global-setting-item tauri-updater-guide">
-              <h3>Estructura técnica preparada (Tauri Updater)</h3>
-              <p>1) Activar updater en tauri.conf.json con endpoint latest.json y pubkey.</p>
-              <p>2) Generar claves con <code>tauri signer generate</code>.</p>
-              <p>3) Firmar builds con <code>tauri build</code> y subir .sig + metadata.</p>
-              <p>4) Publicar en GitHub Releases y consumir con checkUpdate/installUpdate en frontend.</p>
+              <h3>Updater conectado (producción)</h3>
+              <p>Endpoint activo: <code>https://github.com/ManzanitaSpice/Interface-2/releases/latest/download/latest.json</code></p>
+              <p>Regla de oro: cada release debe adjuntar siempre el asset <code>latest.json</code> junto con sus binarios firmados.</p>
+              <p>Versión actual detectada: <strong>{launcherCurrentVersion || 'No disponible'}</strong>.</p>
             </article>
           </section>
         </main>
