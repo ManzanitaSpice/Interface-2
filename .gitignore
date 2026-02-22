@@ -25,3 +25,8 @@ dist-ssr
 
 # Runtime skin cache
 src-tauri/skin-storage/
+
+# Tauri signing keys
+.tauri/
+*.key
+*.key.pub
