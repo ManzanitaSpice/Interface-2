@@ -61,6 +61,7 @@ pub fn run() {
             commands::mods::list_instance_mods,
             commands::mods::set_instance_mod_enabled,
             commands::mods::replace_instance_mod_file,
+            commands::mods::install_catalog_mod_file,
             commands::exports::export_instance_package,
             commands::skin_processor::optimize_skin_png,
             commands::file_manager::list_skins,

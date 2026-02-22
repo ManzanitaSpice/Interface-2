@@ -126,6 +126,49 @@ pub fn replace_instance_mod_file(
     Ok(())
 }
 
+#[tauri::command]
+pub fn install_catalog_mod_file(
+    instance_root: String,
+    download_url: String,
+    file_name: String,
+    replace_existing: bool,
+) -> Result<(), String> {
+    let mods_dir = PathBuf::from(instance_root).join("minecraft").join("mods");
+    fs::create_dir_all(&mods_dir)
+        .map_err(|err| format!("No se pudo preparar carpeta de mods: {err}"))?;
+
+    let response = reqwest::blocking::get(&download_url)
+        .map_err(|err| format!("No se pudo descargar mod seleccionado: {err}"))?;
+    let bytes = response
+        .bytes()
+        .map_err(|err| format!("No se pudo leer descarga del mod: {err}"))?;
+
+    let safe_name = file_name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == '.' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    let target_name = if safe_name.to_ascii_lowercase().ends_with(".jar") {
+        safe_name
+    } else {
+        format!("{safe_name}.jar")
+    };
+    let target_path = mods_dir.join(target_name);
+    if target_path.exists() && !replace_existing {
+        return Ok(());
+    }
+
+    fs::write(&target_path, &bytes)
+        .map_err(|err| format!("No se pudo guardar mod descargado: {err}"))?;
+
+    Ok(())
+}
+
 fn split_name_and_version(base: &str) -> (String, String) {
     let mut pieces = base.rsplitn(2, '-');
     let version_candidate = pieces.next().unwrap_or_default().trim();
