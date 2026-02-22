@@ -768,6 +768,36 @@ function App() {
   const [installingModalOpen, setInstallingModalOpen] = useState(false)
   const [cancelModsConfirmOpen, setCancelModsConfirmOpen] = useState(false)
   const [installProgress, setInstallProgress] = useState({ current: 0, total: 0, message: '' })
+  const selectedContentSection = useMemo<'mods' | 'resourcepacks' | 'shaderpacks' | 'worlds' | null>(() => {
+    if (selectedEditSection === 'Mods') return 'mods'
+    if (selectedEditSection === 'Resource Packs') return 'resourcepacks'
+    if (selectedEditSection === 'Shader Packs') return 'shaderpacks'
+    if (selectedEditSection === 'Mundos') return 'worlds'
+    return null
+  }, [selectedEditSection])
+  const selectedContentLabel = selectedContentSection === 'resourcepacks'
+    ? 'resource pack'
+    : selectedContentSection === 'shaderpacks'
+      ? 'shader'
+      : selectedContentSection === 'worlds'
+        ? 'mundo'
+        : 'mod'
+  const selectedContentLabelPlural = selectedContentSection === 'resourcepacks'
+    ? 'resource packs'
+    : selectedContentSection === 'shaderpacks'
+      ? 'shaders'
+      : selectedContentSection === 'worlds'
+        ? 'mundos'
+        : 'mods'
+
+  const selectedCurseforgeClassId = selectedContentSection === 'resourcepacks'
+    ? 12
+    : selectedContentSection === 'shaderpacks'
+      ? 6552
+      : selectedContentSection === 'worlds'
+        ? 17
+        : 6
+  const selectedCatalogCategory = selectedContentSection === 'resourcepacks' ? 'resourcepack' : selectedContentSection === 'shaderpacks' ? 'shader' : selectedContentSection === 'worlds' ? 'world' : 'mod'
   const [selectedLanguage, setSelectedLanguage] = useState(languageCatalog[0].name)
   const [installedLanguages, setInstalledLanguages] = useState<string[]>(languageCatalog.filter((item) => item.installedByDefault).map((item) => item.name))
   const [languageSearch, setLanguageSearch] = useState('')
@@ -1410,7 +1440,7 @@ function App() {
 
       if (activePage === 'Editar Instancia') {
         event.preventDefault()
-        if (selectedEditSection === 'Mods' && modsDownloaderOpen) {
+        if (selectedContentSection !== null && modsDownloaderOpen) {
           const selectedCount = Object.values(stagedDownloads).filter((entry) => entry.selected).length
           if (selectedCount > 0) {
             setCancelModsConfirmOpen(true)
@@ -2490,11 +2520,11 @@ function App() {
 
   useEffect(() => {
     const loadMods = async () => {
-      if (selectedEditSection !== 'Mods' || !selectedCard?.instanceRoot) return
+      if (!selectedContentSection || !selectedCard?.instanceRoot) return
       setModsLoading(true)
       setModsError('')
       try {
-        const rows = await invoke<InstanceModEntry[]>('list_instance_mods', { instanceRoot: selectedCard.instanceRoot })
+        const rows = await invoke<InstanceModEntry[]>('list_instance_mods', { instanceRoot: selectedCard.instanceRoot, section: selectedContentSection })
         setInstanceMods(rows)
       } catch (error) {
         setModsError(error instanceof Error ? error.message : String(error))
@@ -2503,7 +2533,7 @@ function App() {
       }
     }
     void loadMods()
-  }, [selectedCard?.instanceRoot, selectedEditSection])
+  }, [selectedCard?.instanceRoot, selectedContentSection])
 
   const formatBytes = (bytes: number) => {
     if (bytes <= 0) return '0 B'
@@ -2562,7 +2592,7 @@ function App() {
       }
       const entries = await Promise.all(instanceMods.map(async (mod) => {
         try {
-          const payload = await invoke<{ items: Array<{ image?: string }> }>('search_catalogs', { request: { search: mod.name, curseforgeClassId: 6, platform: 'Todas', mcVersion: selectedInstanceMetadata?.minecraftVersion ?? null, loader: (selectedInstanceMetadata?.loader ?? '').toLowerCase() || null, category: 'mod', modrinthSort: 'relevance', curseforgeSortField: 1, limit: 1, page: 1 } })
+          const payload = await invoke<{ items: Array<{ image?: string }> }>('search_catalogs', { request: { search: mod.name, curseforgeClassId: selectedCurseforgeClassId, platform: 'Todas', mcVersion: selectedInstanceMetadata?.minecraftVersion ?? null, loader: (selectedInstanceMetadata?.loader ?? '').toLowerCase() || null, category: selectedCatalogCategory, modrinthSort: 'relevance', curseforgeSortField: 1, limit: 1, page: 1 } })
           return [mod.id, payload.items[0]?.image ?? ''] as const
         } catch {
           return [mod.id, ''] as const
@@ -2573,7 +2603,7 @@ function App() {
     }
     void fetchInstalledModIcons()
     return () => { cancelled = true }
-  }, [instanceMods, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion])
+  }, [instanceMods, selectedCatalogCategory, selectedCurseforgeClassId, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion])
 
   const selectedMod = useMemo(() => instanceMods.find((item) => item.id === selectedModId) ?? null, [instanceMods, selectedModId])
   const isCatalogSource = modsDownloaderSource === 'Modrinth' || modsDownloaderSource === 'CurseForge'
@@ -2617,11 +2647,11 @@ function App() {
       const payload = await invoke<{ items: Array<{ id: string; source: ModsCatalogSource; title: string; description: string; image?: string; downloads: number; updatedAt: string }> }>('search_catalogs', {
         request: {
           search: debouncedDownloaderSearch,
-          curseforgeClassId: 6,
+          curseforgeClassId: selectedCurseforgeClassId,
           platform: modsDownloaderSource,
           mcVersion: downloaderShowAllVersions ? null : (downloaderVersionFilter || selectedInstanceMetadata?.minecraftVersion || null),
           loader: (downloaderLoaderFilter || selectedInstanceMetadata?.loader || '').toLowerCase() || null,
-          category: downloaderClientOnly ? 'client' : downloaderServerOnly ? 'server' : 'mod',
+          category: selectedContentSection === 'mods' ? (downloaderClientOnly ? 'client' : downloaderServerOnly ? 'server' : 'mod') : selectedCatalogCategory,
           modrinthSort: modsDownloaderSort,
           curseforgeSortField: modsDownloaderSort === 'downloads' ? 6 : modsDownloaderSort === 'updated' ? 3 : modsDownloaderSort === 'followers' ? 2 : modsDownloaderSort === 'newest' ? 4 : 1,
           limit: 30,
@@ -2648,7 +2678,7 @@ function App() {
     } finally {
       setModsCatalogLoading(false)
     }
-  }, [debouncedDownloaderSearch, downloaderClientOnly, downloaderLoaderFilter, downloaderServerOnly, downloaderShowAllVersions, downloaderVersionFilter, isCatalogSource, modsDownloaderOpen, modsDownloaderSort, modsDownloaderSource, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion])
+  }, [debouncedDownloaderSearch, downloaderClientOnly, downloaderLoaderFilter, downloaderServerOnly, downloaderShowAllVersions, downloaderVersionFilter, isCatalogSource, modsDownloaderOpen, modsDownloaderSort, modsDownloaderSource, selectedCatalogCategory, selectedContentSection, selectedCurseforgeClassId, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion])
 
   useEffect(() => { void fetchDownloaderCatalog() }, [fetchDownloaderCatalog])
 
@@ -2764,21 +2794,22 @@ function App() {
     if (!selectedCard?.instanceRoot) return
     const selected = Object.values(stagedDownloads).filter((entry) => entry.selected)
     if (selected.length === 0) {
-      window.alert('No hay mods seleccionados para descargar.')
+      window.alert(`No hay ${selectedContentLabelPlural} seleccionados para descargar.`)
       return
     }
     setReviewModalOpen(false)
     setInstallingModalOpen(true)
     setInstallProgress({ current: 0, total: selected.length, message: 'Iniciando descarga...' })
     for (const [index, entry] of selected.entries()) {
-      setInstallProgress({ current: index, total: selected.length, message: `Descargando ${entry.mod.name}...` })
+      setInstallProgress({ current: index, total: selected.length, message: `Descargando ${selectedContentLabel} ${entry.mod.name}...` })
       await invoke('install_catalog_mod_file', {
         instanceRoot: selectedCard.instanceRoot,
         downloadUrl: entry.version.downloadUrl,
         fileName: entry.version.name,
         replaceExisting: entry.reinstall,
+        section: selectedContentSection,
       })
-      setInstallProgress({ current: index + 1, total: selected.length, message: `Instalado ${entry.mod.name}` })
+      setInstallProgress({ current: index + 1, total: selected.length, message: `Instalado ${selectedContentLabel} ${entry.mod.name}` })
     }
     setReviewModalOpen(false)
     setModsDownloaderOpen(false)
@@ -2845,15 +2876,15 @@ function App() {
 
   const reloadMods = useCallback(async () => {
     if (!selectedCard?.instanceRoot) return
-    const rows = await invoke<InstanceModEntry[]>('list_instance_mods', { instanceRoot: selectedCard.instanceRoot })
+    const rows = await invoke<InstanceModEntry[]>('list_instance_mods', { instanceRoot: selectedCard.instanceRoot, section: selectedContentSection })
     setInstanceMods(rows)
-  }, [selectedCard?.instanceRoot])
+  }, [selectedCard?.instanceRoot, selectedContentSection])
 
   const toggleModEnabled = useCallback(async (mod: InstanceModEntry, desired: boolean) => {
     if (!selectedCard?.instanceRoot) return
-    await invoke('set_instance_mod_enabled', { instanceRoot: selectedCard.instanceRoot, fileName: mod.fileName, enabled: desired })
+    await invoke('set_instance_mod_enabled', { instanceRoot: selectedCard.instanceRoot, fileName: mod.fileName, enabled: desired, section: selectedContentSection })
     await reloadMods()
-  }, [reloadMods, selectedCard?.instanceRoot])
+  }, [reloadMods, selectedCard?.instanceRoot, selectedContentSection])
 
   const fetchVersionOptions = useCallback(async () => {
     if (!selectedMod || !selectedCard?.instanceRoot) return
@@ -2864,11 +2895,11 @@ function App() {
       const payload = await invoke<{ items: Array<{ id: string; title: string; source: 'CurseForge' | 'Modrinth' }> }>('search_catalogs', {
         request: {
           search: q,
-          curseforgeClassId: 6,
+          curseforgeClassId: selectedCurseforgeClassId,
           platform: 'Todas',
           mcVersion: downloaderShowAllVersions ? null : (downloaderVersionFilter || selectedInstanceMetadata?.minecraftVersion || null),
           loader: (selectedInstanceMetadata?.loader ?? '').toLowerCase() || null,
-          category: downloaderClientOnly ? 'client' : downloaderServerOnly ? 'server' : 'mod',
+          category: selectedContentSection === 'mods' ? (downloaderClientOnly ? 'client' : downloaderServerOnly ? 'server' : 'mod') : selectedCatalogCategory,
           modrinthSort: 'relevance',
           curseforgeSortField: 1,
           limit: 8,
@@ -2898,7 +2929,7 @@ function App() {
     } finally {
       setModVersionLoading(false)
     }
-  }, [downloaderClientOnly, downloaderServerOnly, downloaderShowAllVersions, downloaderVersionFilter, selectedCard?.instanceRoot, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion, selectedMod])
+  }, [downloaderClientOnly, downloaderServerOnly, downloaderShowAllVersions, downloaderVersionFilter, selectedCard?.instanceRoot, selectedCatalogCategory, selectedContentSection, selectedCurseforgeClassId, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion, selectedMod])
 
   const replaceSpecificModVersion = useCallback(async (mod: InstanceModEntry, option: ModVersionOption) => {
     if (!selectedCard?.instanceRoot) return
@@ -2907,9 +2938,10 @@ function App() {
       currentFileName: mod.fileName,
       downloadUrl: option.downloadUrl,
       newFileName: option.fileName,
+      section: selectedContentSection,
     })
     await reloadMods()
-  }, [reloadMods, selectedCard?.instanceRoot])
+  }, [reloadMods, selectedCard?.instanceRoot, selectedContentSection])
 
   const replaceModVersion = useCallback(async (option: ModVersionOption) => {
     if (!selectedMod) return
@@ -2923,7 +2955,7 @@ function App() {
     try {
       const results: InstalledModUpdateCandidate[] = []
       for (const mod of instanceMods) {
-        const payload = await invoke<{ items: Array<{ id: string; source: 'CurseForge' | 'Modrinth'; title: string }> }>('search_catalogs', { request: { search: mod.name, curseforgeClassId: 6, platform: 'Todas', mcVersion: selectedInstanceMetadata?.minecraftVersion ?? null, loader: (selectedInstanceMetadata?.loader ?? '').toLowerCase() || null, category: 'mod', modrinthSort: 'relevance', curseforgeSortField: 1, limit: 1, page: 1 } })
+        const payload = await invoke<{ items: Array<{ id: string; source: 'CurseForge' | 'Modrinth'; title: string }> }>('search_catalogs', { request: { search: mod.name, curseforgeClassId: selectedCurseforgeClassId, platform: 'Todas', mcVersion: selectedInstanceMetadata?.minecraftVersion ?? null, loader: (selectedInstanceMetadata?.loader ?? '').toLowerCase() || null, category: selectedCatalogCategory, modrinthSort: 'relevance', curseforgeSortField: 1, limit: 1, page: 1 } })
         const first = payload.items[0]
         if (!first) continue
         const detail = await invoke<ModCatalogDetail>('get_catalog_detail', { request: { id: first.id, source: first.source } })
@@ -2940,7 +2972,7 @@ function App() {
     } finally {
       setUpdatesReviewLoading(false)
     }
-  }, [instanceMods, mapDetailToCatalogVersions, selectedCard?.instanceRoot, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion])
+  }, [instanceMods, mapDetailToCatalogVersions, selectedCard?.instanceRoot, selectedCatalogCategory, selectedCurseforgeClassId, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion])
 
   const applyAllUpdates = useCallback(async () => {
     for (const candidate of updatesCandidates) {
@@ -3821,8 +3853,8 @@ function App() {
       )}
 
       {authSession && activePage === 'Editar Instancia' && selectedCard && (
-        <main className={`edit-instance-layout ${(selectedEditSection === 'Mods' && modsDownloaderOpen) ? 'mods-downloader-mode' : ''}`} style={{ '--sidebar-width': `${editSidebarWidth}px` } as CSSProperties}>
-          {!(selectedEditSection === 'Mods' && modsDownloaderOpen) && (
+        <main className={`edit-instance-layout ${(selectedContentSection !== null && modsDownloaderOpen) ? 'mods-downloader-mode' : ''}`} style={{ '--sidebar-width': `${editSidebarWidth}px` } as CSSProperties}>
+          {!(selectedContentSection !== null && modsDownloaderOpen) && (
             <>
               <aside className="edit-left-sidebar">
                 {editSections.map((section) => (
@@ -3987,12 +4019,12 @@ function App() {
                   </div>
                 )}
               </section>
-            ) : selectedEditSection === 'Mods' ? (
+            ) : selectedContentSection ? (
               <section className="mods-editor-view">
                 {!modsDownloaderOpen ? (
                   <>
                     <header className="mods-topbar">
-                      <input type="search" value={modsSearch} onChange={(event) => setModsSearch(event.target.value)} placeholder="Buscar mod" aria-label="Buscar mod" />
+                      <input type="search" value={modsSearch} onChange={(event) => setModsSearch(event.target.value)} placeholder={`Buscar ${selectedContentLabel}`} aria-label={`Buscar ${selectedContentLabel}`} />
                       <select value={modsProviderFilter} onChange={(event) => setModsProviderFilter(event.target.value as typeof modsProviderFilter)}>
                         <option value="all">Proveedor: Todos</option>
                         <option value="CurseForge">CurseForge</option>
@@ -4024,13 +4056,13 @@ function App() {
                     )}
                     <div className="mods-main-layout">
                       <div className="mods-list-panel">
-                        {modsLoading && <p>Cargando mods...</p>}
+                        {modsLoading && <p>Cargando {selectedContentLabelPlural}...</p>}
                         {modsError && <p className="error-banner">{modsError}</p>}
                         <div className="mods-list-head" style={{ '--mods-name-col': `${modsNameColumnWidth}px` } as CSSProperties}>
                           <span>Habilitar</span><span>Icono</span><span>Nombre</span><span className="mods-col-resizer" role="separator" aria-label="Redimensionar columna nombre" onPointerDown={startModNameColumnDrag} /><span>Versión</span><span>Última modificación</span><span>Proveedor</span><span>Tamaño</span><span>Etiqueta</span>
                         </div>
                         <div className="mods-list-body">
-                          {pagedMods.length === 0 && <p className="mods-empty">No hay mods para los filtros seleccionados.</p>}
+                          {pagedMods.length === 0 && <p className="mods-empty">No hay {selectedContentLabelPlural} para los filtros seleccionados.</p>}
                           {pagedMods.map((mod) => (
                             <div key={mod.id} role="button" tabIndex={0} className={`mods-row ${selectedModId === mod.id ? 'active' : ''}`} style={{ '--mods-name-col': `${modsNameColumnWidth}px` } as CSSProperties} onClick={() => setSelectedModId(mod.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelectedModId(mod.id) }}>
                               <span><button className={`chip-toggle ${mod.enabled ? 'on' : 'off'}`} onClick={(event) => { event.stopPropagation(); void toggleModEnabled(mod, !mod.enabled) }}>{mod.enabled ? 'ON' : 'OFF'}</button></span>
@@ -4052,7 +4084,7 @@ function App() {
                         </footer>
                       </div>
                       <aside className="mods-right-sidebar">
-                        <button className="action-elevated" onClick={openDownloader}>Descargar mods</button>
+                        <button className="action-elevated" onClick={openDownloader}>Descargar {selectedContentLabelPlural}</button>
                         <button className="action-elevated" onClick={() => { void fetchVersionOptions() }} disabled={!selectedModId || modVersionLoading}>Cambiar versión</button>
                         <button className="action-elevated" onClick={() => { void checkInstalledModUpdates() }} disabled={updatesReviewLoading || instanceMods.length === 0}>Buscar actualizaciones</button>
                         {modVersionError && <p className="error-banner">{modVersionError}</p>}
@@ -4062,11 +4094,11 @@ function App() {
                     {modVersionModalOpen && selectedMod && (
                       <div className="floating-modal-overlay" role="dialog" aria-modal="true" aria-label="Cambiar versión del mod">
                         <article className="floating-modal mods-version-modal">
-                          <h3>Cambiar versión · {selectedMod.name}</h3>
+                          <h3>Cambiar versión de {selectedContentLabel} · {selectedMod.name}</h3>
                           <div className="mods-downloader-panels mods-version-modal-panels">
                             <section className="mods-preview-panel">
                               <h4>{selectedMod.name}</h4>
-                              <p>{modVersionDetail?.description || 'Sin descripción del catálogo para este mod.'}</p>
+                              <p>{modVersionDetail?.description || `Sin descripción del catálogo para este ${selectedContentLabel}.`}</p>
                               {modVersionDetail?.bodyHtml && <div className="mods-preview-description" dangerouslySetInnerHTML={{ __html: renderCatalogBody(modVersionDetail.bodyHtml) }} />}
                             </section>
                             <section className="mods-catalog-panel">
@@ -4150,7 +4182,7 @@ function App() {
                       </aside>
                       <div className="mods-downloader-center">
                         <header className="mods-downloader-topbar">
-                          {isCatalogSource && <input type="search" value={downloaderSearch} onChange={(event) => setDownloaderSearch(event.target.value)} placeholder="Buscar mods en catálogo" />}
+                          {isCatalogSource && <input type="search" value={downloaderSearch} onChange={(event) => setDownloaderSearch(event.target.value)} placeholder={`Buscar ${selectedContentLabelPlural} en catálogo`} />}
                           <button className={`ghost-btn mods-filter-btn ${modsAdvancedOpen ? 'active' : ''}`} onClick={() => setModsAdvancedOpen((prev) => !prev)}>Filtro avanzado</button>
                         </header>
                         <div className="mods-downloader-panels">
@@ -4192,7 +4224,7 @@ function App() {
                                 {selectedCatalogDetail?.bodyHtml && <div className="mods-preview-description" dangerouslySetInnerHTML={{ __html: renderCatalogBody(selectedCatalogDetail.bodyHtml) }} />}
                                 <p>Descargas: {selectedCatalogMod.downloads.toLocaleString()} · Actualizado: {new Date(selectedCatalogMod.updatedAt).toLocaleDateString()}</p>
                               </>
-                            ) : <p className="mods-empty">Selecciona un mod para ver su detalle.</p>}
+                            ) : <p className="mods-empty">Selecciona un {selectedContentLabel} para ver su detalle.</p>}
                           </section>
                           
                         </div>
@@ -4209,7 +4241,7 @@ function App() {
                             </label>
                           </div>
                           <div className="mods-compact-bar versions-block">
-                            <label>Versiones del mod
+                            <label>Versiones del contenido
                               <select value={selectedCatalogVersion?.id ?? ''} disabled={!selectedCatalogMod}>
                                 {selectedCatalogVersions.map((version) => (
                                   <option key={`${version.name}-${version.gameVersion}-${version.downloadUrl}`} value={`${version.name}-${version.gameVersion}`}>{selectedCatalogMod?.name ?? 'Mod'} · {version.gameVersion} · {version.name} · {(version.versionType ?? 'release').toUpperCase()} {((selectedCatalogMod && instanceMods.some((item) => item.name.toLowerCase() === selectedCatalogMod.name.toLowerCase())) ? '· INSTALADO' : '')}</option>
@@ -4234,11 +4266,11 @@ function App() {
                     {modVersionModalOpen && selectedMod && (
                       <div className="floating-modal-overlay" role="dialog" aria-modal="true" aria-label="Cambiar versión del mod">
                         <article className="floating-modal mods-version-modal">
-                          <h3>Cambiar versión · {selectedMod.name}</h3>
+                          <h3>Cambiar versión de {selectedContentLabel} · {selectedMod.name}</h3>
                           <div className="mods-downloader-panels mods-version-modal-panels">
                             <section className="mods-preview-panel">
                               <h4>{selectedMod.name}</h4>
-                              <p>{modVersionDetail?.description || 'Sin descripción del catálogo para este mod.'}</p>
+                              <p>{modVersionDetail?.description || `Sin descripción del catálogo para este ${selectedContentLabel}.`}</p>
                               {modVersionDetail?.bodyHtml && <div className="mods-preview-description" dangerouslySetInnerHTML={{ __html: renderCatalogBody(modVersionDetail.bodyHtml) }} />}
                             </section>
                             <section className="mods-catalog-panel">
@@ -4289,7 +4321,7 @@ function App() {
                     {installingModalOpen && (
                       <div className="floating-modal-overlay" role="dialog" aria-modal="true" aria-label="Instalando mods">
                         <article className="floating-modal mods-review-modal">
-                          <h3>Descargando e instalando mods</h3>
+                          <h3>Descargando e instalando {selectedContentLabelPlural}</h3>
                           <p>{installProgress.message}</p>
                           <progress max={Math.max(1, installProgress.total)} value={installProgress.current} />
                           <p>{installProgress.current} / {installProgress.total}</p>
@@ -4298,9 +4330,9 @@ function App() {
                     )}
 
                     {reviewModalOpen && (
-                      <div className="floating-modal-overlay" role="dialog" aria-modal="true" aria-label="Revisión de mods seleccionados">
+                      <div className="floating-modal-overlay" role="dialog" aria-modal="true" aria-label={`Revisión de ${selectedContentLabelPlural} seleccionados`}>
                         <article className="floating-modal mods-review-modal">
-                          <h3>Revisión de mods seleccionados</h3>
+                          <h3>Revisión de {selectedContentLabelPlural} seleccionados</h3>
                           <div className="mods-review-list">
                             {reviewTree.length === 0 && <p className="mods-empty">No hay mods seleccionados.</p>}
                             {reviewTree.map((entry) => (
@@ -4328,8 +4360,8 @@ function App() {
                     {cancelModsConfirmOpen && (
                       <div className="floating-modal-overlay" role="dialog" aria-modal="true" aria-label="Cancelar selección de mods">
                         <article className="floating-modal mods-review-modal">
-                          <h3>¿Cancelar selección de mods?</h3>
-                          <p>Todavía tienes mods seleccionados para descargar. Si sales ahora perderás la revisión pendiente.</p>
+                          <h3>¿Cancelar selección de {selectedContentLabelPlural}?</h3>
+                          <p>Todavía tienes {selectedContentLabelPlural} seleccionados para descargar. Si sales ahora perderás la revisión pendiente.</p>
                           <footer className="floating-modal-actions">
                             <button className="primary" onClick={closeDownloader}>Salir y descartar</button>
                             <button onClick={() => setCancelModsConfirmOpen(false)}>Seguir revisando</button>

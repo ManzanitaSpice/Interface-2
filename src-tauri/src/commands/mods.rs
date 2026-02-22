@@ -1,6 +1,38 @@
 use serde::Serialize;
 use std::{fs, path::PathBuf, time::UNIX_EPOCH};
 
+fn section_folder(section: Option<&str>) -> &'static str {
+    match section
+        .unwrap_or("mods")
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "shaderpacks" | "shaders" | "shader" => "shaderpacks",
+        "resourcepacks" | "resourcepack" | "resource" => "resourcepacks",
+        "worlds" | "mundos" | "world" => "saves",
+        _ => "mods",
+    }
+}
+
+fn section_allows_disable(section: Option<&str>) -> bool {
+    section_folder(section) != "saves"
+}
+
+fn file_is_allowed(file_name: &str, section: Option<&str>) -> bool {
+    let lower = file_name.to_ascii_lowercase();
+    match section_folder(section) {
+        "shaderpacks" => lower.ends_with(".zip") || lower.ends_with(".disabled"),
+        "resourcepacks" => lower.ends_with(".zip") || lower.ends_with(".disabled"),
+        "saves" => true,
+        _ => {
+            lower.ends_with(".jar")
+                || lower.ends_with(".disabled")
+                || lower.ends_with(".jar.disabled")
+        }
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InstanceModEntry {
@@ -15,20 +47,30 @@ pub struct InstanceModEntry {
 }
 
 #[tauri::command]
-pub fn list_instance_mods(instance_root: String) -> Result<Vec<InstanceModEntry>, String> {
-    let mods_dir = PathBuf::from(instance_root).join("minecraft").join("mods");
+pub fn list_instance_mods(
+    instance_root: String,
+    section: Option<String>,
+) -> Result<Vec<InstanceModEntry>, String> {
+    let mods_dir = PathBuf::from(instance_root)
+        .join("minecraft")
+        .join(section_folder(section.as_deref()));
     if !mods_dir.exists() {
         return Ok(Vec::new());
     }
 
     let mut rows: Vec<InstanceModEntry> = fs::read_dir(&mods_dir)
-        .map_err(|err| format!("No se pudo leer carpeta de mods {}: {err}", mods_dir.display()))?
+        .map_err(|err| {
+            format!(
+                "No se pudo leer carpeta de mods {}: {err}",
+                mods_dir.display()
+            )
+        })?
         .filter_map(Result::ok)
         .filter(|entry| entry.path().is_file())
         .filter_map(|entry| {
             let file_name = entry.file_name().to_string_lossy().to_string();
             let lower = file_name.to_lowercase();
-            if !(lower.ends_with(".jar") || lower.ends_with(".disabled") || lower.ends_with(".jar.disabled")) {
+            if !file_is_allowed(&file_name, section.as_deref()) {
                 return None;
             }
             let metadata = entry.metadata().ok()?;
@@ -64,11 +106,24 @@ pub fn list_instance_mods(instance_root: String) -> Result<Vec<InstanceModEntry>
 }
 
 #[tauri::command]
-pub fn set_instance_mod_enabled(instance_root: String, file_name: String, enabled: bool) -> Result<(), String> {
-    let mods_dir = PathBuf::from(instance_root).join("minecraft").join("mods");
+pub fn set_instance_mod_enabled(
+    instance_root: String,
+    file_name: String,
+    enabled: bool,
+    section: Option<String>,
+) -> Result<(), String> {
+    if !section_allows_disable(section.as_deref()) {
+        return Ok(());
+    }
+    let mods_dir = PathBuf::from(instance_root)
+        .join("minecraft")
+        .join(section_folder(section.as_deref()));
     let source_path = mods_dir.join(&file_name);
     if !source_path.exists() {
-        return Err(format!("No existe el mod seleccionado: {}", source_path.display()));
+        return Err(format!(
+            "No existe el mod seleccionado: {}",
+            source_path.display()
+        ));
     }
 
     let lower = file_name.to_lowercase();
@@ -103,8 +158,11 @@ pub fn replace_instance_mod_file(
     current_file_name: String,
     download_url: String,
     new_file_name: String,
+    section: Option<String>,
 ) -> Result<(), String> {
-    let mods_dir = PathBuf::from(instance_root).join("minecraft").join("mods");
+    let mods_dir = PathBuf::from(instance_root)
+        .join("minecraft")
+        .join(section_folder(section.as_deref()));
     fs::create_dir_all(&mods_dir)
         .map_err(|err| format!("No se pudo preparar carpeta de mods: {err}"))?;
 
@@ -132,8 +190,11 @@ pub fn install_catalog_mod_file(
     download_url: String,
     file_name: String,
     replace_existing: bool,
+    section: Option<String>,
 ) -> Result<(), String> {
-    let mods_dir = PathBuf::from(instance_root).join("minecraft").join("mods");
+    let mods_dir = PathBuf::from(instance_root)
+        .join("minecraft")
+        .join(section_folder(section.as_deref()));
     fs::create_dir_all(&mods_dir)
         .map_err(|err| format!("No se pudo preparar carpeta de mods: {err}"))?;
 
@@ -153,10 +214,22 @@ pub fn install_catalog_mod_file(
             }
         })
         .collect::<String>();
-    let target_name = if safe_name.to_ascii_lowercase().ends_with(".jar") {
-        safe_name
-    } else {
-        format!("{safe_name}.jar")
+    let target_name = match section_folder(section.as_deref()) {
+        "shaderpacks" | "resourcepacks" => {
+            if safe_name.to_ascii_lowercase().ends_with(".zip") {
+                safe_name
+            } else {
+                format!("{safe_name}.zip")
+            }
+        }
+        "saves" => safe_name,
+        _ => {
+            if safe_name.to_ascii_lowercase().ends_with(".jar") {
+                safe_name
+            } else {
+                format!("{safe_name}.jar")
+            }
+        }
     };
     let target_path = mods_dir.join(target_name);
     if target_path.exists() && !replace_existing {
@@ -175,7 +248,10 @@ fn split_name_and_version(base: &str) -> (String, String) {
     let name_candidate = pieces.next().unwrap_or(base).trim();
     let looks_like_version = version_candidate.chars().any(|ch| ch.is_ascii_digit());
     if looks_like_version && !name_candidate.is_empty() {
-        (name_candidate.replace(['_', '.'], " "), version_candidate.to_string())
+        (
+            name_candidate.replace(['_', '.'], " "),
+            version_candidate.to_string(),
+        )
     } else {
         (base.replace(['_', '.'], " "), "-".to_string())
     }
