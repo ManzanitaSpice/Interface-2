@@ -2437,6 +2437,8 @@ pub fn execute_import_action(
     request: ImportActionRequest,
 ) -> Result<ImportActionResult, String> {
     let action = request.action.trim().to_ascii_lowercase();
+    let requested_source = PathBuf::from(&request.source_path);
+    let source_root = crate::app::shortcut_instance::normalize_external_root(&requested_source);
 
     if action == "abrir_carpeta" {
         crate::app::instance_service::open_instance_folder(request.source_path.clone())?;
@@ -2527,8 +2529,6 @@ pub fn execute_import_action(
     }
 
     if action == "crear_atajo" {
-        let requested_source = PathBuf::from(&request.source_path);
-        let source_root = crate::app::shortcut_instance::normalize_external_root(&requested_source);
         let source_game_dir = if requested_source
             .file_name()
             .and_then(|s| s.to_str())
