@@ -188,5 +188,8 @@ fn detect_provider(file_name: &str) -> String {
     if file_name.contains("curse") || file_name.contains("cf") {
         return "CurseForge".to_string();
     }
-    "Desconocido".to_string()
+    if file_name.contains("http") || file_name.contains("url") || file_name.contains("external") {
+        return "Externo".to_string();
+    }
+    "Local".to_string()
 }
