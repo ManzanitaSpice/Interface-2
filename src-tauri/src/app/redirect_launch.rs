@@ -1742,10 +1742,36 @@ fn resolve_missing_library_path(path: &Path, library_roots: &[PathBuf]) -> Optio
     None
 }
 
+fn derive_source_library_roots(source_path: &Path) -> Vec<PathBuf> {
+    let mut candidates = vec![
+        source_path.join("libraries"),
+        source_path.join(".minecraft/libraries"),
+        source_path.join("minecraft/libraries"),
+    ];
+
+    for ancestor in source_path.ancestors().take(8) {
+        candidates.push(ancestor.join("libraries"));
+        candidates.push(ancestor.join(".minecraft/libraries"));
+    }
+
+    unique_paths(candidates)
+        .into_iter()
+        .filter(|p| p.is_dir())
+        .collect()
+}
+
 fn fix_redirect_cache_library_paths_in_jvm_args(
     jvm_args: &mut [String],
     library_roots: &[PathBuf],
+    source_path: &Path,
 ) -> Result<(), String> {
+    let mut recovery_roots = library_roots.to_vec();
+    recovery_roots.extend(derive_source_library_roots(source_path));
+    let recovery_roots = unique_paths(recovery_roots)
+        .into_iter()
+        .filter(|root| root.is_dir())
+        .collect::<Vec<_>>();
+
     for idx in 0..jvm_args.len() {
         if let Some(value) = jvm_args[idx].strip_prefix("-DlibraryDirectory=") {
             let current = PathBuf::from(value);
@@ -1785,7 +1811,48 @@ fn fix_redirect_cache_library_paths_in_jvm_args(
                 if path.exists() {
                     return path.display().to_string();
                 }
-                if let Some(fixed) = resolve_missing_library_path(&path, library_roots) {
+                // Estrategia 1: reconstruir ruta relativa bajo /libraries.
+                if let Some(fixed) = resolve_missing_library_path(&path, &recovery_roots) {
+                    log::info!(
+                        "[FORGE-FIX] module-path recuperado (estrategia 1): {} → {}",
+                        path.display(),
+                        fixed.display()
+                    );
+                    return fixed.display().to_string();
+                }
+
+                // Estrategia 2: intentar por nombre exacto de archivo dentro de roots extendidos.
+                if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                    if let Some(fixed) =
+                        resolve_missing_library_path(Path::new(file_name), &recovery_roots)
+                    {
+                        log::info!(
+                            "[FORGE-FIX] module-path recuperado (estrategia 2): {} → {}",
+                            file_name,
+                            fixed.display()
+                        );
+                        return fixed.display().to_string();
+                    }
+                }
+
+                // Estrategia 3: buscar por sufijo maven (group/artifact/version/jar).
+                let normalized = segment.replace('\\', "/");
+                if let Some(idx) = normalized.to_ascii_lowercase().find("/libraries/") {
+                    let rel = normalized[idx + "/libraries/".len()..].trim_start_matches('/');
+                    for root in &recovery_roots {
+                        let candidate = root.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+                        if candidate.is_file() {
+                            log::info!(
+                                "[FORGE-FIX] module-path recuperado (estrategia 3): {} → {}",
+                                segment,
+                                candidate.display()
+                            );
+                            return candidate.display().to_string();
+                        }
+                    }
+                }
+
+                if let Some(fixed) = resolve_missing_library_path(&path, &recovery_roots) {
                     return fixed.display().to_string();
                 }
                 missing.push(segment.to_string());
@@ -4830,7 +4897,7 @@ pub async fn launch_redirect_instance(
         }
     }
 
-    fix_redirect_cache_library_paths_in_jvm_args(&mut jvm_args, &libraries_dirs)?;
+    fix_redirect_cache_library_paths_in_jvm_args(&mut jvm_args, &libraries_dirs, &source_path)?;
 
     let _ = app.emit(
         "redirect_launch_status",
