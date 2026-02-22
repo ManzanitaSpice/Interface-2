@@ -100,6 +100,37 @@ fn resolve_native_classifier_for_library(
         if classifiers.contains_key(&base_classifier) {
             return Some(base_classifier);
         }
+
+        if current_os == "windows" {
+            let windows_fallbacks = match current_arch {
+                "amd64" => [
+                    "natives-windows",
+                    "natives-windows-x86_64",
+                    "natives-windows-64",
+                ],
+                "x86" => [
+                    "natives-windows-x86",
+                    "natives-windows-32",
+                    "natives-windows",
+                ],
+                "arm64" => [
+                    "natives-windows-arm64",
+                    "natives-windows-aarch64",
+                    "natives-windows",
+                ],
+                _ => [
+                    "natives-windows",
+                    "natives-windows-x86",
+                    "natives-windows-arm64",
+                ],
+            };
+
+            for candidate in windows_fallbacks {
+                if classifiers.contains_key(candidate) {
+                    return Some(candidate.to_string());
+                }
+            }
+        }
     }
     None
 }
