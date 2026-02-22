@@ -2492,6 +2492,193 @@ fn maven_library_path(name: &str) -> Option<PathBuf> {
     Some(path)
 }
 
+fn normalized_arch() -> &'static str {
+    match std::env::consts::ARCH {
+        "x86_64" | "amd64" => "amd64",
+        "x86" | "i386" | "i586" | "i686" => "x86",
+        "aarch64" | "arm64" => "arm64",
+        _ => "amd64",
+    }
+}
+
+fn preferred_native_classifier(current_os: &str, arch: &str) -> Option<String> {
+    if current_os != "windows" {
+        return None;
+    }
+
+    let classifier = match arch {
+        "amd64" => "natives-windows",
+        "x86" => "natives-windows-x86",
+        "arm64" => "natives-windows-arm64",
+        _ => "natives-windows",
+    };
+
+    Some(classifier.to_string())
+}
+
+fn resolve_native_classifier_for_library(
+    library: &Value,
+    current_os: &str,
+    current_arch: &str,
+) -> Option<String> {
+    let classifiers = library
+        .get("downloads")
+        .and_then(|d| d.get("classifiers"))
+        .and_then(Value::as_object)?;
+
+    let os_key = if current_os == "macos" {
+        "osx"
+    } else {
+        current_os
+    };
+
+    let base = library
+        .get("natives")
+        .and_then(|n| n.get(os_key))
+        .and_then(Value::as_str)
+        .map(|raw| {
+            if raw.contains("${arch}") {
+                raw.replace("${arch}", if current_arch == "amd64" { "64" } else { "32" })
+            } else {
+                raw.to_string()
+            }
+        })
+        .or_else(|| preferred_native_classifier(current_os, current_arch));
+
+    if let Some(base_classifier) = base {
+        if classifiers.contains_key(&base_classifier) {
+            return Some(base_classifier);
+        }
+
+        if current_os == "windows" {
+            let windows_fallbacks = match current_arch {
+                "amd64" => [
+                    "natives-windows",
+                    "natives-windows-x86_64",
+                    "natives-windows-64",
+                ],
+                "x86" => [
+                    "natives-windows-x86",
+                    "natives-windows-32",
+                    "natives-windows",
+                ],
+                "arm64" => [
+                    "natives-windows-arm64",
+                    "natives-windows-aarch64",
+                    "natives-windows",
+                ],
+                _ => [
+                    "natives-windows",
+                    "natives-windows-x86",
+                    "natives-windows-arm64",
+                ],
+            };
+
+            for candidate in windows_fallbacks {
+                if classifiers.contains_key(candidate) {
+                    return Some(candidate.to_string());
+                }
+            }
+        }
+    }
+
+    None
+}
+
+fn library_required_paths(library: &Value, current_os: &str, current_arch: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+
+    if let Some(artifact_path) = library
+        .get("downloads")
+        .and_then(|d| d.get("artifact"))
+        .and_then(|a| a.get("path"))
+        .and_then(Value::as_str)
+    {
+        paths.push(artifact_path.to_string());
+    } else if let Some(name) = library.get("name").and_then(Value::as_str) {
+        if let Some(path) = maven_library_path(name) {
+            paths.push(path.to_string_lossy().replace('\\', "/"));
+        }
+    }
+
+    if let Some(classifier_key) =
+        resolve_native_classifier_for_library(library, current_os, current_arch)
+    {
+        if let Some(path) = library
+            .get("downloads")
+            .and_then(|d| d.get("classifiers"))
+            .and_then(|c| c.get(&classifier_key))
+            .and_then(|item| item.get("path"))
+            .and_then(Value::as_str)
+        {
+            log::info!("[REDIRECT] Native classifier elegido: {}", classifier_key);
+            paths.push(path.to_string());
+        }
+    }
+
+    paths
+}
+
+fn library_download_entries(
+    library: &Value,
+    current_os: &str,
+    current_arch: &str,
+) -> Vec<(String, String, String)> {
+    let mut entries = Vec::new();
+
+    if let Some(artifact) = library.get("downloads").and_then(|d| d.get("artifact")) {
+        let path = artifact
+            .get("path")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let url = artifact
+            .get("url")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let sha1 = artifact
+            .get("sha1")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if !path.is_empty() {
+            entries.push((path, url, sha1));
+        }
+    }
+
+    if let Some(classifier_key) =
+        resolve_native_classifier_for_library(library, current_os, current_arch)
+    {
+        if let Some(classifier) = library
+            .get("downloads")
+            .and_then(|d| d.get("classifiers"))
+            .and_then(|c| c.get(&classifier_key))
+        {
+            let path = classifier
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let url = classifier
+                .get("url")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let sha1 = classifier
+                .get("sha1")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            if !path.is_empty() {
+                entries.push((path, url, sha1));
+            }
+        }
+    }
+
+    entries
+}
+
 fn is_allowed_maven_url(url: &str) -> bool {
     if url.is_empty() || !url.starts_with("https://") {
         return false;
@@ -2739,25 +2926,31 @@ pub fn build_classpath_multi(
             continue;
         }
 
-        let Some(name) = library.get("name").and_then(Value::as_str) else {
-            continue;
-        };
-        let Some(relative) = maven_library_path(name) else {
-            continue;
-        };
+        let name = library
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("<unknown>");
+        let required_paths = library_required_paths(&library, current_os_name(), normalized_arch());
 
-        let found = libraries_dirs.iter().find_map(|dir| {
-            let full = dir.join(&relative);
-            if full.exists() {
-                Some(full)
-            } else {
-                None
+        for relative_str in required_paths {
+            let relative = PathBuf::from(relative_str.replace('/', std::path::MAIN_SEPARATOR_STR));
+            let found = libraries_dirs.iter().find_map(|dir| {
+                let full = dir.join(&relative);
+                if full.exists() {
+                    Some(full)
+                } else {
+                    None
+                }
+            });
+
+            match found {
+                Some(path) => entries.push(path.display().to_string()),
+                None => log::warn!(
+                    "[REDIRECT] Library faltante en todas las rutas: {} ({})",
+                    name,
+                    relative.display()
+                ),
             }
-        });
-
-        match found {
-            Some(path) => entries.push(path.display().to_string()),
-            None => log::warn!("[REDIRECT] Library faltante en todas las rutas: {name}"),
         }
     }
 
@@ -2807,18 +3000,20 @@ fn collect_missing_classpath_libraries(
             continue;
         }
 
-        let Some(name) = library.get("name").and_then(Value::as_str) else {
-            continue;
-        };
-        let Some(relative) = maven_library_path(name) else {
-            continue;
-        };
+        let name = library
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("<unknown>");
+        let required_paths = library_required_paths(&library, current_os_name(), normalized_arch());
 
-        let found = libraries_dirs
-            .iter()
-            .any(|dir| dir.join(&relative).exists());
-        if !found {
-            missing.push(name.to_string());
+        for relative_str in required_paths {
+            let relative = PathBuf::from(relative_str.replace('/', std::path::MAIN_SEPARATOR_STR));
+            let found = libraries_dirs
+                .iter()
+                .any(|dir| dir.join(&relative).exists());
+            if !found {
+                missing.push(format!("{} ({})", name, relative.display()));
+            }
         }
     }
 
@@ -2874,18 +3069,7 @@ fn current_os_name() -> &'static str {
 }
 
 fn current_arch_name() -> &'static str {
-    #[cfg(target_arch = "x86_64")]
-    {
-        "x86_64"
-    }
-    #[cfg(target_arch = "aarch64")]
-    {
-        "aarch64"
-    }
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    {
-        "x86"
-    }
+    normalized_arch()
 }
 
 fn library_rules_allow(library: &Value, current_os: &str, _current_arch: &str) -> bool {
@@ -2979,44 +3163,66 @@ async fn find_or_download_artifact(
     source_launcher: &str,
 ) -> Result<PathBuf, String> {
     let normalized = relative_path.replace('/', std::path::MAIN_SEPARATOR_STR);
-    let mut search_paths = vec![libraries_dir.join(&normalized)];
+    let target = libraries_dir.join(&normalized);
 
+    if target.exists() {
+        if let Some(expected_sha1) = sha1 {
+            if verify_sha1(&target, expected_sha1).await? {
+                log::info!(
+                    "[REDIRECT] Library encontrada y verificada: {}",
+                    target.display()
+                );
+                return Ok(target);
+            }
+            log::warn!(
+                "[REDIRECT] Library en store interno con sha1 inválido, se redescarga: {}",
+                target.display()
+            );
+            let _ = tokio::fs::remove_file(&target).await;
+        } else {
+            log::info!(
+                "[REDIRECT] Library encontrada en store interno: {}",
+                target.display()
+            );
+            return Ok(target);
+        }
+    }
+
+    let mut search_paths = vec![cache_dir.join("libraries").join(&normalized)];
     if let Some(system_root) = system_minecraft_root() {
         search_paths.push(system_root.join("libraries").join(&normalized));
     }
-
     for root in launcher_roots_for_source(source_launcher) {
         search_paths.push(root.join("libraries").join(&normalized));
     }
-    search_paths.push(cache_dir.join("libraries").join(&normalized));
 
     for candidate in unique_paths(search_paths) {
-        log::info!(
-            "[REDIRECT]   candidato: {} — existe: {}",
-            candidate.display(),
-            candidate.exists()
-        );
         if !candidate.exists() {
             continue;
         }
 
         if let Some(expected_sha1) = sha1 {
-            if verify_sha1(&candidate, expected_sha1).await? {
-                log::info!(
-                    "[REDIRECT] Library encontrada y verificada: {}",
-                    candidate.display()
-                );
-                return Ok(candidate);
+            if !verify_sha1(&candidate, expected_sha1).await? {
+                continue;
             }
-            log::warn!(
-                "[REDIRECT] Library encontrada pero sha1 no coincide: {}",
-                candidate.display()
-            );
-            continue;
         }
 
-        log::info!("[REDIRECT] Library encontrada: {}", candidate.display());
-        return Ok(candidate);
+        if let Some(parent) = target.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("No se pudo crear {}: {e}", parent.display()))?;
+        }
+        link_or_copy(&candidate, &target).map_err(|e| {
+            format!(
+                "No se pudo mover/copiar library al store interno {}: {e}",
+                target.display()
+            )
+        })?;
+        log::info!(
+            "[REDIRECT] Library copiada al store interno: {}",
+            target.display()
+        );
+        return Ok(target);
     }
 
     let download_url = url.ok_or_else(|| {
@@ -3029,25 +3235,38 @@ async fn find_or_download_artifact(
         ));
     }
 
-    let dest = cache_dir.join("libraries").join(&normalized);
-    if let Some(parent) = dest.parent() {
+    if let Some(parent) = target.parent() {
         tokio::fs::create_dir_all(parent)
             .await
             .map_err(|e| format!("No se pudo crear directorio para library: {e}"))?;
     }
 
-    log::info!("[REDIRECT] Descargando native desde: {download_url}");
-    log::info!("[REDIRECT] Destino descarga: {}", dest.display());
+    log::info!("[REDIRECT] Descargando library desde: {download_url}");
+    log::info!(
+        "[REDIRECT] Destino final store interno: {}",
+        target.display()
+    );
     let client = build_async_official_client()?;
     let _ = download_async_with_retry_unchecked(
         &client,
         download_url,
-        &dest,
+        &target,
         sha1.unwrap_or_default(),
         false,
     )
     .await?;
-    Ok(dest)
+
+    if let Some(expected_sha1) = sha1 {
+        if !verify_sha1(&target, expected_sha1).await? {
+            return Err(format!(
+                "Descarga con sha1 inválido para {} en {}",
+                relative_path,
+                target.display()
+            ));
+        }
+    }
+
+    Ok(target)
 }
 
 async fn find_or_download_library(
@@ -3090,19 +3309,19 @@ async fn extract_single_native(
     current_arch: &str,
     source_launcher: &str,
 ) -> Result<usize, String> {
-    if let Some(natives_map) = library.get("natives") {
-        let os_key = if current_os == "macos" {
-            "osx"
-        } else {
-            current_os
-        };
-        let classifier_raw = natives_map
-            .get(os_key)
-            .and_then(Value::as_str)
-            .ok_or_else(|| format!("No hay native para OS {os_key}"))?;
-        let classifier_key = classifier_raw.replace(
-            "${arch}",
-            if current_arch == "x86_64" { "64" } else { "32" },
+    if library.get("natives").is_some() {
+        let classifier_key =
+            resolve_native_classifier_for_library(library, current_os, current_arch).ok_or_else(
+                || {
+                    format!(
+                        "No hay classifier nativo compatible para os={} arch={}",
+                        current_os, current_arch
+                    )
+                },
+            )?;
+        log::info!(
+            "[REDIRECT] Native classifier elegido para extracción: {}",
+            classifier_key
         );
 
         let jar_path = find_or_download_library(
@@ -4102,175 +4321,129 @@ async fn download_redirect_runtime(
         }
 
         let lib_name = lib.get("name").and_then(Value::as_str).unwrap_or("");
-
-        let (rel_path, download_url, _sha1_expected) =
-            if let Some(artifact) = lib.get("downloads").and_then(|d| d.get("artifact")) {
-                let rel = artifact
-                    .get("path")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                let url = artifact
-                    .get("url")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                let sha1 = artifact
-                    .get("sha1")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                (rel, url, sha1)
-            } else if !lib_name.is_empty() {
-                let Some(rel_path) = maven_library_path(lib_name) else {
-                    continue;
-                };
-                let rel = rel_path.to_string_lossy().replace('\\', "/");
-                let base = lib
-                    .get("url")
-                    .and_then(Value::as_str)
-                    .unwrap_or("https://libraries.minecraft.net/");
-                let url = format!("{}/{}", base.trim_end_matches('/'), rel);
-                (rel, url, String::new())
-            } else {
-                continue;
-            };
-
-        if rel_path.is_empty() {
-            continue;
-        }
-
-        let rel_normalized = rel_path.replace('/', std::path::MAIN_SEPARATOR_STR);
-        let lib_name = if lib_name.is_empty() {
-            rel_path.as_str()
+        let lib_name_display = if lib_name.is_empty() {
+            "<unknown>"
         } else {
             lib_name
         };
-        let target = libs_dir.join(&rel_normalized);
+        let descriptors = library_download_entries(lib, current_os_name(), normalized_arch());
 
-        if target.is_file() {
+        if descriptors.is_empty() && !lib_name.is_empty() {
+            if let Some(rel_path) = maven_library_path(lib_name) {
+                let rel = rel_path.to_string_lossy().replace('\\', "/");
+                let artifact_url_opt = lib.get("url").and_then(Value::as_str);
+                if is_forge_installer_artifact(lib_name_display, artifact_url_opt) {
+                    log::info!(
+                        "[REDIRECT] JAR generado por instalador: {} — buscando en {}",
+                        lib_name_display,
+                        source_launcher
+                    );
+                    match locate_forge_generated_jar(&rel, source_path, source_launcher) {
+                        Some(found) => {
+                            let target =
+                                libs_dir.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+                            if let Some(parent) = target.parent() {
+                                let _ = tokio::fs::create_dir_all(parent).await;
+                            }
+                            match link_or_copy(&found, &target) {
+                                Ok(()) if target.is_file() => {
+                                    log::info!(
+                                        "[REDIRECT] JAR instalador copiado al store interno: {}",
+                                        target.display()
+                                    );
+                                }
+                                Ok(()) | Err(_) => {
+                                    missing_critical
+                                        .push(format!("  • {} ({})", lib_name_display, rel));
+                                }
+                            }
+                        }
+                        None => {
+                            missing_critical.push(format!("  • {} ({})", lib_name_display, rel))
+                        }
+                    }
+                }
+            }
             continue;
         }
 
-        let artifact_url_opt = if download_url.is_empty() {
-            None
-        } else {
-            Some(download_url.as_str())
-        };
-
-        if is_forge_installer_artifact(lib_name, artifact_url_opt) {
-            log::info!(
-                "[REDIRECT] JAR generado por instalador: {} — buscando en {}",
-                lib_name,
-                source_launcher
-            );
-            match locate_forge_generated_jar(&rel_path, source_path, source_launcher) {
-                Some(found) => {
-                    if let Some(parent) = target.parent() {
-                        let _ = tokio::fs::create_dir_all(parent).await;
-                    }
-                    match link_or_copy(&found, &target) {
-                        Ok(()) => {
-                            log::info!("[REDIRECT] JAR instalador copiado: {}", target.display());
-                            if !target.is_file() {
-                                missing_critical.push(format!("  • {} ({})", lib_name, rel_path));
-                                log::warn!(
-                                    "[REDIRECT] JAR instalador reportado como copiado pero no existe en destino: {}",
+        for (rel_path, download_url, sha1_expected) in descriptors {
+            let artifact_url_opt = if download_url.is_empty() {
+                None
+            } else {
+                Some(download_url.as_str())
+            };
+            if is_forge_installer_artifact(lib_name_display, artifact_url_opt) {
+                log::info!(
+                    "[REDIRECT] JAR generado por instalador: {} — buscando en {}",
+                    lib_name_display,
+                    source_launcher
+                );
+                match locate_forge_generated_jar(&rel_path, source_path, source_launcher) {
+                    Some(found) => {
+                        let target =
+                            libs_dir.join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+                        if let Some(parent) = target.parent() {
+                            let _ = tokio::fs::create_dir_all(parent).await;
+                        }
+                        match link_or_copy(&found, &target) {
+                            Ok(()) if target.is_file() => {
+                                log::info!(
+                                    "[REDIRECT] JAR instalador copiado al store interno: {}",
                                     target.display()
                                 );
                             }
-                        }
-                        Err(err) => {
-                            log::warn!(
-                                "[REDIRECT] No se pudo copiar JAR instalador {}: {}",
-                                lib_name,
-                                err
-                            );
-                            missing_critical.push(format!("  • {} ({})", lib_name, rel_path));
+                            Ok(()) | Err(_) => {
+                                missing_critical
+                                    .push(format!("  • {} ({})", lib_name_display, rel_path));
+                            }
                         }
                     }
-                }
-                None => {
-                    missing_critical.push(format!("  • {} ({})", lib_name, rel_path));
-                }
-            }
-            continue;
-        }
-
-        let found_locally = {
-            let mut found = None;
-
-            if let Some(system_root) = system_minecraft_root() {
-                let path = system_root.join("libraries").join(&rel_normalized);
-                if path.is_file() {
-                    found = Some(path);
-                }
-            }
-
-            if found.is_none() {
-                for root in launcher_roots_for_source(source_launcher) {
-                    let path = root.join("libraries").join(&rel_normalized);
-                    if path.is_file() {
-                        found = Some(path);
-                        break;
+                    None => {
+                        missing_critical.push(format!("  • {} ({})", lib_name_display, rel_path))
                     }
                 }
-            }
-
-            if found.is_none() {
-                for sub in ["libraries", ".minecraft/libraries", "minecraft/libraries"] {
-                    let path = source_path.join(sub).join(&rel_normalized);
-                    if path.is_file() {
-                        found = Some(path);
-                        break;
-                    }
-                }
-            }
-
-            found
-        };
-
-        if let Some(local_path) = found_locally {
-            let _ = link_or_copy(&local_path, &target);
-            if target.is_file() {
                 continue;
             }
-        }
 
-        if download_url.is_empty() || !download_url.starts_with("https://") {
-            log::warn!(
-                "[REDIRECT] Library sin URL válida (no es instalador): {}",
-                lib_name
-            );
-            continue;
-        }
+            let url_opt = if download_url.is_empty() {
+                None
+            } else {
+                Some(download_url.as_str())
+            };
+            let sha1_opt = if sha1_expected.is_empty() {
+                None
+            } else {
+                Some(sha1_expected.as_str())
+            };
 
-        if let Some(parent) = target.parent() {
-            let _ = tokio::fs::create_dir_all(parent).await;
-        }
-
-        match client.get(&download_url).send().await {
-            Ok(resp) if resp.status().is_success() => match resp.bytes().await {
-                Ok(bytes) => {
-                    if let Err(err) = tokio::fs::write(&target, &bytes).await {
-                        log::warn!("[REDIRECT] No se pudo guardar {}: {}", lib_name, err);
-                    } else {
-                        log::info!("[REDIRECT] Library descargada: {}", lib_name);
+            match find_or_download_artifact(
+                &rel_path,
+                url_opt,
+                sha1_opt,
+                &libs_dir,
+                &cache_root,
+                source_launcher,
+            )
+            .await
+            {
+                Ok(path) => log::info!(
+                    "[REDIRECT] Library sincronizada: {} -> {}",
+                    lib_name_display,
+                    path.display()
+                ),
+                Err(err) => {
+                    log::warn!(
+                        "[REDIRECT] Error sincronizando {} ({}) : {}",
+                        lib_name_display,
+                        rel_path,
+                        err
+                    );
+                    if is_forge_installer_artifact(lib_name_display, url_opt) {
+                        missing_critical.push(format!("  • {} ({})", lib_name_display, rel_path));
                     }
                 }
-                Err(err) => log::warn!(
-                    "[REDIRECT] Error leyendo respuesta para {}: {}",
-                    lib_name,
-                    err
-                ),
-            },
-            Ok(resp) => log::warn!(
-                "[REDIRECT] HTTP {} para library {}: {}",
-                resp.status(),
-                lib_name,
-                download_url
-            ),
-            Err(err) => log::warn!("[REDIRECT] Error descargando {}: {}", lib_name, err),
+            }
         }
     }
 
