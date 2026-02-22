@@ -384,7 +384,7 @@ type LauncherUpdateItem = {
   version: string
   releaseDate: string
   publishedAt: string
-  channel: 'Stable' | 'Preview'
+  channel: 'Stable'
   summary: string
   notes: string
   releaseUrl: string
@@ -886,7 +886,7 @@ function App() {
   const [launchProgressPercent, setLaunchProgressPercent] = useState(0)
   const [folderRoutes, setFolderRoutes] = useState<FolderRouteItem[]>(defaultFolderRoutes)
   const [updatesAutoCheck, setUpdatesAutoCheck] = useState(true)
-  const [updatesChannel, setUpdatesChannel] = useState<'Stable' | 'Preview'>('Stable')
+  const [updatesChannel] = useState<'Stable'>('Stable')
   const [selectedReleaseTag, setSelectedReleaseTag] = useState('')
   const [selectedReleaseNotes, setSelectedReleaseNotes] = useState('')
   const [updatesStatus, setUpdatesStatus] = useState('Listo para buscar updates.')
@@ -1060,7 +1060,7 @@ function App() {
 
   const refreshLauncherReleases = useCallback(async () => {
     setUpdatesLoading(true)
-    setUpdatesStatus('Consultando releases reales desde GitHub...')
+    setUpdatesStatus('Sincronizando releases estables...')
     try {
       const response = await fetch(launcherReleasesApiUrl, {
         headers: {
@@ -1068,15 +1068,16 @@ function App() {
         },
       })
       if (!response.ok) throw new Error(`GitHub API ${response.status}`)
-      const releases = await response.json() as Array<{ id?: number; name?: string; html_url?: string; tag_name?: string; published_at?: string; prerelease?: boolean; body?: string; assets?: unknown[] }>
+      const releases = await response.json() as Array<{ id?: number; name?: string; html_url?: string; tag_name?: string; published_at?: string; prerelease?: boolean; draft?: boolean; body?: string; assets?: unknown[] }>
       const mapped: LauncherUpdateItem[] = releases
+        .filter((release) => !release.prerelease && !release.draft)
         .filter((release) => typeof release.tag_name === 'string' && release.tag_name.trim().length > 0)
         .slice(0, 12)
         .sort((a, b) => compareSemver(a.tag_name ?? '0.0.0', b.tag_name ?? '0.0.0') * -1)
         .map((release) => {
           const version = release.tag_name ?? '-'
           const releaseDate = release.published_at ? release.published_at.slice(0, 10) : '-'
-          const channel: LauncherUpdateItem['channel'] = release.prerelease ? 'Preview' : 'Stable'
+          const channel: LauncherUpdateItem['channel'] = 'Stable'
           const current = normalizeVersionTag(launcherCurrentVersion)
           const incoming = normalizeVersionTag(version)
           const semverDiff = compareSemver(incoming, current)
@@ -1101,39 +1102,35 @@ function App() {
         setSelectedReleaseTag(mapped[0].tag)
         setSelectedReleaseNotes(mapped[0].notes)
       }
-      setUpdatesStatus(mapped.length > 0 ? `Releases sincronizadas (${mapped.length}) desde GitHub.` : 'No hay releases publicadas aún.')
+      setUpdatesStatus(mapped.length > 0 ? `Se encontraron ${mapped.length} releases estables.` : 'No hay releases estables publicadas aún.')
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      setUpdatesStatus(`No se pudieron cargar releases reales: ${message}`)
+      setUpdatesStatus(`No se pudieron cargar las releases estables: ${message}`)
     } finally {
       setUpdatesLoading(false)
     }
   }, [launcherCurrentVersion])
 
-  const checkLauncherUpdates = async (targetChannel: 'Stable' | 'Preview', allowDowngrades = false) => {
-    setUpdatesStatus(`Buscando actualización nativa en canal ${targetChannel}...`)
+  const checkLauncherUpdates = async () => {
+    setUpdatesStatus('Buscando una actualización estable disponible...')
     setUpdatesLoading(true)
     try {
-      const endpoint = targetChannel === 'Preview'
-        ? 'https://manzanitaspice.github.io/Interface-2/updates/beta.json'
-        : 'https://manzanitaspice.github.io/Interface-2/updates/stable.json'
       const update = await check({
-        allowDowngrades,
         headers: {
-          'x-interface-channel': targetChannel.toLowerCase(),
+          'x-interface-channel': 'stable',
           'x-interface-current-version': launcherCurrentVersion,
           'x-interface-selected-tag': selectedReleaseTag,
         },
         timeout: 45_000,
       })
       if (!update) {
-        setUpdatesStatus(`No hay actualizaciones disponibles para ${targetChannel}. Endpoint esperado: ${endpoint}`)
+        setUpdatesStatus('Tu launcher ya está en la versión estable más reciente.')
         await refreshLauncherReleases()
         return
       }
-      setUpdatesStatus(`Update detectada (${update.currentVersion} → ${update.version}) en ${targetChannel}. Descargando e instalando...`)
+      setUpdatesStatus(`Actualización encontrada (${update.currentVersion} → ${update.version}). Descargando e instalando...`)
       await update.downloadAndInstall()
-      setUpdatesStatus(`Actualización ${update.version} instalada correctamente. Reinicia la app para aplicar cambios.`)
+      setUpdatesStatus(`Actualización ${update.version} instalada correctamente. Reinicia la app para aplicar los cambios.`)
       await refreshLauncherReleases()
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -3584,75 +3581,67 @@ function App() {
       {authSession && activePage === 'Updates' && (
         <main className="content content-padded updates-page">
           <section className="instances-panel updates-panel">
-            <header className="news-panel-header updates-header">
+            <header className="news-panel-header updates-header professional">
               <div>
-                <h2>Updates</h2>
-                <p>Historial real conectado a GitHub Releases + updater nativo de Tauri (sin datos falsos).</p>
+                <h2>Actualizaciones</h2>
+                <p>Consulta la versión estable más reciente e instala con un solo clic.</p>
               </div>
               <div className="updates-actions">
-                <button className="primary" onClick={() => void checkLauncherUpdates(updatesChannel)} disabled={updatesLoading}>Actualizar canal activo</button>
-                <button onClick={() => void checkLauncherUpdates('Preview')} disabled={updatesLoading}>Buscar beta más reciente</button>
-                <button onClick={() => void checkLauncherUpdates('Stable', true)} disabled={updatesLoading}>Volver a stable</button>
-                <button onClick={() => void invoke('open_url_in_browser', { url: launcherUpdatesUrl, browserId: 'default' })}>Ver releases</button>
-                <button onClick={() => void refreshLauncherReleases()} disabled={updatesLoading}>Sincronizar</button>
+                <button className="primary" onClick={() => void checkLauncherUpdates()} disabled={updatesLoading}>Actualizar ahora</button>
+                <button onClick={() => void refreshLauncherReleases()} disabled={updatesLoading}>Recargar releases</button>
+                <button onClick={() => void invoke('open_url_in_browser', { url: launcherUpdatesUrl, browserId: 'default' })}>Abrir en GitHub</button>
               </div>
             </header>
 
+            <section className="updates-hero">
+              <article className="updates-hero-card current">
+                <span className="updates-hero-label">Versión instalada</span>
+                <strong>{launcherCurrentVersion || 'No disponible'}</strong>
+                <small>Canal estable</small>
+              </article>
+              <article className="updates-hero-card latest">
+                <span className="updates-hero-label">Última release estable</span>
+                <strong>{launcherUpdatesFeed[0]?.version ?? '-'}</strong>
+                <small>{launcherUpdatesFeed[0] ? formatIsoDate(launcherUpdatesFeed[0].publishedAt) : 'Sin datos'}</small>
+              </article>
+              <article className="updates-hero-card status">
+                <span className="updates-hero-label">Estado</span>
+                <strong>{updatesLoading ? 'Procesando...' : 'Listo'}</strong>
+                <small>{updatesStatus}</small>
+              </article>
+            </section>
+
             <div className="updates-status-bar">{updatesStatus}</div>
 
-            <div className="updates-table-wrap">
-              <table className="updates-table">
-                <thead>
-                  <tr>
-                    <th>Versión</th>
-                    <th>Título</th>
-                    <th>Fecha</th>
-                    <th>Canal</th>
-                    <th>Descripción</th>
-                    <th>Estado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {launcherUpdatesFeed.length === 0 && (
-                    <tr>
-                      <td colSpan={6}>{updatesLoading ? 'Cargando releases...' : 'Sin releases publicadas o sin conexión al endpoint.'}</td>
-                    </tr>
-                  )}
-                  {launcherUpdatesFeed.map((item) => (
-                    <tr key={item.id} className={selectedRelease?.id === item.id ? 'selected' : ''} onClick={() => setSelectedReleaseTag(item.tag)}>
-                      <td>{item.version}</td>
-                      <td>{item.title}</td>
-                      <td>{formatIsoDate(item.releaseDate)}</td>
-                      <td>{item.channel}</td>
-                      <td>{item.summary}</td>
-                      <td><span className="news-chip">{item.status}</span></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="updates-release-grid">
+              {launcherUpdatesFeed.length === 0 && (
+                <div className="updates-empty-state">{updatesLoading ? 'Cargando releases estables...' : 'No hay releases estables disponibles por ahora.'}</div>
+              )}
+              {launcherUpdatesFeed.map((item) => (
+                <article key={item.id} className={`updates-release-card ${selectedRelease?.id === item.id ? 'selected' : ''}`} onClick={() => setSelectedReleaseTag(item.tag)}>
+                  <div className="updates-release-head">
+                    <h3>{item.title}</h3>
+                    <span className="news-chip">{item.status}</span>
+                  </div>
+                  <p className="updates-release-version">{item.version}</p>
+                  <p className="updates-release-meta">Publicado: {formatIsoDate(item.releaseDate)} · Assets: {item.assetsCount}</p>
+                  <p className="updates-release-summary">{item.summary}</p>
+                </article>
+              ))}
             </div>
 
             <article className="global-setting-item updates-release-detail">
-              <h3>Detalle de release seleccionada</h3>
+              <h3>Detalle de release</h3>
               {!selectedRelease && <p>No hay release seleccionada.</p>}
               {selectedRelease && (
                 <>
-                  <p><strong>Tag:</strong> {selectedRelease.tag} · <strong>Canal:</strong> {selectedRelease.channel} · <strong>Publicado:</strong> {formatIsoDate(selectedRelease.publishedAt)}</p>
-                  <p><strong>Assets:</strong> {selectedRelease.assetsCount} · <strong>Estado:</strong> {selectedRelease.status}</p>
-                  <p><strong>URL:</strong> <button onClick={() => void invoke('open_url_in_browser', { url: selectedRelease.releaseUrl, browserId: 'default' })}>Abrir release</button></p>
-                  <label className="updates-notes-label" htmlFor="release-notes">Notas del release / beta</label>
+                  <p><strong>Tag:</strong> {selectedRelease.tag} · <strong>Publicado:</strong> {formatIsoDate(selectedRelease.publishedAt)}</p>
+                  <p><strong>Estado:</strong> {selectedRelease.status} · <strong>Assets:</strong> {selectedRelease.assetsCount}</p>
+                  <p><strong>Release:</strong> <button onClick={() => void invoke('open_url_in_browser', { url: selectedRelease.releaseUrl, browserId: 'default' })}>Abrir en navegador</button></p>
+                  <label className="updates-notes-label" htmlFor="release-notes">Notas de la release</label>
                   <textarea id="release-notes" value={selectedReleaseNotes || 'Sin notas publicadas.'} readOnly rows={10} />
                 </>
               )}
-            </article>
-
-            <article className="global-setting-item tauri-updater-guide">
-              <h3>Updater conectado (producción)</h3>
-              <p>Endpoint stable: <code>https://manzanitaspice.github.io/Interface-2/updates/stable.json</code></p>
-              <p>Endpoint beta: <code>https://manzanitaspice.github.io/Interface-2/updates/beta.json</code></p>
-              <p>Regla de oro: cada release debe adjuntar instalador firmado + archivo <code>.sig</code>. GitHub Actions publica manifests automáticamente.</p>
-              <p>Flujo soportado: upgrade a latest de canal, detección de beta/stable y downgrade controlado al estable anterior.</p>
-              <p>Versión actual detectada: <strong>{launcherCurrentVersion || 'No disponible'}</strong>.</p>
             </article>
           </section>
         </main>
@@ -3911,8 +3900,7 @@ function App() {
                 <h2>Network</h2>
                 <p>Canal activo de updates: <strong>{updatesChannel}</strong>. Auto-check: <strong>{updatesAutoCheck ? 'Habilitado' : 'Deshabilitado'}</strong>.</p>
                 <div className="network-controls">
-                  <button onClick={() => setUpdatesChannel((prev) => prev === 'Stable' ? 'Preview' : 'Stable')}>Cambiar canal</button>
-                  <button onClick={() => setUpdatesAutoCheck((prev) => !prev)}>{updatesAutoCheck ? 'Desactivar' : 'Activar'} auto-check</button>
+                                    <button onClick={() => setUpdatesAutoCheck((prev) => !prev)}>{updatesAutoCheck ? 'Desactivar' : 'Activar'} auto-check</button>
                 </div>
               </section>
             )}
