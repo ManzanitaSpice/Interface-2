@@ -2599,27 +2599,46 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
 .explorer-install-list { display: grid; gap: .35rem; max-height: 240px; overflow: auto; margin: .5rem 0; }
 .explorer-install-list label { display: grid; gap: .12rem; border: 1px solid var(--border); border-radius: 8px; padding: .42rem .5rem; }
 .explorer-install-list label.disabled { opacity: .45; }
-.mods-downloader-page { min-height: 0; display: grid; padding: .7rem; }
-.mods-downloader-layout { border: 1px solid var(--border); border-radius: 10px; min-height: 0; display: grid; grid-template-columns: 180px 1fr; overflow: hidden; }
-.mods-downloader-sidebar { border-right: 1px solid var(--border); padding: .55rem; display: grid; gap: .45rem; align-content: start; }
-.mods-downloader-sidebar button.active { border-color: var(--accent); }
+.edit-instance-layout.mods-downloader-mode {
+  grid-template-columns: 1fr;
+}
+
+.mods-downloader-page { min-height: 0; display: grid; padding: .5rem; }
+.mods-downloader-layout { border: 1px solid var(--border); border-radius: 0; min-height: 0; display: grid; grid-template-columns: 150px 1fr; overflow: hidden; }
+.mods-downloader-sidebar { border-right: 1px solid var(--border); padding: .45rem; display: grid; gap: .4rem; align-content: start; }
+.mods-downloader-sidebar button,
+.mods-downloader-topbar button,
+.mods-catalog-toggle,
+.mods-catalog-main,
+.mods-compact-bar button { transition: background .18s ease, transform .16s ease, border-color .16s ease; }
+.mods-downloader-sidebar button:hover,
+.mods-downloader-topbar button:hover,
+.mods-catalog-toggle:hover,
+.mods-catalog-main:hover,
+.mods-compact-bar button:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--accent) 48%, var(--border)); }
+.mods-downloader-sidebar button.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
 .mods-downloader-center { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; }
-.mods-downloader-topbar { border-bottom: 1px solid var(--border); padding: .55rem .7rem; }
-.mods-downloader-topbar p { margin: .2rem 0 0; color: var(--text-muted); }
-.mods-downloader-panels { display: grid; grid-template-columns: 1fr 1fr; min-height: 340px; gap: .7rem; padding: .7rem; }
-.mods-catalog-panel, .mods-preview-panel { border: 1px solid var(--border); border-radius: 10px; padding: .55rem; overflow: auto; display: grid; align-content: start; gap: .45rem; }
-.mods-catalog-item { text-align: left; border: 1px solid var(--border); border-radius: 8px; padding: .45rem .55rem; display: grid; gap: .22rem; }
+.mods-downloader-topbar { border-bottom: 1px solid var(--border); padding: .45rem .6rem; display: grid; grid-template-columns: 1fr auto; gap: .45rem; }
+.mods-downloader-topbar input { width: 100%; min-width: 0; }
+.mods-downloader-panels { display: grid; grid-template-columns: 1fr 1fr; min-height: 340px; gap: .55rem; padding: .55rem; }
+.mods-catalog-panel, .mods-preview-panel, .mods-downloader-advanced-sidebar { border: 1px solid var(--border); border-radius: 0; padding: .5rem; overflow: auto; display: grid; align-content: start; gap: .4rem; }
+.mods-downloader-advanced-sidebar { width: 240px; }
+.mods-downloader-advanced-sidebar section { border: 1px solid var(--border); padding: .4rem; display: grid; gap: .32rem; }
+.mods-downloader-advanced-sidebar h4 { margin: 0; font-size: .82rem; }
+.mods-catalog-item { border: 1px solid var(--border); border-radius: 0; display: grid; grid-template-columns: 36px 1fr; gap: .35rem; padding: .35rem; }
 .mods-catalog-item.active { border-color: var(--accent); }
-.mods-catalog-item small { color: var(--text-muted); }
-.mods-downloader-compact-bars { border-top: 1px solid var(--border); padding: .45rem .55rem; display: grid; gap: .35rem; }
-.mods-downloader-compact-bars .mods-compact-bar:nth-child(-n+2){ display:flex; }
-.mods-downloader-compact-bars .mods-compact-bar:nth-child(1), .mods-downloader-compact-bars .mods-compact-bar:nth-child(2){ min-height: 34px; }
-.mods-compact-bar { border: 1px solid var(--border); border-radius: 8px; padding: .2rem .35rem; display: flex; align-items: center; gap: .35rem; font-size: .86rem; }
+.mods-catalog-toggle { height: 100%; min-height: 64px; }
+.mods-catalog-main { text-align: left; display: grid; grid-template-columns: 54px 1fr; gap: .42rem; align-items: center; }
+.mods-catalog-main img { width: 54px; height: 54px; object-fit: cover; border: 1px solid var(--border); }
+.mods-catalog-main small { color: var(--text-muted); display: block; font-size: .75rem; }
+.mods-preview-image { width: 72px; height: 72px; object-fit: cover; border: 1px solid var(--border); }
+.mods-preview-description { border: 1px solid var(--border); padding: .45rem; max-height: 300px; overflow: auto; }
+.mods-downloader-compact-bars { border-top: 1px solid var(--border); padding: .42rem .55rem; display: grid; gap: .35rem; grid-template-columns: 1fr 1fr; }
+.mods-compact-bar { border: 1px solid var(--border); border-radius: 0; padding: .2rem .35rem; display: flex; align-items: center; gap: .35rem; font-size: .86rem; min-height: 38px; }
 .mods-compact-bar.vertical { display: grid; justify-items: start; }
-.mods-downloader-compact-bars { grid-template-columns: 1fr 1fr; }
-.mods-downloader-compact-bars .mods-compact-bar.actions { grid-column: 1 / -1; }
-.mods-compact-bar.actions { justify-content: flex-end; }
+.mods-downloader-compact-bars .mods-compact-bar.actions { grid-column: 1 / -1; justify-content: flex-end; }
+.mods-compact-bar.actions button { min-height: 30px; margin-left: .32rem; }
 .mods-review-modal { width: min(900px, 96vw); }
 .mods-review-list { max-height: 340px; overflow: auto; display: grid; gap: .5rem; }
-.mods-review-card { border: 1px solid var(--border); border-radius: 8px; padding: .45rem .55rem; display: grid; gap: .3rem; }
+.mods-review-card { border: 1px solid var(--border); border-radius: 0; padding: .45rem .55rem; display: grid; gap: .3rem; }
 .mods-review-dependency { margin: 0; color: var(--text-muted); font-size: .82rem; padding-left: .4rem; }
