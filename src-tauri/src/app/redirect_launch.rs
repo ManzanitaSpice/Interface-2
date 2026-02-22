@@ -4763,6 +4763,104 @@ pub async fn launch_redirect_instance(
             }
         }
     }
+    if let Ok(raw) = fs::read_to_string(&state_path) {
+        if let Ok(shortcut_state) = serde_json::from_str::<ShortcutState>(&raw) {
+            if shortcut_state.status.eq_ignore_ascii_case("READY")
+                && !shortcut_state.launch_plan.main_class.trim().is_empty()
+            {
+                let relinked_game_dir = shortcut_state.external_game_dir.clone();
+                let mut launch_plan = shortcut_state.launch_plan.clone();
+                if !Path::new(&relinked_game_dir).exists() {
+                    return Err(format!("External gameDir no existe: {relinked_game_dir}"));
+                }
+                for arg in &mut launch_plan.game_args {
+                    *arg = arg.replace(&shortcut_state.external_game_dir, &relinked_game_dir);
+                    if arg == "Player" {
+                        *arg = auth_session.profile_name.clone();
+                    }
+                    if arg == "00000000-0000-0000-0000-000000000000" {
+                        *arg = auth_session.profile_id.replace('-', "");
+                    }
+                    if arg == "0" {
+                        *arg = auth_session.minecraft_access_token.clone();
+                    }
+                }
+                crate::app::shortcut_instance::validate_preflight(&launch_plan)?;
+                let cp_paths: Vec<PathBuf> =
+                    launch_plan.classpath.iter().map(PathBuf::from).collect();
+                let java_args = crate::app::shortcut_instance::build_java_args(
+                    &cp_paths,
+                    Path::new(&launch_plan.natives_dir),
+                    &launch_plan.main_class,
+                    launch_plan.jvm_args.clone(),
+                    launch_plan.game_args.clone(),
+                );
+                let mut command = Command::new(&launch_plan.java_path);
+                command
+                    .args(&java_args)
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .stdin(Stdio::null())
+                    .current_dir(Path::new(&relinked_game_dir));
+                #[cfg(unix)]
+                {
+                    command.process_group(0);
+                }
+                let mut child = command
+                    .spawn()
+                    .map_err(|err| format!("No se pudo iniciar shortcut READY: {err}"))?;
+                let pid = child.id();
+                let stdout = child.stdout.take();
+                let stderr = child.stderr.take();
+                let app_for_thread = app.clone();
+                let instance_root_for_thread = instance_root.clone();
+                thread::spawn(move || {
+                    if let Some(stdout_pipe) = stdout {
+                        let app_for_stdout = app_for_thread.clone();
+                        let instance_for_stdout = instance_root_for_thread.clone();
+                        thread::spawn(move || {
+                            let reader = BufReader::new(stdout_pipe);
+                            for line in reader.lines().map_while(Result::ok) {
+                                let _ = app_for_stdout.emit(
+                                    "instance_runtime_output",
+                                    RuntimeOutputEvent {
+                                        instance_root: instance_for_stdout.clone(),
+                                        stream: "stdout".to_string(),
+                                        line,
+                                    },
+                                );
+                            }
+                        });
+                    }
+                    if let Some(stderr_pipe) = stderr {
+                        let app_for_stderr = app_for_thread.clone();
+                        let instance_for_stderr = instance_root_for_thread.clone();
+                        thread::spawn(move || {
+                            let reader = BufReader::new(stderr_pipe);
+                            for line in reader.lines().map_while(Result::ok) {
+                                let _ = app_for_stderr.emit(
+                                    "instance_runtime_output",
+                                    RuntimeOutputEvent {
+                                        instance_root: instance_for_stderr.clone(),
+                                        stream: "stderr".to_string(),
+                                        line,
+                                    },
+                                );
+                            }
+                        });
+                    }
+                    let _ = child.wait();
+                });
+                return Ok(StartInstanceResult {
+                    pid: pid as u32,
+                    java_path: launch_plan.java_path.clone(),
+                    logs: Vec::new(),
+                    refreshed_auth_session: auth_session.clone(),
+                });
+            }
+        }
+    }
+
     let _ = app.emit(
         "redirect_launch_status",
         json!({
