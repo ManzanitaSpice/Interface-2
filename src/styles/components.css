@@ -2611,9 +2611,13 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
 .mods-catalog-item { text-align: left; border: 1px solid var(--border); border-radius: 8px; padding: .45rem .55rem; display: grid; gap: .22rem; }
 .mods-catalog-item.active { border-color: var(--accent); }
 .mods-catalog-item small { color: var(--text-muted); }
-.mods-downloader-compact-bars { border-top: 1px solid var(--border); padding: .55rem .7rem; display: grid; gap: .45rem; }
-.mods-compact-bar { border: 1px solid var(--border); border-radius: 8px; padding: .35rem .45rem; display: flex; align-items: center; gap: .5rem; }
+.mods-downloader-compact-bars { border-top: 1px solid var(--border); padding: .45rem .55rem; display: grid; gap: .35rem; }
+.mods-downloader-compact-bars .mods-compact-bar:nth-child(-n+2){ display:flex; }
+.mods-downloader-compact-bars .mods-compact-bar:nth-child(1), .mods-downloader-compact-bars .mods-compact-bar:nth-child(2){ min-height: 34px; }
+.mods-compact-bar { border: 1px solid var(--border); border-radius: 8px; padding: .2rem .35rem; display: flex; align-items: center; gap: .35rem; font-size: .86rem; }
 .mods-compact-bar.vertical { display: grid; justify-items: start; }
+.mods-downloader-compact-bars { grid-template-columns: 1fr 1fr; }
+.mods-downloader-compact-bars .mods-compact-bar.actions { grid-column: 1 / -1; }
 .mods-compact-bar.actions { justify-content: flex-end; }
 .mods-review-modal { width: min(900px, 96vw); }
 .mods-review-list { max-height: 340px; overflow: auto; display: grid; gap: .5rem; }

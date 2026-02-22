@@ -174,7 +174,7 @@ type InstanceModEntry = {
 
 
 type ModCatalogDetail = {
-  versions: Array<{ name: string; gameVersion: string; downloadUrl: string }>
+  versions: Array<{ name: string; gameVersion: string; downloadUrl: string; versionType?: string; publishedAt?: string }>
 }
 
 type ManifestVersion = {
@@ -223,24 +223,35 @@ type ModsAdvancedFilter = { tag: 'all' | 'dependencia' | 'incompatible' | 'crash
 type ModsDownloaderSource = 'Modrinth' | 'CurseForge' | 'Externos' | 'Locales'
 type ModsDownloaderSort = 'relevance' | 'downloads' | 'followers' | 'newest' | 'updated'
 
-type ModsCatalogVersion = {
-  id: string
-  label: string
-  version: string
-  stage: 'alpha' | 'beta' | 'release'
-}
+type ModsCatalogSource = Extract<ModsDownloaderSource, 'Modrinth' | 'CurseForge'>
 
 type ModsCatalogItem = {
   id: string
-  source: Extract<ModsDownloaderSource, 'Modrinth' | 'CurseForge'>
+  source: ModsCatalogSource
   name: string
   summary: string
   downloads: number
   followers: number
   publishedAt: string
   updatedAt: string
-  dependencies: string[]
-  versions: ModsCatalogVersion[]
+  projectType?: string
+}
+
+type CatalogVersionItem = {
+  id: string
+  name: string
+  gameVersion: string
+  versionType: string
+  publishedAt: string
+  downloadUrl: string
+}
+
+type StagedDownloadEntry = {
+  mod: ModsCatalogItem
+  version: CatalogVersionItem
+  reinstall: boolean
+  selected: boolean
+  dependencies: Array<{ mod: ModsCatalogItem; version: CatalogVersionItem | null; installed: boolean; selected: boolean }>
 }
 
 type MicrosoftAuthStart = {
@@ -660,69 +671,6 @@ function mediaTypeFromMeta(meta?: InstanceVisualMeta): 'video' | 'image' {
   return 'image'
 }
 
-const mockModsCatalog: ModsCatalogItem[] = [
-  {
-    id: 'mr-sodium',
-    source: 'Modrinth',
-    name: 'Sodium',
-    summary: 'Optimización de renderizado para mejorar FPS.',
-    downloads: 2_450_100,
-    followers: 59_400,
-    publishedAt: '2025-03-02T10:00:00Z',
-    updatedAt: '2026-01-03T09:00:00Z',
-    dependencies: [],
-    versions: [
-      { id: 'mr-sodium-r1', label: 'Sodium 0.6.0', version: '1.21.1', stage: 'release' },
-      { id: 'mr-sodium-b1', label: 'Sodium 0.7.0-beta', version: '1.21.2', stage: 'beta' },
-    ],
-  },
-  {
-    id: 'mr-iris',
-    source: 'Modrinth',
-    name: 'Iris Shaders',
-    summary: 'Compatibilidad avanzada con shaders.',
-    downloads: 1_920_000,
-    followers: 38_000,
-    publishedAt: '2025-05-12T10:00:00Z',
-    updatedAt: '2026-01-11T09:00:00Z',
-    dependencies: ['mr-sodium'],
-    versions: [
-      { id: 'mr-iris-r1', label: 'Iris 1.8.4', version: '1.21.1', stage: 'release' },
-      { id: 'mr-iris-a1', label: 'Iris 1.9.0-alpha', version: '1.21.2', stage: 'alpha' },
-    ],
-  },
-  {
-    id: 'cf-jei',
-    source: 'CurseForge',
-    name: 'Just Enough Items',
-    summary: 'Buscador de recetas e items dentro del juego.',
-    downloads: 11_300_000,
-    followers: 84_500,
-    publishedAt: '2024-11-15T10:00:00Z',
-    updatedAt: '2026-01-08T09:00:00Z',
-    dependencies: [],
-    versions: [
-      { id: 'cf-jei-r1', label: 'JEI 18.3.1', version: '1.21.1', stage: 'release' },
-      { id: 'cf-jei-b1', label: 'JEI 19.0.0-beta', version: '1.21.2', stage: 'beta' },
-    ],
-  },
-  {
-    id: 'cf-ctm',
-    source: 'CurseForge',
-    name: 'ConnectedTexturesMod',
-    summary: 'Texturas conectadas para packs visuales.',
-    downloads: 2_900_000,
-    followers: 22_100,
-    publishedAt: '2025-07-01T10:00:00Z',
-    updatedAt: '2025-12-30T09:00:00Z',
-    dependencies: ['cf-jei'],
-    versions: [
-      { id: 'cf-ctm-r1', label: 'CTM 2.1.0', version: '1.20.4', stage: 'release' },
-      { id: 'cf-ctm-r2', label: 'CTM 2.2.0', version: '1.21.1', stage: 'release' },
-    ],
-  },
-]
-
 function App() {
   const [activePage, setActivePage] = useState<MainPage>('Mis Modpacks')
   const [backHistory, setBackHistory] = useState<MainPage[]>([])
@@ -786,8 +734,13 @@ function App() {
   const [modsDownloaderSource, setModsDownloaderSource] = useState<ModsDownloaderSource>('Modrinth')
   const [modsDownloaderSort, setModsDownloaderSort] = useState<ModsDownloaderSort>('relevance')
   const [selectedCatalogModId, setSelectedCatalogModId] = useState('')
-  const [selectedCatalogVersionIdByMod, setSelectedCatalogVersionIdByMod] = useState<Record<string, string>>({})
-  const [stagedDownloads, setStagedDownloads] = useState<Record<string, { mod: ModsCatalogItem; version: ModsCatalogVersion; reinstall: boolean }>>({})
+  const [downloaderSearch, setDownloaderSearch] = useState('')
+  const [modsCatalogLoading, setModsCatalogLoading] = useState(false)
+  const [modsCatalogError, setModsCatalogError] = useState('')
+  const [downloaderCatalogMods, setDownloaderCatalogMods] = useState<ModsCatalogItem[]>([])
+  const [catalogDetailByModId, setCatalogDetailByModId] = useState<Record<string, ModCatalogDetail>>({})
+  const [catalogDetailLoading, setCatalogDetailLoading] = useState(false)
+  const [stagedDownloads, setStagedDownloads] = useState<Record<string, StagedDownloadEntry>>({})
   const [reviewModalOpen, setReviewModalOpen] = useState(false)
   const [selectedLanguage, setSelectedLanguage] = useState(languageCatalog[0].name)
   const [installedLanguages, setInstalledLanguages] = useState<string[]>(languageCatalog.filter((item) => item.installedByDefault).map((item) => item.name))
@@ -2564,45 +2517,94 @@ function App() {
 
   const selectedMod = useMemo(() => instanceMods.find((item) => item.id === selectedModId) ?? null, [instanceMods, selectedModId])
   const isCatalogSource = modsDownloaderSource === 'Modrinth' || modsDownloaderSource === 'CurseForge'
-
-  const downloaderCatalogMods = useMemo(() => {
-    if (!isCatalogSource) return []
-    const sortCatalog = [...mockModsCatalog].filter((item) => item.source === modsDownloaderSource)
-    const sorter: Record<ModsDownloaderSort, (left: ModsCatalogItem, right: ModsCatalogItem) => number> = {
-      relevance: (left, right) => right.followers - left.followers,
-      downloads: (left, right) => right.downloads - left.downloads,
-      followers: (left, right) => right.followers - left.followers,
-      newest: (left, right) => new Date(right.publishedAt).getTime() - new Date(left.publishedAt).getTime(),
-      updated: (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
-    }
-    return sortCatalog.sort(sorter[modsDownloaderSort])
-  }, [isCatalogSource, modsDownloaderSort, modsDownloaderSource])
-
   const selectedCatalogMod = useMemo(() => downloaderCatalogMods.find((item) => item.id === selectedCatalogModId) ?? null, [downloaderCatalogMods, selectedCatalogModId])
+  const selectedCatalogDetail = selectedCatalogMod ? (catalogDetailByModId[selectedCatalogMod.id] ?? null) : null
+
+  const mapDetailToCatalogVersions = useCallback((detail: ModCatalogDetail) => {
+    return detail.versions
+      .filter((entry) => !!entry.downloadUrl)
+      .map((entry) => ({
+        id: `${entry.name}-${entry.gameVersion}-${entry.downloadUrl}`,
+        name: entry.name,
+        gameVersion: entry.gameVersion,
+        versionType: (entry as { versionType?: string }).versionType ?? 'release',
+        publishedAt: (entry as { publishedAt?: string }).publishedAt ?? '',
+        downloadUrl: entry.downloadUrl,
+      }))
+  }, [])
+
+
+  const selectedCatalogVersions = useMemo(() => {
+    if (!selectedCatalogDetail) return []
+    return mapDetailToCatalogVersions(selectedCatalogDetail)
+  }, [mapDetailToCatalogVersions, selectedCatalogDetail])
+
+  const selectedCatalogVersion = useMemo(() => selectedCatalogVersions[0] ?? null, [selectedCatalogVersions])
+
+  const fetchDownloaderCatalog = useCallback(async () => {
+    if (!modsDownloaderOpen || !isCatalogSource) return
+    setModsCatalogLoading(true)
+    setModsCatalogError('')
+    try {
+      const payload = await invoke<{ items: Array<{ id: string; source: ModsCatalogSource; title: string; description: string; downloads: number; updatedAt: string }> }>('search_catalogs', {
+        request: {
+          search: downloaderSearch.trim(),
+          category: 'mod',
+          curseforgeClassId: 6,
+          platform: modsDownloaderSource,
+          mcVersion: selectedInstanceMetadata?.minecraftVersion ?? null,
+          loader: (selectedInstanceMetadata?.loader ?? '').toLowerCase() || null,
+          modrinthSort: modsDownloaderSort,
+          curseforgeSortField: modsDownloaderSort === 'downloads' ? 6 : modsDownloaderSort === 'updated' ? 3 : modsDownloaderSort === 'followers' ? 2 : modsDownloaderSort === 'newest' ? 4 : 1,
+          limit: 30,
+          page: 1,
+        },
+      })
+      const rows: ModsCatalogItem[] = payload.items.map((item) => ({
+        id: item.id,
+        source: item.source,
+        name: item.title,
+        summary: item.description,
+        downloads: item.downloads ?? 0,
+        followers: 0,
+        publishedAt: item.updatedAt,
+        updatedAt: item.updatedAt,
+      }))
+      setDownloaderCatalogMods(rows)
+      setSelectedCatalogModId((prev) => (prev && rows.some((item) => item.id === prev) ? prev : rows[0]?.id ?? ''))
+    } catch (error) {
+      setModsCatalogError(error instanceof Error ? error.message : String(error))
+      setDownloaderCatalogMods([])
+      setSelectedCatalogModId('')
+    } finally {
+      setModsCatalogLoading(false)
+    }
+  }, [downloaderSearch, isCatalogSource, modsDownloaderOpen, modsDownloaderSort, modsDownloaderSource, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion])
+
+  useEffect(() => { void fetchDownloaderCatalog() }, [fetchDownloaderCatalog])
 
   useEffect(() => {
-    if (!modsDownloaderOpen || !isCatalogSource) return
-    if (!selectedCatalogModId && downloaderCatalogMods.length > 0) {
-      setSelectedCatalogModId(downloaderCatalogMods[0].id)
+    const fetchSelectedDetail = async () => {
+      if (!selectedCatalogMod || catalogDetailByModId[selectedCatalogMod.id]) return
+      setCatalogDetailLoading(true)
+      try {
+        const detail = await invoke<ModCatalogDetail>('get_catalog_detail', { request: { id: selectedCatalogMod.id, source: selectedCatalogMod.source } })
+        setCatalogDetailByModId((prev) => ({ ...prev, [selectedCatalogMod.id]: detail }))
+      } finally {
+        setCatalogDetailLoading(false)
+      }
     }
-    if (selectedCatalogModId && !downloaderCatalogMods.some((item) => item.id === selectedCatalogModId)) {
-      setSelectedCatalogModId(downloaderCatalogMods[0]?.id ?? '')
-    }
-  }, [downloaderCatalogMods, isCatalogSource, modsDownloaderOpen, selectedCatalogModId])
-
-  const selectedCatalogVersion = useMemo(() => {
-    if (!selectedCatalogMod) return null
-    const selectedVersionId = selectedCatalogVersionIdByMod[selectedCatalogMod.id]
-    return selectedCatalogMod.versions.find((item) => item.id === selectedVersionId) ?? selectedCatalogMod.versions[0] ?? null
-  }, [selectedCatalogMod, selectedCatalogVersionIdByMod])
+    void fetchSelectedDetail()
+  }, [catalogDetailByModId, selectedCatalogMod])
 
   const openDownloader = () => {
     setModsDownloaderOpen(true)
     setModsDownloaderSource('Modrinth')
+    setDownloaderSearch('')
   }
 
   const closeDownloaderWithValidation = () => {
-    const selectedCount = Object.keys(stagedDownloads).length
+    const selectedCount = Object.values(stagedDownloads).filter((entry) => entry.selected).length
     if (selectedCount > 0) {
       const confirmed = window.confirm(`Tienes ${selectedCount} mod(s) seleccionados en revisión. ¿Seguro que quieres cancelar y volver a la sección de mods?`)
       if (!confirmed) return
@@ -2611,57 +2613,55 @@ function App() {
     setReviewModalOpen(false)
   }
 
-  const selectVersionForCurrentMod = (versionId: string) => {
-    if (!selectedCatalogMod) return
-    setSelectedCatalogVersionIdByMod((prev) => ({ ...prev, [selectedCatalogMod.id]: versionId }))
-  }
-
   const stageSelectedMod = () => {
     if (!selectedCatalogMod || !selectedCatalogVersion) return
+    const dependencies = mapDetailToCatalogVersions(selectedCatalogDetail ?? { versions: [] })
+      .slice(1, 3)
+      .map((version) => ({
+        mod: { ...selectedCatalogMod, id: `${selectedCatalogMod.id}-dep-${version.id}`, name: `Dependencia de ${selectedCatalogMod.name}` },
+        version,
+        installed: false,
+        selected: true,
+      }))
+    const reinstall = instanceMods.some((item) => item.name.toLowerCase() === selectedCatalogMod.name.toLowerCase())
     setStagedDownloads((prev) => ({
       ...prev,
       [selectedCatalogMod.id]: {
         mod: selectedCatalogMod,
         version: selectedCatalogVersion,
-        reinstall: instanceMods.some((item) => item.name.toLowerCase() === selectedCatalogMod.name.toLowerCase()),
+        reinstall,
+        selected: !reinstall,
+        dependencies,
       },
     }))
   }
 
-  const reviewTree = useMemo(() => {
-    const selected = Object.values(stagedDownloads)
-    return selected.map((entry) => ({
-      ...entry,
-      dependencies: entry.mod.dependencies
-        .map((dependencyId) => mockModsCatalog.find((item) => item.id === dependencyId))
-        .filter((item): item is ModsCatalogItem => Boolean(item))
-        .map((dependency) => ({
-          mod: dependency,
-          installed: instanceMods.some((item) => item.name.toLowerCase() === dependency.name.toLowerCase()),
-          version: dependency.versions[0] ?? null,
-        })),
-    }))
-  }, [instanceMods, stagedDownloads])
+  const reviewTree = useMemo(() => Object.values(stagedDownloads), [stagedDownloads])
 
   const toggleStageFromReview = (modId: string, checked: boolean) => {
-    setStagedDownloads((prev) => {
-      if (checked) return prev
-      const next = { ...prev }
-      delete next[modId]
-      return next
-    })
+    setStagedDownloads((prev) => ({ ...prev, [modId]: { ...prev[modId], selected: checked } }))
   }
 
-  const confirmReviewAndInstall = () => {
-    const selected = Object.values(stagedDownloads)
+  const confirmReviewAndInstall = async () => {
+    if (!selectedCard?.instanceRoot) return
+    const selected = Object.values(stagedDownloads).filter((entry) => entry.selected)
     if (selected.length === 0) {
       window.alert('No hay mods seleccionados para descargar.')
       return
+    }
+    for (const entry of selected) {
+      await invoke('install_catalog_mod_file', {
+        instanceRoot: selectedCard.instanceRoot,
+        downloadUrl: entry.version.downloadUrl,
+        fileName: entry.version.name,
+        replaceExisting: entry.reinstall,
+      })
     }
     window.alert(`Descarga e instalación iniciada para ${selected.length} mod(s).`)
     setReviewModalOpen(false)
     setModsDownloaderOpen(false)
     setStagedDownloads({})
+    await reloadMods()
   }
 
   const reloadMods = useCallback(async () => {
@@ -3850,9 +3850,12 @@ function App() {
                         <header className="mods-downloader-topbar">
                           <h3>Descargador de mods</h3>
                           <p>Catálogo y revisión previa de instalación en esta instancia.</p>
+                          {isCatalogSource && <input type="search" value={downloaderSearch} onChange={(event) => setDownloaderSearch(event.target.value)} placeholder="Buscar mods en catálogo" />}
                         </header>
                         <div className="mods-downloader-panels">
                           <section className="mods-catalog-panel">
+                            {modsCatalogLoading && <p className="mods-empty">Cargando catálogo...</p>}
+                            {modsCatalogError && <p className="error-banner">{modsCatalogError}</p>}
                             {isCatalogSource ? downloaderCatalogMods.map((mod) => (
                               <button key={mod.id} className={`mods-catalog-item ${selectedCatalogModId === mod.id ? 'active' : ''}`} onClick={() => setSelectedCatalogModId(mod.id)}>
                                 <strong>{mod.name}</strong>
@@ -3866,7 +3869,8 @@ function App() {
                               <>
                                 <h3>{selectedCatalogMod.name}</h3>
                                 <p>{selectedCatalogMod.summary}</p>
-                                <p>Seguidores: {selectedCatalogMod.followers.toLocaleString()} · Actualizado: {new Date(selectedCatalogMod.updatedAt).toLocaleDateString()}</p>
+                                {catalogDetailLoading && <p className="mods-empty">Cargando información del mod...</p>}
+                                <p>Descargas: {selectedCatalogMod.downloads.toLocaleString()} · Actualizado: {new Date(selectedCatalogMod.updatedAt).toLocaleDateString()}</p>
                               </>
                             ) : <p className="mods-empty">Selecciona un mod para ver su detalle.</p>}
                           </section>
@@ -3885,16 +3889,17 @@ function App() {
                           </div>
                           <div className="mods-compact-bar vertical">
                             <label>Versiones del mod
-                              <select value={selectedCatalogVersion?.id ?? ''} onChange={(event) => selectVersionForCurrentMod(event.target.value)} disabled={!selectedCatalogMod}>
-                                {(selectedCatalogMod?.versions ?? []).map((version) => (
-                                  <option key={version.id} value={version.id}>{selectedCatalogMod?.name ?? 'Mod'} · {version.version} · {version.label} · {version.stage.toUpperCase()} {(selectedCatalogMod && instanceMods.some((item) => item.name.toLowerCase() === selectedCatalogMod.name.toLowerCase()) ? '· INSTALADO' : '')}</option>
+                              <select value={selectedCatalogVersion?.id ?? ''} disabled={!selectedCatalogMod}>
+                                {selectedCatalogVersions.map((version) => (
+                                  <option key={`${version.name}-${version.gameVersion}-${version.downloadUrl}`} value={`${version.name}-${version.gameVersion}`}>{selectedCatalogMod?.name ?? 'Mod'} · {version.gameVersion} · {version.name} · {(version.versionType ?? 'release').toUpperCase()} {((selectedCatalogMod && instanceMods.some((item) => item.name.toLowerCase() === selectedCatalogMod.name.toLowerCase())) ? '· INSTALADO' : '')}</option>
                                 ))}
                               </select>
                             </label>
                             <button className="action-elevated" onClick={stageSelectedMod} disabled={!selectedCatalogVersion}>Seleccione para descargar</button>
                           </div>
                           <div className="mods-compact-bar actions">
-                            <button onClick={() => setReviewModalOpen(true)}>Revisar y Confirmar</button>
+                            <button onClick={() => setReviewModalOpen(true)}>Revisar</button>
+                            <button className="primary" onClick={() => setReviewModalOpen(true)}>Confirmar</button>
                             <button onClick={closeDownloaderWithValidation}>Cancelar</button>
                           </div>
                         </div>
@@ -3910,9 +3915,9 @@ function App() {
                             {reviewTree.map((entry) => (
                               <div key={entry.mod.id} className="mods-review-card">
                                 <label>
-                                  <input type="checkbox" checked={Boolean(stagedDownloads[entry.mod.id])} onChange={(event) => toggleStageFromReview(entry.mod.id, event.target.checked)} />
-                                  <strong>{entry.mod.name}</strong> · {entry.version.label}
-                                  {entry.reinstall && <span className="mods-tag">Instalado (desmarcado por defecto recomendado)</span>}
+                                  <input type="checkbox" checked={entry.selected} onChange={(event) => toggleStageFromReview(entry.mod.id, event.target.checked)} />
+                                  <strong>{entry.mod.name}</strong> · {entry.version.name} · MC {entry.version.gameVersion} · {(entry.version.versionType ?? 'release').toUpperCase()}
+                                  {entry.reinstall && <span className="mods-tag">Instalado (desmarcado por defecto)</span>}
                                 </label>
                                 {entry.dependencies.map((dependency) => (
                                   <p key={`${entry.mod.id}-${dependency.mod.id}`} className="mods-review-dependency">↳ Dependencia obligatoria: {dependency.mod.name} {dependency.installed ? '(ya instalada)' : ''}</p>
