@@ -3700,8 +3700,18 @@ async fn ensure_redirect_cache_context(
         let cache_valid = if needs_installer_jars && cache_libs.is_dir() {
             let quick_has_srg = walkdir_contains(&cache_libs, "client-srg");
             let quick_has_extra = walkdir_contains(&cache_libs, "client-extra");
+            let cached_version_json_path = entry_cache_dir(&cache_root, instance_uuid)
+                .join("versions")
+                .join(&entry.version_id)
+                .join(format!("{}.json", entry.version_id));
             let missing_artifacts = if quick_has_srg && quick_has_extra {
-                missing_forge_runtime_artifacts(&entry.version_json, &cache_libs)
+                fs::read_to_string(&cached_version_json_path)
+                    .ok()
+                    .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+                    .map(|version_json| {
+                        missing_forge_runtime_artifacts(&version_json, &cache_libs)
+                    })
+                    .unwrap_or_else(|| vec!["forge-version-json-missing".to_string()])
             } else {
                 vec!["forge-client-generated".to_string()]
             };
