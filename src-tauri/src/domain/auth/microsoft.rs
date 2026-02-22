@@ -7,7 +7,9 @@ use crate::domain::auth::tokens::MicrosoftTokenResponse;
 
 pub const MICROSOFT_CLIENT_ID: &str = "7ce1b3e8-48d7-4a9d-9329-7e11f988df39";
 pub const MICROSOFT_SCOPES: &str = "XboxLive.signin offline_access";
-pub const MICROSOFT_REDIRECT_URI: &str = "http://127.0.0.1:39247/auth/callback";
+// URI de redirección pública para apps nativas de Microsoft OAuth.
+// Debe coincidir exactamente con una URI registrada para el client_id.
+pub const MICROSOFT_REDIRECT_URI: &str = "https://login.live.com/oauth20_desktop.srf";
 
 const AUTHORIZE_ENDPOINT: &str =
     "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize";
