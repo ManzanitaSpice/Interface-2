@@ -122,3 +122,16 @@ src-tauri/tauri.conf.json
 ## Estado del proyecto
 
 INTERFACE está orientado a evolución continua. Se recomienda mantener dependencias actualizadas y validar cambios con lint/build antes de publicar.
+
+## Actualizaciones automáticas (canales estable/beta)
+
+- El updater de Tauri está configurado para consumir un manifiesto fijo en GitHub Pages:
+  - `https://manzanitaspice.github.io/Interface-2/updates/stable.json`
+- Se incluyen dos workflows de release:
+  - `release-stable.yml`: tags `vX.Y.Z` publican release estable y actualizan `updates/stable.json`.
+  - `release-beta.yml`: tags `vX.Y.Z-beta.N` publican prerelease y actualizan `updates/beta.json`.
+- Secrets requeridos en GitHub Actions:
+  - `TAURI_SIGNING_PRIVATE_KEY`
+  - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+
+Esto evita depender de `releases/latest` y separa claramente los canales de actualización.
