@@ -178,6 +178,7 @@ type ModCatalogDetail = {
   bodyHtml: string
   url: string
   image: string
+  links?: Array<{ label: string; url: string }>
   versions: Array<{ name: string; gameVersion: string; downloadUrl: string; versionType?: string; publishedAt?: string }>
 }
 
@@ -726,7 +727,7 @@ function App() {
   const [modsLoading, setModsLoading] = useState(false)
   const [modsError, setModsError] = useState('')
   const [modsSearch, setModsSearch] = useState('')
-  const [modsProviderFilter, setModsProviderFilter] = useState<'all' | 'CurseForge' | 'Modrinth' | 'Desconocido'>('all')
+  const [modsProviderFilter, setModsProviderFilter] = useState<'all' | 'CurseForge' | 'Modrinth' | 'Externo' | 'Local'>('all')
   const [modsPage, setModsPage] = useState(1)
   const [modsAdvancedOpen, setModsAdvancedOpen] = useState(false)
   const [modsAdvancedFilter, setModsAdvancedFilter] = useState<ModsAdvancedFilter>({ tag: 'all', state: 'all' })
@@ -743,6 +744,7 @@ function App() {
   const [debouncedDownloaderSearch, setDebouncedDownloaderSearch] = useState('')
   const [downloaderShowAllVersions, setDownloaderShowAllVersions] = useState(false)
   const [downloaderVersionFilter, setDownloaderVersionFilter] = useState('')
+  const [downloaderLoaderFilter, setDownloaderLoaderFilter] = useState('')
   const [downloaderClientOnly, setDownloaderClientOnly] = useState(false)
   const [downloaderServerOnly, setDownloaderServerOnly] = useState(false)
   const [modsCatalogLoading, setModsCatalogLoading] = useState(false)
@@ -752,6 +754,8 @@ function App() {
   const [catalogDetailLoading, setCatalogDetailLoading] = useState(false)
   const [stagedDownloads, setStagedDownloads] = useState<Record<string, StagedDownloadEntry>>({})
   const [reviewModalOpen, setReviewModalOpen] = useState(false)
+  const [installingModalOpen, setInstallingModalOpen] = useState(false)
+  const [installProgress, setInstallProgress] = useState({ current: 0, total: 0, message: '' })
   const [selectedLanguage, setSelectedLanguage] = useState(languageCatalog[0].name)
   const [installedLanguages, setInstalledLanguages] = useState<string[]>(languageCatalog.filter((item) => item.installedByDefault).map((item) => item.name))
   const [languageSearch, setLanguageSearch] = useState('')
@@ -2569,7 +2573,7 @@ function App() {
           curseforgeClassId: 6,
           platform: modsDownloaderSource,
           mcVersion: downloaderShowAllVersions ? null : (downloaderVersionFilter || selectedInstanceMetadata?.minecraftVersion || null),
-          loader: (selectedInstanceMetadata?.loader ?? '').toLowerCase() || null,
+          loader: (downloaderLoaderFilter || selectedInstanceMetadata?.loader || '').toLowerCase() || null,
           category: downloaderClientOnly ? 'client' : downloaderServerOnly ? 'server' : 'mod',
           modrinthSort: modsDownloaderSort,
           curseforgeSortField: modsDownloaderSort === 'downloads' ? 6 : modsDownloaderSort === 'updated' ? 3 : modsDownloaderSort === 'followers' ? 2 : modsDownloaderSort === 'newest' ? 4 : 1,
@@ -2597,7 +2601,7 @@ function App() {
     } finally {
       setModsCatalogLoading(false)
     }
-  }, [debouncedDownloaderSearch, downloaderClientOnly, downloaderServerOnly, downloaderShowAllVersions, downloaderVersionFilter, isCatalogSource, modsDownloaderOpen, modsDownloaderSort, modsDownloaderSource, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion])
+  }, [debouncedDownloaderSearch, downloaderClientOnly, downloaderLoaderFilter, downloaderServerOnly, downloaderShowAllVersions, downloaderVersionFilter, isCatalogSource, modsDownloaderOpen, modsDownloaderSort, modsDownloaderSource, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion])
 
   useEffect(() => { void fetchDownloaderCatalog() }, [fetchDownloaderCatalog])
 
@@ -2619,6 +2623,9 @@ function App() {
     setModsDownloaderOpen(true)
     setModsDownloaderSource('Modrinth')
     setDownloaderSearch('')
+    setDownloaderVersionFilter(selectedInstanceMetadata?.minecraftVersion ?? '')
+    setDownloaderLoaderFilter(selectedInstanceMetadata?.loader ?? '')
+    setDownloaderShowAllVersions(false)
   }
 
   const closeDownloaderWithValidation = () => {
@@ -2629,6 +2636,7 @@ function App() {
     }
     setModsDownloaderOpen(false)
     setReviewModalOpen(false)
+    setInstallingModalOpen(false)
   }
 
   const stageSelectedMod = () => {
@@ -2641,14 +2649,7 @@ function App() {
       })
       return
     }
-    const dependencies = mapDetailToCatalogVersions(selectedCatalogDetail ?? { description: '', bodyHtml: '', url: '', image: '', versions: [] })
-      .slice(1, 3)
-      .map((version) => ({
-        mod: { ...selectedCatalogMod, id: `${selectedCatalogMod.id}-dep-${version.id}`, name: `Dependencia de ${selectedCatalogMod.name}` },
-        version,
-        installed: false,
-        selected: true,
-      }))
+    const dependencies: StagedDownloadEntry['dependencies'] = []
     const reinstall = instanceMods.some((item) => item.name.toLowerCase() === selectedCatalogMod.name.toLowerCase())
     setStagedDownloads((prev) => ({
       ...prev,
@@ -2675,19 +2676,39 @@ function App() {
       window.alert('No hay mods seleccionados para descargar.')
       return
     }
-    for (const entry of selected) {
+    setReviewModalOpen(false)
+    setInstallingModalOpen(true)
+    setInstallProgress({ current: 0, total: selected.length, message: 'Iniciando descarga...' })
+    for (const [index, entry] of selected.entries()) {
+      setInstallProgress({ current: index, total: selected.length, message: `Descargando ${entry.mod.name}...` })
       await invoke('install_catalog_mod_file', {
         instanceRoot: selectedCard.instanceRoot,
         downloadUrl: entry.version.downloadUrl,
         fileName: entry.version.name,
         replaceExisting: entry.reinstall,
       })
+      setInstallProgress({ current: index + 1, total: selected.length, message: `Instalado ${entry.mod.name}` })
     }
-    window.alert(`Descarga e instalación iniciada para ${selected.length} mod(s).`)
     setReviewModalOpen(false)
     setModsDownloaderOpen(false)
+    setInstallingModalOpen(false)
     setStagedDownloads({})
     await reloadMods()
+  }
+
+  const shortenUrl = (value: string) => {
+    try {
+      const url = new URL(value)
+      const trimmedPath = url.pathname.length > 18 ? `${url.pathname.slice(0, 18)}…` : url.pathname
+      return `${url.hostname}${trimmedPath}`
+    } catch {
+      return value
+    }
+  }
+
+  const resolveProviderLabel = (provider: string) => {
+    if (provider === 'Desconocido') return 'Local'
+    return provider
   }
 
   const reloadMods = useCallback(async () => {
@@ -3801,7 +3822,8 @@ function App() {
                         <option value="all">Proveedor: Todos</option>
                         <option value="CurseForge">CurseForge</option>
                         <option value="Modrinth">Modrinth</option>
-                        <option value="Desconocido">Desconocido</option>
+                        <option value="Externo">Externo</option>
+                        <option value="Local">Local</option>
                       </select>
                       <button className="ghost-btn" onClick={() => setModsAdvancedOpen((prev) => !prev)}>{modsAdvancedOpen ? 'Ocultar filtros' : 'Filtro avanzado'}</button>
                     </header>
@@ -3837,11 +3859,11 @@ function App() {
                           {pagedMods.map((mod) => (
                             <div key={mod.id} role="button" tabIndex={0} className={`mods-row ${selectedModId === mod.id ? 'active' : ''}`} onClick={() => setSelectedModId(mod.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelectedModId(mod.id) }}>
                               <span><button className={`chip-toggle ${mod.enabled ? 'on' : 'off'}`} onClick={(event) => { event.stopPropagation(); void toggleModEnabled(mod, !mod.enabled) }}>{mod.enabled ? 'ON' : 'OFF'}</button></span>
-                              <span>{mod.provider === 'CurseForge' ? '🔥' : mod.provider === 'Modrinth' ? '🟢' : '🧩'}</span>
+                              <span>{resolveProviderLabel(mod.provider) === 'CurseForge' ? '🔥' : resolveProviderLabel(mod.provider) === 'Modrinth' ? '🟢' : resolveProviderLabel(mod.provider) === 'Externo' ? '🌐' : '📁'}</span>
                               <span>{mod.name}</span>
                               <span>{mod.version}</span>
                               <span>{mod.modifiedAt ? new Date(mod.modifiedAt * 1000).toLocaleString() : '-'}</span>
-                              <span>{mod.provider}</span>
+                              <span>{resolveProviderLabel(mod.provider)}</span>
                               <span>{formatBytes(mod.sizeBytes)}</span>
                               <span className="mods-tag">{inferModTag(mod)}</span>
                             </div>
@@ -3871,15 +3893,41 @@ function App() {
                 ) : (
                   <div className="mods-downloader-page">
                     <div className="mods-downloader-layout">
-                      <aside className={`mods-downloader-sidebar ${modsAdvancedOpen ? 'open' : ''}`}>
-                        {(['Modrinth', 'CurseForge', 'Externos', 'Locales'] as ModsDownloaderSource[]).map((source) => (
-                          <button key={source} className={modsDownloaderSource === source ? 'active' : ''} onClick={() => setModsDownloaderSource(source)}>{source}</button>
-                        ))}
+                      <aside className={`mods-downloader-sidebar ${modsAdvancedOpen ? 'advanced' : 'open'}`}>
+                        {!modsAdvancedOpen ? (
+                          (['Modrinth', 'CurseForge', 'Externos', 'Locales'] as ModsDownloaderSource[]).map((source) => (
+                            <button key={source} className={modsDownloaderSource === source ? 'active' : ''} onClick={() => setModsDownloaderSource(source)}>{source}</button>
+                          ))
+                        ) : (
+                          <div className="mods-downloader-advanced-sidebar in-left">
+                            <section>
+                              <h4>Categorías</h4>
+                              <p className="mods-empty">Categorías de mods (próximamente).</p>
+                            </section>
+                            <section>
+                              <h4>Cargadores</h4>
+                              <select value={downloaderLoaderFilter} onChange={(event) => setDownloaderLoaderFilter(event.target.value)}><option value="">{selectedInstanceMetadata?.loader ?? 'Todos los loaders'}</option><option value="fabric">fabric</option><option value="forge">forge</option><option value="neoforge">neoforge</option><option value="quilt">quilt</option></select>
+                            </section>
+                            <section>
+                              <h4>Versiones</h4>
+                              <label><input type="checkbox" checked={downloaderShowAllVersions} onChange={(event) => setDownloaderShowAllVersions(event.target.checked)} /> Mostrar todas las versiones</label>
+                              <select value={downloaderVersionFilter} onChange={(event) => setDownloaderVersionFilter(event.target.value)} disabled={downloaderShowAllVersions}>
+                                <option value="">Versión actual de la instancia</option>
+                                {releaseMinecraftVersions.map((version) => <option key={version} value={version}>{version}</option>)}
+                              </select>
+                            </section>
+                            <section>
+                              <h4>Entornos</h4>
+                              <label><input type="checkbox" checked={downloaderClientOnly} onChange={(event) => setDownloaderClientOnly(event.target.checked)} /> Solo cliente</label>
+                              <label><input type="checkbox" checked={downloaderServerOnly} onChange={(event) => setDownloaderServerOnly(event.target.checked)} /> Solo servidor</label>
+                            </section>
+                          </div>
+                        )}
                       </aside>
                       <div className="mods-downloader-center">
                         <header className="mods-downloader-topbar">
                           {isCatalogSource && <input type="search" value={downloaderSearch} onChange={(event) => setDownloaderSearch(event.target.value)} placeholder="Buscar mods en catálogo" />}
-                          <button className={`ghost-btn ${modsAdvancedOpen ? 'active' : ''}`} onClick={() => setModsAdvancedOpen((prev) => !prev)}>Filtro avanzado</button>
+                          <button className={`ghost-btn mods-filter-btn ${modsAdvancedOpen ? 'active' : ''}`} onClick={() => setModsAdvancedOpen((prev) => !prev)}>Filtro avanzado</button>
                         </header>
                         <div className="mods-downloader-panels">
                           <section className="mods-catalog-panel">
@@ -3908,46 +3956,26 @@ function App() {
                                 <h3>{selectedCatalogMod.name}</h3>
                                 <p>{selectedCatalogDetail?.description || selectedCatalogMod.summary}</p>
                                 {catalogDetailLoading && <p className="mods-empty">Cargando información del mod...</p>}
-                                {selectedCatalogDetail?.image && <img className="mods-preview-image" src={selectedCatalogDetail.image} alt={selectedCatalogMod.name} />}
+                                {selectedCatalogDetail?.links && selectedCatalogDetail.links.length > 0 && (
+                                  <div className="mods-preview-links">
+                                    {selectedCatalogDetail.links.map((link) => (
+                                      <button key={link.url} className="secondary" onClick={() => window.open(link.url, '_blank', 'noopener,noreferrer')}>
+                                        {link.label}: {shortenUrl(link.url)}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
                                 {selectedCatalogDetail?.bodyHtml && <div className="mods-preview-description" dangerouslySetInnerHTML={{ __html: selectedCatalogDetail.bodyHtml }} />}
                                 <p>Descargas: {selectedCatalogMod.downloads.toLocaleString()} · Actualizado: {new Date(selectedCatalogMod.updatedAt).toLocaleDateString()}</p>
                               </>
                             ) : <p className="mods-empty">Selecciona un mod para ver su detalle.</p>}
                           </section>
-                          {modsAdvancedOpen && (
-                            <aside className="mods-downloader-advanced-sidebar">
-                              <section>
-                                <h4>Categorías</h4>
-                                <p className="mods-empty">Categorías de mods (próximamente).</p>
-                              </section>
-                              <section>
-                                <h4>Cargadores</h4>
-                                <p>{selectedInstanceMetadata?.loader ?? 'Todos los loaders'}</p>
-                              </section>
-                              <section>
-                                <h4>Versiones</h4>
-                                <label><input type="checkbox" checked={downloaderShowAllVersions} onChange={(event) => setDownloaderShowAllVersions(event.target.checked)} /> Mostrar todas las versiones</label>
-                                <select value={downloaderVersionFilter} onChange={(event) => setDownloaderVersionFilter(event.target.value)} disabled={downloaderShowAllVersions}>
-                                  <option value="">Versión actual de la instancia</option>
-                                  {releaseMinecraftVersions.map((version) => <option key={version} value={version}>{version}</option>)}
-                                </select>
-                              </section>
-                              <section>
-                                <h4>Entornos</h4>
-                                <label><input type="checkbox" checked={downloaderClientOnly} onChange={(event) => setDownloaderClientOnly(event.target.checked)} /> Solo cliente</label>
-                                <label><input type="checkbox" checked={downloaderServerOnly} onChange={(event) => setDownloaderServerOnly(event.target.checked)} /> Solo servidor</label>
-                              </section>
-                              <section>
-                                <h4>Extras</h4>
-                                <p className="mods-empty">Próximamente.</p>
-                              </section>
-                            </aside>
-                          )}
+                          
                         </div>
                         <div className="mods-downloader-compact-bars">
                           <div className="mods-compact-bar">
-                            <label>Orden
-                              <select value={modsDownloaderSort} onChange={(event) => setModsDownloaderSort(event.target.value as ModsDownloaderSort)}>
+                            <label>
+                              <select className="mods-sort-select" value={modsDownloaderSort} onChange={(event) => setModsDownloaderSort(event.target.value as ModsDownloaderSort)}>
                                 <option value="relevance">Relevancia</option>
                                 <option value="downloads">Descargas</option>
                                 <option value="followers">Seguidores</option>
@@ -3967,13 +3995,24 @@ function App() {
                             <button className="action-elevated" onClick={stageSelectedMod} disabled={!selectedCatalogVersion}>{stagedDownloads[selectedCatalogModId] ? 'Deseleccionar' : 'Seleccionar para descargar'}</button>
                           </div>
                           <div className="mods-compact-bar actions">
-                            <button onClick={() => setReviewModalOpen(true)}>Revisar</button>
-                            <button className="primary" onClick={() => setReviewModalOpen(true)}>Confirmar</button>
+                            <button className="primary" onClick={() => setReviewModalOpen(true)}>Revisar y confirmar</button>
                             <button onClick={closeDownloaderWithValidation}>Cancelar</button>
                           </div>
                         </div>
                       </div>
                     </div>
+
+
+                    {installingModalOpen && (
+                      <div className="floating-modal-overlay" role="dialog" aria-modal="true" aria-label="Instalando mods">
+                        <article className="floating-modal mods-review-modal">
+                          <h3>Descargando e instalando mods</h3>
+                          <p>{installProgress.message}</p>
+                          <progress max={Math.max(1, installProgress.total)} value={installProgress.current} />
+                          <p>{installProgress.current} / {installProgress.total}</p>
+                        </article>
+                      </div>
+                    )}
 
                     {reviewModalOpen && (
                       <div className="floating-modal-overlay" role="dialog" aria-modal="true" aria-label="Revisión de mods seleccionados">
