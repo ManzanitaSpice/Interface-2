@@ -29,6 +29,81 @@ const MOJANG_MANIFEST_URL: &str =
     "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
 const RESOURCES_URL: &str = "https://resources.download.minecraft.net";
 
+fn normalized_arch() -> &'static str {
+    match std::env::consts::ARCH {
+        "x86_64" | "amd64" => "amd64",
+        "x86" | "i386" | "i586" | "i686" => "x86",
+        "aarch64" | "arm64" => "arm64",
+        _ => "amd64",
+    }
+}
+
+fn current_os_name() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        "windows"
+    }
+    #[cfg(target_os = "macos")]
+    {
+        "macos"
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        "linux"
+    }
+}
+
+fn preferred_native_classifier(current_os: &str, arch: &str) -> Option<String> {
+    if current_os != "windows" {
+        return None;
+    }
+    Some(
+        match arch {
+            "amd64" => "natives-windows",
+            "x86" => "natives-windows-x86",
+            "arm64" => "natives-windows-arm64",
+            _ => "natives-windows",
+        }
+        .to_string(),
+    )
+}
+
+fn resolve_native_classifier_for_library(
+    library: &Value,
+    current_os: &str,
+    current_arch: &str,
+) -> Option<String> {
+    let classifiers = library
+        .get("downloads")
+        .and_then(|d| d.get("classifiers"))
+        .and_then(Value::as_object)?;
+
+    let os_key = if current_os == "macos" {
+        "osx"
+    } else {
+        current_os
+    };
+    let base = library
+        .get("natives")
+        .and_then(|n| n.get(os_key))
+        .and_then(Value::as_str)
+        .map(|raw| {
+            if raw.contains("${arch}") {
+                raw.replace("${arch}", if current_arch == "amd64" { "64" } else { "32" })
+            } else {
+                raw.to_string()
+            }
+        })
+        .or_else(|| preferred_native_classifier(current_os, current_arch));
+
+    if let Some(base_classifier) = base {
+        if classifiers.contains_key(&base_classifier) {
+            return Some(base_classifier);
+        }
+    }
+    None
+}
+
 #[derive(Debug, Clone)]
 pub struct InstanceBuildProgress {
     pub step: String,
@@ -375,32 +450,75 @@ fn download_libraries(
         }
 
         let artifact = lib.get("downloads").and_then(|d| d.get("artifact"));
-        let path = artifact
+        if let Some(path) = artifact
             .and_then(|a| a.get("path"))
             .and_then(Value::as_str)
-            .unwrap_or_default();
-        if path.is_empty() {
-            continue;
+            .filter(|path| !path.is_empty())
+        {
+            let expected_sha1 = artifact
+                .and_then(|a| a.get("sha1"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+
+            let url = artifact
+                .and_then(|a| a.get("url"))
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+                .unwrap_or_else(|| format!("https://libraries.minecraft.net/{path}"));
+
+            log::info!(
+                "[SHORTCUT][ensure_libraries] arch_detectada={} classifier_elegido=artifact jar={}",
+                normalized_arch(),
+                path
+            );
+            jobs.push(DownloadJob {
+                url,
+                target_path: shared_libraries_root.join(path),
+                expected_sha1,
+                label: path.to_string(),
+            });
         }
 
-        let expected_sha1 = artifact
-            .and_then(|a| a.get("sha1"))
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-
-        let url = artifact
-            .and_then(|a| a.get("url"))
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned)
-            .unwrap_or_else(|| format!("https://libraries.minecraft.net/{path}"));
-
-        jobs.push(DownloadJob {
-            url,
-            target_path: shared_libraries_root.join(path),
-            expected_sha1,
-            label: path.to_string(),
-        });
+        if let Some(classifier_key) =
+            resolve_native_classifier_for_library(lib, current_os_name(), normalized_arch())
+        {
+            if let Some(classifier) = lib
+                .get("downloads")
+                .and_then(|d| d.get("classifiers"))
+                .and_then(|c| c.get(&classifier_key))
+            {
+                let path = classifier
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                if !path.is_empty() {
+                    let expected_sha1 = classifier
+                        .get("sha1")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    let url = classifier
+                        .get("url")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned)
+                        .unwrap_or_else(|| format!("https://libraries.minecraft.net/{path}"));
+                    log::info!(
+                        "[SHORTCUT][ensure_libraries] arch_detectada={} classifier_elegido={} jar={}",
+                        normalized_arch(),
+                        classifier_key,
+                        path
+                    );
+                    jobs.push(DownloadJob {
+                        url,
+                        target_path: shared_libraries_root.join(&path),
+                        expected_sha1,
+                        label: path,
+                    });
+                }
+            }
+        }
     }
 
     let total = jobs.len() as u64;
