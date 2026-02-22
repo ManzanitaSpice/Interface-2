@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { DetectedInstanceCard } from '../components/import/DetectedInstanceCard'
 import { ImportProgressModal } from '../components/import/ImportProgressModal'
 import { ImportSidePanel } from '../components/import/ImportSidePanel'
@@ -29,6 +29,8 @@ export function ImportPage({ onInstancesChanged, uiLanguage }: Props) {
   const [loaderFilter, setLoaderFilter] = useState<'all' | 'fabric' | 'forge' | 'neoforge' | 'quilt' | 'vanilla'>('all')
   const [sourceFilter, setSourceFilter] = useState<'all' | 'known' | 'auto'>('all')
   const [modsFilter, setModsFilter] = useState<'all' | 'withMods' | 'withoutMods'>('all')
+  const [page, setPage] = useState(1)
+  const pageSize = 12
 
   const selectedItems = useMemo(() => instances.filter((item) => selected.includes(item.id)), [instances, selected])
   const filteredInstances = useMemo(() => {
@@ -44,6 +46,23 @@ export function ImportPage({ onInstancesChanged, uiLanguage }: Props) {
       return bySearch && byLoader && bySource && byMods
     })
   }, [instances, loaderFilter, modsFilter, search, sourceFilter])
+
+  const totalPages = Math.max(1, Math.ceil(filteredInstances.length / pageSize))
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages])
+
+  const pagedInstances = useMemo(() => {
+    const start = (page - 1) * pageSize
+    return filteredInstances.slice(start, start + pageSize)
+  }, [filteredInstances, page])
+
+  const toggleSelection = (id: string, withModifier: boolean) => {
+    setSelected((prev) => {
+      if (withModifier) return prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]
+      return [id]
+    })
+  }
 
   const buildImportRequests = (items = selectedItems): ImportRequest[] => items.filter((item) => item.importable).map((item) => ({
     detectedInstanceId: item.id,
@@ -126,8 +145,6 @@ export function ImportPage({ onInstancesChanged, uiLanguage }: Props) {
           keepDetected={keepDetected}
           onToggleKeepDetected={() => setKeepDetected((prev) => !prev)}
           onScan={() => void scan()}
-          onSelectAll={() => setSelected(filteredInstances.map((item) => item.id))}
-          onClearSelection={() => setSelected([])}
           onClear={() => { clear(); setSelected([]) }}
         />
         <ScanStatusBar status={status} progressPercent={progressPercent} isScanning={isScanning} />
@@ -159,17 +176,24 @@ export function ImportPage({ onInstancesChanged, uiLanguage }: Props) {
           </select>
         </div>
         <div className="instances-workspace">
-          <div className="cards-grid instances-grid-area import-cards-grid">
-            {filteredInstances.map((item) => (
-              <DetectedInstanceCard
-                key={item.id}
-                item={item}
-                selected={selected.includes(item.id)}
-                uiLanguage={uiLanguage}
-                onToggle={() => setSelected((prev) => prev.includes(item.id) ? prev.filter((id) => id !== item.id) : [...prev, item.id])}
-              />
-            ))}
-            {filteredInstances.length === 0 && <article className="instance-card placeholder">{t.empty}</article>}
+          <div className="import-detected-panel">
+            <div className="cards-grid instances-grid-area import-cards-grid">
+              {pagedInstances.map((item) => (
+                <DetectedInstanceCard
+                  key={item.id}
+                  item={item}
+                  selected={selected.includes(item.id)}
+                  uiLanguage={uiLanguage}
+                  onToggle={(event) => toggleSelection(item.id, event.ctrlKey || event.metaKey)}
+                />
+              ))}
+              {filteredInstances.length === 0 && <article className="instance-card placeholder">{t.empty}</article>}
+            </div>
+            <footer className="import-pagination">
+              <button className="square" onClick={() => setPage((prev) => Math.max(1, prev - 1))} disabled={page <= 1}>Anterior</button>
+              <span>Página {page} de {totalPages}</span>
+              <button className="square" onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))} disabled={page >= totalPages}>Siguiente</button>
+            </footer>
           </div>
         </div>
         {selected.length > 0 && (
@@ -177,6 +201,7 @@ export function ImportPage({ onInstancesChanged, uiLanguage }: Props) {
             <ImportSidePanel
               selectedCount={selected.length}
               canImport={selectedItems.some((item) => item.importable)}
+              showBulkActions={selected.length > 1}
               onImport={() => void runImport(buildImportRequests())}
               onClone={() => void executeAction('clonar')}
               onMigrate={() => void executeAction('migrar')}

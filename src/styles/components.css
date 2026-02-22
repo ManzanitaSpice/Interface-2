@@ -2441,3 +2441,130 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
   width: fit-content;
   text-decoration: none;
 }
+
+/* Console visual alignment improvements */
+.execution-log-console p {
+  display: grid;
+  grid-template-columns: 1fr;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: 8px;
+  padding: .28rem .55rem;
+}
+
+.log-level-warn,
+.log-level-error,
+.log-level-fatal {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+/* Import page refresh */
+.import-toolbar .square,
+.import-pagination .square {
+  border-radius: 8px;
+  min-height: 34px;
+  min-width: 90px;
+}
+
+.import-toolbar {
+  gap: .7rem;
+}
+
+.import-detected-panel {
+  border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
+  background: color-mix(in srgb, var(--bg-surface) 92%, black);
+  padding: .75rem;
+  border-radius: 12px;
+  width: 100%;
+}
+
+.import-pagination {
+  margin-top: .7rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: .6rem;
+}
+
+.import-cards-grid {
+  padding-right: 250px;
+  gap: .7rem;
+}
+
+/* Mods editor */
+.mods-editor-view {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 0;
+}
+
+.mods-topbar {
+  display: flex;
+  gap: .55rem;
+  padding: .55rem .7rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.mods-main-layout {
+  display: grid;
+  grid-template-columns: 1fr 220px;
+  gap: .7rem;
+  min-height: 0;
+  padding: .7rem;
+}
+
+.mods-list-panel {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: .5rem;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+.mods-list-head,
+.mods-row {
+  display: grid;
+  grid-template-columns: 70px 50px 1.4fr .7fr 1fr .75fr .65fr .6fr;
+  gap: .4rem;
+  align-items: center;
+}
+
+.mods-list-head {
+  padding: .45rem;
+  font-size: .73rem;
+  color: var(--text-muted);
+}
+
+.mods-list-body {
+  overflow: auto;
+  display: grid;
+  gap: .35rem;
+}
+
+.mods-row {
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  background: color-mix(in srgb, var(--bg-surface-muted) 88%, black);
+  border-radius: 8px;
+  text-align: left;
+  padding: .42rem;
+}
+
+.mods-row.active { border-color: var(--accent); }
+
+.mods-tag {
+  border: 1px solid color-mix(in srgb, var(--accent) 65%, transparent);
+  border-radius: 999px;
+  padding: .1rem .35rem;
+  width: fit-content;
+  font-size: .72rem;
+}
+
+.mods-right-sidebar {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: .6rem;
+  display: grid;
+  align-content: start;
+  gap: .5rem;
+}

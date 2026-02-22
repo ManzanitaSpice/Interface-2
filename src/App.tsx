@@ -161,6 +161,17 @@ type RuntimeOutputEvent = {
   line: string
 }
 
+type InstanceModEntry = {
+  id: string
+  fileName: string
+  name: string
+  version: string
+  provider: string
+  enabled: boolean
+  sizeBytes: number
+  modifiedAt?: number
+}
+
 type ManifestVersion = {
   id: string
   type: string
@@ -667,6 +678,13 @@ function App() {
   const [instanceVisualMeta, setInstanceVisualMeta] = useState<Record<string, InstanceVisualMeta>>({})
   const [selectedSettingsTab, setSelectedSettingsTab] = useState<InstanceSettingsTab>('General')
   const [selectedGlobalSettingsTab, setSelectedGlobalSettingsTab] = useState<GlobalSettingsTab>('General')
+  const [instanceMods, setInstanceMods] = useState<InstanceModEntry[]>([])
+  const [modsLoading, setModsLoading] = useState(false)
+  const [modsError, setModsError] = useState('')
+  const [modsSearch, setModsSearch] = useState('')
+  const [modsProviderFilter, setModsProviderFilter] = useState<'all' | 'CurseForge' | 'Modrinth' | 'Desconocido'>('all')
+  const [modsPage, setModsPage] = useState(1)
+  const [selectedModId, setSelectedModId] = useState('')
   const [selectedLanguage, setSelectedLanguage] = useState(languageCatalog[0].name)
   const [installedLanguages, setInstalledLanguages] = useState<string[]>(languageCatalog.filter((item) => item.installedByDefault).map((item) => item.name))
   const [languageSearch, setLanguageSearch] = useState('')
@@ -2374,6 +2392,69 @@ function App() {
     }))
   }, [appearanceLoaded, selectedAppearancePreset, selectedFontFamily, uiScalePercent, uiElementScalePercent, customAppearanceVars, userAppearanceThemes])
 
+
+  useEffect(() => {
+    const loadMods = async () => {
+      if (selectedEditSection !== 'Mods' || !selectedCard?.instanceRoot) return
+      setModsLoading(true)
+      setModsError('')
+      try {
+        const rows = await invoke<InstanceModEntry[]>('list_instance_mods', { instanceRoot: selectedCard.instanceRoot })
+        setInstanceMods(rows)
+      } catch (error) {
+        setModsError(error instanceof Error ? error.message : String(error))
+      } finally {
+        setModsLoading(false)
+      }
+    }
+    void loadMods()
+  }, [selectedCard?.instanceRoot, selectedEditSection])
+
+  const formatBytes = (bytes: number) => {
+    if (bytes <= 0) return '0 B'
+    const units = ['B', 'KB', 'MB', 'GB']
+    let size = bytes
+    let index = 0
+    while (size >= 1024 && index < units.length - 1) {
+      size /= 1024
+      index += 1
+    }
+    return `${size.toFixed(index === 0 ? 0 : 1)} ${units[index]}`
+  }
+
+  const inferModTag = useCallback((mod: InstanceModEntry) => {
+    const logs = selectedCard?.instanceRoot ? (runtimeConsoleByInstance[selectedCard.instanceRoot] ?? []) : []
+    const related = logs.filter((entry) => entry.message.toLowerCase().includes(mod.name.toLowerCase()) || entry.message.toLowerCase().includes(mod.fileName.toLowerCase()))
+    const pool = (related.length ? related : logs).map((entry) => entry.message.toLowerCase())
+    if (pool.some((line) => line.includes('dependenc'))) return 'dependencia'
+    if (pool.some((line) => line.includes('incompat'))) return 'incompatible'
+    if (pool.some((line) => line.includes('crash'))) return 'crash'
+    if (pool.some((line) => line.includes('warn'))) return 'warn'
+    if (pool.some((line) => line.includes('login') || line.includes('sesión') || line.includes('session'))) return 'sesion'
+    if (pool.some((line) => line.includes('start') || line.includes('inicio'))) return 'inicio'
+    return '-'
+  }, [runtimeConsoleByInstance, selectedCard?.instanceRoot])
+
+  const filteredMods = useMemo(() => {
+    const query = modsSearch.trim().toLowerCase()
+    return instanceMods.filter((mod) => {
+      const bySearch = !query || mod.name.toLowerCase().includes(query) || mod.fileName.toLowerCase().includes(query)
+      const byProvider = modsProviderFilter === 'all' || mod.provider === modsProviderFilter
+      return bySearch && byProvider
+    })
+  }, [instanceMods, modsProviderFilter, modsSearch])
+
+  const modsTotalPages = Math.max(1, Math.ceil(filteredMods.length / 30))
+  const pagedMods = useMemo(() => {
+    const start = (modsPage - 1) * 30
+    return filteredMods.slice(start, start + 30)
+  }, [filteredMods, modsPage])
+
+
+  useEffect(() => {
+    if (modsPage > modsTotalPages) setModsPage(modsTotalPages)
+  }, [modsPage, modsTotalPages])
+
   return (
     <div className="app-shell">
       <PrincipalTopBar
@@ -3405,6 +3486,52 @@ function App() {
                     </article>
                   </div>
                 )}
+              </section>
+            ) : selectedEditSection === 'Mods' ? (
+              <section className="mods-editor-view">
+                <header className="mods-topbar">
+                  <input type="search" value={modsSearch} onChange={(event) => setModsSearch(event.target.value)} placeholder="Buscar mod" aria-label="Buscar mod" />
+                  <select value={modsProviderFilter} onChange={(event) => setModsProviderFilter(event.target.value as typeof modsProviderFilter)}>
+                    <option value="all">Proveedor: Todos</option>
+                    <option value="CurseForge">CurseForge</option>
+                    <option value="Modrinth">Modrinth</option>
+                    <option value="Desconocido">Desconocido</option>
+                  </select>
+                  <button className="ghost-btn">Filtro avanzado</button>
+                </header>
+                <div className="mods-main-layout">
+                  <div className="mods-list-panel">
+                    {modsLoading && <p>Cargando mods...</p>}
+                    {modsError && <p className="error-banner">{modsError}</p>}
+                    <div className="mods-list-head">
+                      <span>Habilitar</span><span>Icono</span><span>Nombre</span><span>Versión</span><span>Última modificación</span><span>Proveedor</span><span>Tamaño</span><span>Etiqueta</span>
+                    </div>
+                    <div className="mods-list-body">
+                      {pagedMods.map((mod) => (
+                        <button key={mod.id} className={`mods-row ${selectedModId === mod.id ? 'active' : ''}`} onClick={() => setSelectedModId(mod.id)}>
+                          <span>{mod.enabled ? 'ON' : 'OFF'}</span>
+                          <span>🧩</span>
+                          <span>{mod.name}</span>
+                          <span>{mod.version}</span>
+                          <span>{mod.modifiedAt ? new Date(mod.modifiedAt * 1000).toLocaleString() : '-'}</span>
+                          <span>{mod.provider}</span>
+                          <span>{formatBytes(mod.sizeBytes)}</span>
+                          <span className="mods-tag">{inferModTag(mod)}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <footer className="import-pagination">
+                      <button className="square" onClick={() => setModsPage((prev) => Math.max(1, prev - 1))} disabled={modsPage <= 1}>Anterior</button>
+                      <span>Página {modsPage} de {modsTotalPages}</span>
+                      <button className="square" onClick={() => setModsPage((prev) => Math.min(modsTotalPages, prev + 1))} disabled={modsPage >= modsTotalPages}>Siguiente</button>
+                    </footer>
+                  </div>
+                  <aside className="mods-right-sidebar">
+                    <button>Descargar mods</button>
+                    <button>Buscar actualizaciones</button>
+                    <button disabled={!selectedModId}>Cambiar versión</button>
+                  </aside>
+                </div>
               </section>
             ) : (
               <section className="section-placeholder">
