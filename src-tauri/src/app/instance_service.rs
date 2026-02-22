@@ -84,7 +84,7 @@ pub struct RuntimeStatus {
     pub stderr_tail: Vec<String>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ShortcutRedirect {
     source_path: String,
@@ -433,12 +433,12 @@ fn launcher_roots_for_source(source_launcher: &str) -> Vec<PathBuf> {
 
     if cfg!(target_os = "windows") {
         if let Ok(app_data) = std::env::var("APPDATA") {
-            roots.push(PathBuf::from(app_data).join("PrismLauncher"));
-            roots.push(PathBuf::from(app_data).join("MultiMC"));
+            roots.push(PathBuf::from(&app_data).join("PrismLauncher"));
+            roots.push(PathBuf::from(&app_data).join("MultiMC"));
         }
         if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
-            roots.push(PathBuf::from(local_app_data).join("PrismLauncher"));
-            roots.push(PathBuf::from(local_app_data).join("MultiMC"));
+            roots.push(PathBuf::from(&local_app_data).join("PrismLauncher"));
+            roots.push(PathBuf::from(&local_app_data).join("MultiMC"));
         }
     } else {
         if let Ok(home) = std::env::var("HOME") {
