@@ -63,6 +63,69 @@ pub fn list_instance_mods(instance_root: String) -> Result<Vec<InstanceModEntry>
     Ok(rows)
 }
 
+#[tauri::command]
+pub fn set_instance_mod_enabled(instance_root: String, file_name: String, enabled: bool) -> Result<(), String> {
+    let mods_dir = PathBuf::from(instance_root).join("minecraft").join("mods");
+    let source_path = mods_dir.join(&file_name);
+    if !source_path.exists() {
+        return Err(format!("No existe el mod seleccionado: {}", source_path.display()));
+    }
+
+    let lower = file_name.to_lowercase();
+    if enabled {
+        if !lower.ends_with(".disabled") {
+            return Ok(());
+        }
+        let next_name = if lower.ends_with(".jar.disabled") {
+            file_name.trim_end_matches(".disabled").to_string()
+        } else {
+            file_name.trim_end_matches(".disabled").to_string()
+        };
+        let target_path = mods_dir.join(next_name);
+        fs::rename(&source_path, target_path)
+            .map_err(|err| format!("No se pudo activar mod: {err}"))?;
+        return Ok(());
+    }
+
+    if lower.ends_with(".disabled") {
+        return Ok(());
+    }
+
+    let target_path = mods_dir.join(format!("{file_name}.disabled"));
+    fs::rename(&source_path, target_path)
+        .map_err(|err| format!("No se pudo desactivar mod: {err}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn replace_instance_mod_file(
+    instance_root: String,
+    current_file_name: String,
+    download_url: String,
+    new_file_name: String,
+) -> Result<(), String> {
+    let mods_dir = PathBuf::from(instance_root).join("minecraft").join("mods");
+    fs::create_dir_all(&mods_dir)
+        .map_err(|err| format!("No se pudo preparar carpeta de mods: {err}"))?;
+
+    let response = reqwest::blocking::get(&download_url)
+        .map_err(|err| format!("No se pudo descargar versión seleccionada: {err}"))?;
+    let bytes = response
+        .bytes()
+        .map_err(|err| format!("No se pudo leer descarga de versión: {err}"))?;
+
+    let new_target = mods_dir.join(&new_file_name);
+    fs::write(&new_target, &bytes)
+        .map_err(|err| format!("No se pudo guardar la nueva versión: {err}"))?;
+
+    let old_target = mods_dir.join(&current_file_name);
+    if old_target.exists() {
+        let _ = fs::remove_file(old_target);
+    }
+
+    Ok(())
+}
+
 fn split_name_and_version(base: &str) -> (String, String) {
     let mut pieces = base.rsplitn(2, '-');
     let version_candidate = pieces.next().unwrap_or_default().trim();

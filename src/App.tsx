@@ -172,6 +172,11 @@ type InstanceModEntry = {
   modifiedAt?: number
 }
 
+
+type ModCatalogDetail = {
+  versions: Array<{ name: string; gameVersion: string; downloadUrl: string }>
+}
+
 type ManifestVersion = {
   id: string
   type: string
@@ -214,6 +219,7 @@ type LoaderChannelFilter = 'Todos' | 'Stable' | 'Latest' | 'Releases'
 
 type InstanceSettingsTab = 'General' | 'Java' | 'Ajustes' | 'Comandos Personalizados' | 'Variables de Entorno'
 type GlobalSettingsTab = 'General' | 'Idioma' | 'Apariencia' | 'Java' | 'Servicios' | 'Herramientas' | 'Network'
+type ModsAdvancedFilter = { tag: 'all' | 'dependencia' | 'incompatible' | 'crash' | 'warn'; state: 'all' | 'enabled' | 'disabled' }
 
 type MicrosoftAuthStart = {
   authorizeUrl: string
@@ -684,6 +690,12 @@ function App() {
   const [modsSearch, setModsSearch] = useState('')
   const [modsProviderFilter, setModsProviderFilter] = useState<'all' | 'CurseForge' | 'Modrinth' | 'Desconocido'>('all')
   const [modsPage, setModsPage] = useState(1)
+  const [modsAdvancedOpen, setModsAdvancedOpen] = useState(false)
+  const [modsAdvancedFilter, setModsAdvancedFilter] = useState<ModsAdvancedFilter>({ tag: 'all', state: 'all' })
+  const [modVersionSearch, setModVersionSearch] = useState('')
+  const [modVersionLoading, setModVersionLoading] = useState(false)
+  const [modVersionError, setModVersionError] = useState('')
+  const [modVersionOptions, setModVersionOptions] = useState<Array<{ name: string; version: string; downloadUrl: string; fileName: string }>>([])
   const [selectedModId, setSelectedModId] = useState('')
   const [selectedLanguage, setSelectedLanguage] = useState(languageCatalog[0].name)
   const [installedLanguages, setInstalledLanguages] = useState<string[]>(languageCatalog.filter((item) => item.installedByDefault).map((item) => item.name))
@@ -2440,9 +2452,12 @@ function App() {
     return instanceMods.filter((mod) => {
       const bySearch = !query || mod.name.toLowerCase().includes(query) || mod.fileName.toLowerCase().includes(query)
       const byProvider = modsProviderFilter === 'all' || mod.provider === modsProviderFilter
-      return bySearch && byProvider
+      const tag = inferModTag(mod)
+      const byTag = modsAdvancedFilter.tag === 'all' || tag === modsAdvancedFilter.tag
+      const byState = modsAdvancedFilter.state === 'all' || (modsAdvancedFilter.state === 'enabled' ? mod.enabled : !mod.enabled)
+      return bySearch && byProvider && byTag && byState
     })
-  }, [instanceMods, modsProviderFilter, modsSearch])
+  }, [inferModTag, instanceMods, modsAdvancedFilter.state, modsAdvancedFilter.tag, modsProviderFilter, modsSearch])
 
   const modsTotalPages = Math.max(1, Math.ceil(filteredMods.length / 30))
   const pagedMods = useMemo(() => {
@@ -2454,6 +2469,73 @@ function App() {
   useEffect(() => {
     if (modsPage > modsTotalPages) setModsPage(modsTotalPages)
   }, [modsPage, modsTotalPages])
+
+  const selectedMod = useMemo(() => instanceMods.find((item) => item.id === selectedModId) ?? null, [instanceMods, selectedModId])
+
+  const reloadMods = useCallback(async () => {
+    if (!selectedCard?.instanceRoot) return
+    const rows = await invoke<InstanceModEntry[]>('list_instance_mods', { instanceRoot: selectedCard.instanceRoot })
+    setInstanceMods(rows)
+  }, [selectedCard?.instanceRoot])
+
+  const toggleModEnabled = useCallback(async (mod: InstanceModEntry, desired: boolean) => {
+    if (!selectedCard?.instanceRoot) return
+    await invoke('set_instance_mod_enabled', { instanceRoot: selectedCard.instanceRoot, fileName: mod.fileName, enabled: desired })
+    await reloadMods()
+  }, [reloadMods, selectedCard?.instanceRoot])
+
+  const fetchVersionOptions = useCallback(async () => {
+    if (!selectedMod || !selectedCard?.instanceRoot) return
+    const q = modVersionSearch.trim() || selectedMod.name
+    setModVersionLoading(true)
+    setModVersionError('')
+    try {
+      const payload = await invoke<{ items: Array<{ id: string; title: string; source: 'CurseForge' | 'Modrinth' }> }>('search_catalogs', {
+        request: {
+          search: q,
+          category: 'mod',
+          curseforgeClassId: 6,
+          platform: 'Todas',
+          mcVersion: selectedInstanceMetadata?.minecraftVersion ?? null,
+          loader: (selectedInstanceMetadata?.loader ?? '').toLowerCase() || null,
+          modrinthSort: 'relevance',
+          curseforgeSortField: 1,
+          limit: 8,
+          page: 1,
+        },
+      })
+      const first = payload.items[0]
+      if (!first) {
+        setModVersionOptions([])
+        return
+      }
+      const detail = await invoke<ModCatalogDetail>('get_catalog_detail', { request: { id: first.id, source: first.source } })
+      const options = detail.versions
+        .filter((entry: { name: string; gameVersion: string; downloadUrl: string }) => !!entry.downloadUrl)
+        .map((entry: { name: string; gameVersion: string; downloadUrl: string }) => ({
+          name: entry.name,
+          version: entry.gameVersion,
+          downloadUrl: entry.downloadUrl,
+          fileName: `${entry.name.replace(/\s+/g, '-')}.jar`,
+        }))
+      setModVersionOptions(options)
+    } catch (error) {
+      setModVersionError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setModVersionLoading(false)
+    }
+  }, [modVersionSearch, selectedCard?.instanceRoot, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion, selectedMod])
+
+  const replaceModVersion = useCallback(async (option: { name: string; version: string; downloadUrl: string; fileName: string }) => {
+    if (!selectedCard?.instanceRoot || !selectedMod) return
+    await invoke('replace_instance_mod_file', {
+      instanceRoot: selectedCard.instanceRoot,
+      currentFileName: selectedMod.fileName,
+      downloadUrl: option.downloadUrl,
+      newFileName: option.fileName,
+    })
+    await reloadMods()
+  }, [reloadMods, selectedCard?.instanceRoot, selectedMod])
 
   return (
     <div className="app-shell">
@@ -3497,8 +3579,28 @@ function App() {
                     <option value="Modrinth">Modrinth</option>
                     <option value="Desconocido">Desconocido</option>
                   </select>
-                  <button className="ghost-btn">Filtro avanzado</button>
+                  <button className="ghost-btn" onClick={() => setModsAdvancedOpen((prev) => !prev)}>{modsAdvancedOpen ? 'Ocultar filtros' : 'Filtro avanzado'}</button>
                 </header>
+                {modsAdvancedOpen && (
+                  <div className="advanced-filter-body inline mods-advanced-strip">
+                    <label>Estado
+                      <select value={modsAdvancedFilter.state} onChange={(event) => setModsAdvancedFilter((prev) => ({ ...prev, state: event.target.value as ModsAdvancedFilter['state'] }))}>
+                        <option value="all">Todos</option>
+                        <option value="enabled">Activos</option>
+                        <option value="disabled">Desactivados</option>
+                      </select>
+                    </label>
+                    <label>Etiqueta
+                      <select value={modsAdvancedFilter.tag} onChange={(event) => setModsAdvancedFilter((prev) => ({ ...prev, tag: event.target.value as ModsAdvancedFilter['tag'] }))}>
+                        <option value="all">Todas</option>
+                        <option value="dependencia">dependencia</option>
+                        <option value="incompatible">incompatible</option>
+                        <option value="crash">crash</option>
+                        <option value="warn">warn</option>
+                      </select>
+                    </label>
+                  </div>
+                )}
                 <div className="mods-main-layout">
                   <div className="mods-list-panel">
                     {modsLoading && <p>Cargando mods...</p>}
@@ -3507,17 +3609,18 @@ function App() {
                       <span>Habilitar</span><span>Icono</span><span>Nombre</span><span>Versión</span><span>Última modificación</span><span>Proveedor</span><span>Tamaño</span><span>Etiqueta</span>
                     </div>
                     <div className="mods-list-body">
+                      {pagedMods.length === 0 && <p className="mods-empty">No hay mods para los filtros seleccionados.</p>}
                       {pagedMods.map((mod) => (
-                        <button key={mod.id} className={`mods-row ${selectedModId === mod.id ? 'active' : ''}`} onClick={() => setSelectedModId(mod.id)}>
-                          <span>{mod.enabled ? 'ON' : 'OFF'}</span>
-                          <span>🧩</span>
+                        <div key={mod.id} role="button" tabIndex={0} className={`mods-row ${selectedModId === mod.id ? 'active' : ''}`} onClick={() => setSelectedModId(mod.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelectedModId(mod.id) }}>
+                          <span><button className={`chip-toggle ${mod.enabled ? 'on' : 'off'}`} onClick={(event) => { event.stopPropagation(); void toggleModEnabled(mod, !mod.enabled) }}>{mod.enabled ? 'ON' : 'OFF'}</button></span>
+                          <span>{mod.provider === 'CurseForge' ? '🔥' : mod.provider === 'Modrinth' ? '🟢' : '🧩'}</span>
                           <span>{mod.name}</span>
                           <span>{mod.version}</span>
                           <span>{mod.modifiedAt ? new Date(mod.modifiedAt * 1000).toLocaleString() : '-'}</span>
                           <span>{mod.provider}</span>
                           <span>{formatBytes(mod.sizeBytes)}</span>
                           <span className="mods-tag">{inferModTag(mod)}</span>
-                        </button>
+                        </div>
                       ))}
                     </div>
                     <footer className="import-pagination">
@@ -3527,9 +3630,17 @@ function App() {
                     </footer>
                   </div>
                   <aside className="mods-right-sidebar">
-                    <button>Descargar mods</button>
-                    <button>Buscar actualizaciones</button>
-                    <button disabled={!selectedModId}>Cambiar versión</button>
+                    <button className="action-elevated">Descargar mods</button>
+                    <button className="action-elevated" onClick={() => { void fetchVersionOptions() }} disabled={!selectedModId || modVersionLoading}>Buscar actualizaciones</button>
+                    <input type="search" value={modVersionSearch} onChange={(event) => setModVersionSearch(event.target.value)} placeholder="Buscar versión para el mod" />
+                    {modVersionError && <p className="error-banner">{modVersionError}</p>}
+                    <div className="mods-version-list">
+                      {modVersionOptions.slice(0, 6).map((option) => (
+                        <button key={`${option.name}-${option.version}`} onClick={() => { void replaceModVersion(option) }} disabled={!selectedModId}>
+                          {option.name} · MC {option.version || '-'}
+                        </button>
+                      ))}
+                    </div>
                   </aside>
                 </div>
               </section>

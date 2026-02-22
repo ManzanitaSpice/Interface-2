@@ -2568,3 +2568,34 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
   align-content: start;
   gap: .5rem;
 }
+
+
+.mods-advanced-strip { margin: .45rem .7rem 0; border: 1px solid var(--border); border-radius: 10px; }
+.mods-list-panel { min-height: 560px; }
+.mods-list-body { align-content: start; }
+.mods-empty { padding: .8rem; color: var(--text-muted); }
+.mods-row { grid-template-columns: 88px 42px 1.8fr .8fr 1fr .8fr .7fr .45fr; cursor: pointer; transition: transform .14s ease, border-color .14s ease, background .16s ease; }
+.mods-row:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.mods-tag { font-size: .66rem; }
+.chip-toggle { min-width: 56px; border-radius: 999px; font-size: .7rem; padding: .12rem .42rem; }
+.chip-toggle.on { border-color: #16a34a; background: color-mix(in srgb, #16a34a 25%, transparent); }
+.chip-toggle.off { border-color: #f59e0b; background: color-mix(in srgb, #f59e0b 22%, transparent); }
+.action-elevated { transition: transform .15s ease, box-shadow .15s ease; }
+.action-elevated:hover { transform: translateY(-1px); box-shadow: 0 6px 14px rgba(0,0,0,.22); }
+.mods-version-list { display: grid; gap: .4rem; max-height: 220px; overflow: auto; }
+
+.explorer-card { border-radius: 12px; border: 1px solid var(--border); background: color-mix(in srgb, var(--bg-surface) 94%, black); }
+.explorer-card-info { gap: .45rem; padding: .55rem .65rem .75rem; }
+.explorer-gallery-grid { gap: .9rem; }
+.explorer-gallery-grid img { padding: .2rem; background: color-mix(in srgb, var(--bg-surface-muted) 90%, black); cursor: zoom-in; transition: transform .16s ease; }
+.explorer-gallery-grid img:hover { transform: scale(1.02); }
+.gallery-zoom-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.66); display: grid; place-items: center; z-index: 80; }
+.gallery-zoom-image { max-width: min(95vw, 1200px); max-height: 90vh; border-radius: 10px; border: 1px solid var(--border); }
+.explorer-version-cards { display: grid; gap: .55rem; margin-top: .55rem; }
+.explorer-version-card { border: 1px solid var(--border); border-radius: 10px; padding: .55rem .65rem; display: grid; gap: .3rem; background: color-mix(in srgb, var(--bg-surface) 94%, black); }
+.explorer-changelog-cards { display: grid; gap: .45rem; margin-top: .8rem; }
+.explorer-changelog-cards article { border: 1px solid var(--border); border-radius: 9px; padding: .45rem .55rem; }
+.explorer-install-modal { width: min(760px, 95vw); }
+.explorer-install-list { display: grid; gap: .35rem; max-height: 240px; overflow: auto; margin: .5rem 0; }
+.explorer-install-list label { display: grid; gap: .12rem; border: 1px solid var(--border); border-radius: 8px; padding: .42rem .5rem; }
+.explorer-install-list label.disabled { opacity: .45; }

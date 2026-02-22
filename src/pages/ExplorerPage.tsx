@@ -78,9 +78,9 @@ const mapModrinthSort = (sort: SortMode) => sort === 'popularity' ? 'follows' : 
 const mapCurseSortField = (sort: SortMode) => sort === 'popularity' ? 2 : sort === 'updated' ? 3 : sort === 'downloads' ? 6 : sort === 'name' ? 4 : sort === 'stable' ? 11 : 1
 
 const uiText = {
-  es: { search: 'Buscar en catálogo', categories: 'Categorías', sort: 'Orden', platform: 'Plataforma', view: 'Vista', advanced: 'Filtro avanzado', hideAdvanced: 'Ocultar filtros', mcVersion: 'Versión Minecraft', loader: 'Loader', all: 'Todas', headerTitle: 'Catálogo completo de CurseForge y Modrinth', headerSub: 'Resultados optimizados con backend, filtros robustos, caché y paginación.', loading: 'Cargando catálogo...', author: 'Autor', downloads: 'Descargas', noResults: 'No hay resultados para los filtros actuales.', page: 'Página', previous: 'Anterior', next: 'Siguiente', relevance: 'Relevancia', popularity: 'Popularidad', updated: 'Actualizado', stable: 'Estable', byDownloads: 'Descargas', byName: 'Nombre', byAuthor: 'Autor', list: 'Lista', grid: 'Cuadrícula', titles: 'Compacto', retry: 'Reintentar', backToCatalog: 'Volver al catálogo', description: 'Descripción', changelog: 'Changelog', gallery: 'Galería', versions: 'Versiones', comments: 'Comentarios', openSource: 'Abrir página original', noGallery: 'Sin imágenes de galería', noVersions: 'No hay versiones disponibles', commentsHint: 'Comentarios y soporte del proyecto en:', type: 'Type', name: 'Name', date: 'Fecha', modLoaderCol: 'ModLoader', version: 'Version', actions: 'Acciones', open: 'Abrir', download: 'Descargar' },
-  en: { search: 'Search catalog', categories: 'Categories', sort: 'Sort', platform: 'Platform', view: 'View', advanced: 'Advanced filter', hideAdvanced: 'Hide filters', mcVersion: 'Minecraft version', loader: 'Loader', all: 'All', headerTitle: 'Complete CurseForge and Modrinth catalog', headerSub: 'Optimized backend results with robust filters, cache and pagination.', loading: 'Loading catalog...', author: 'Author', downloads: 'Downloads', noResults: 'No results for current filters.', page: 'Page', previous: 'Previous', next: 'Next', relevance: 'Relevance', popularity: 'Popularity', updated: 'Updated', stable: 'Stable', byDownloads: 'Downloads', byName: 'Name', byAuthor: 'Author', list: 'List', grid: 'Grid', titles: 'Compact', retry: 'Retry', backToCatalog: 'Back to catalog', description: 'Description', changelog: 'Changelog', gallery: 'Gallery', versions: 'Versions', comments: 'Comments', openSource: 'Open source page', noGallery: 'No gallery images available', noVersions: 'No versions available', commentsHint: 'Project comments/support available at:', type: 'Type', name: 'Name', date: 'Date', modLoaderCol: 'ModLoader', version: 'Version', actions: 'Actions', open: 'Open', download: 'Download' },
-  pt: { search: 'Buscar no catálogo', categories: 'Categorias', sort: 'Ordenar', platform: 'Plataforma', view: 'Visualização', advanced: 'Filtro avançado', hideAdvanced: 'Ocultar filtros', mcVersion: 'Versão do Minecraft', loader: 'Loader', all: 'Todas', headerTitle: 'Catálogo completo de CurseForge e Modrinth', headerSub: 'Resultados otimizados com backend, filtros robustos, cache e paginação.', loading: 'Carregando catálogo...', author: 'Autor', downloads: 'Downloads', noResults: 'Nenhum resultado para os filtros atuais.', page: 'Página', previous: 'Anterior', next: 'Próxima', relevance: 'Relevância', popularity: 'Popularidade', updated: 'Atualizado', stable: 'Estável', byDownloads: 'Downloads', byName: 'Nome', byAuthor: 'Autor', list: 'Lista', grid: 'Grade', titles: 'Compacto', retry: 'Tentar novamente', backToCatalog: 'Voltar ao catálogo', description: 'Descrição', changelog: 'Changelog', gallery: 'Galeria', versions: 'Versões', comments: 'Comentários', openSource: 'Abrir página original', noGallery: 'Sem imagens na galeria', noVersions: 'Sem versões disponíveis', commentsHint: 'Comentários/suporte do projeto em:', type: 'Type', name: 'Name', date: 'Data', modLoaderCol: 'ModLoader', version: 'Version', actions: 'Ações', open: 'Abrir', download: 'Baixar' },
+  es: { search: 'Buscar en catálogo', categories: 'Categorías', sort: 'Orden', platform: 'Plataforma', view: 'Vista', advanced: 'Filtro avanzado', hideAdvanced: 'Ocultar filtros', mcVersion: 'Versión Minecraft', loader: 'Loader', all: 'Todas', headerTitle: 'Catálogo completo de CurseForge y Modrinth', headerSub: 'Resultados optimizados con backend, filtros robustos, caché y paginación.', loading: 'Cargando catálogo...', author: 'Autor', downloads: 'Descargas', noResults: 'No hay resultados para los filtros actuales.', page: 'Página', previous: 'Anterior', next: 'Siguiente', relevance: 'Relevancia', popularity: 'Popularidad', updated: 'Actualizado', stable: 'Estable', byDownloads: 'Descargas', byName: 'Nombre', byAuthor: 'Autor', list: 'Lista', grid: 'Cuadrícula', titles: 'Compacto', retry: 'Reintentar', backToCatalog: 'Volver al catálogo', description: 'Descripción', changelog: 'Changelog', gallery: 'Galería', versions: 'Versiones', comments: 'Comentarios', openSource: 'Abrir página original', noGallery: 'Sin imágenes de galería', noVersions: 'No hay versiones disponibles', commentsHint: 'Comentarios y soporte del proyecto en:', type: 'Type', name: 'Name', date: 'Fecha', modLoaderCol: 'ModLoader', version: 'Version', actions: 'Acciones', install: 'Instalar', lastUpdate: 'Última actualización', compatibleInstances: 'Instancias compatibles', installInInstances: 'Instalar en instancias', dependencies: 'Dependencias obligatorias', close: 'Cerrar' },
+  en: { search: 'Search catalog', categories: 'Categories', sort: 'Sort', platform: 'Platform', view: 'View', advanced: 'Advanced filter', hideAdvanced: 'Hide filters', mcVersion: 'Minecraft version', loader: 'Loader', all: 'All', headerTitle: 'Complete CurseForge and Modrinth catalog', headerSub: 'Optimized backend results with robust filters, cache and pagination.', loading: 'Loading catalog...', author: 'Author', downloads: 'Downloads', noResults: 'No results for current filters.', page: 'Page', previous: 'Previous', next: 'Next', relevance: 'Relevance', popularity: 'Popularity', updated: 'Updated', stable: 'Stable', byDownloads: 'Downloads', byName: 'Name', byAuthor: 'Author', list: 'List', grid: 'Grid', titles: 'Compact', retry: 'Retry', backToCatalog: 'Back to catalog', description: 'Description', changelog: 'Changelog', gallery: 'Gallery', versions: 'Versions', comments: 'Comments', openSource: 'Open source page', noGallery: 'No gallery images available', noVersions: 'No versions available', commentsHint: 'Project comments/support available at:', type: 'Type', name: 'Name', date: 'Date', modLoaderCol: 'ModLoader', version: 'Version', actions: 'Actions', install: 'Install', lastUpdate: 'Last update', compatibleInstances: 'Compatible instances', installInInstances: 'Install in instances', dependencies: 'Required dependencies', close: 'Close' },
+  pt: { search: 'Buscar no catálogo', categories: 'Categorias', sort: 'Ordenar', platform: 'Plataforma', view: 'Visualização', advanced: 'Filtro avançado', hideAdvanced: 'Ocultar filtros', mcVersion: 'Versão do Minecraft', loader: 'Loader', all: 'Todas', headerTitle: 'Catálogo completo de CurseForge e Modrinth', headerSub: 'Resultados otimizados com backend, filtros robustos, cache e paginação.', loading: 'Carregando catálogo...', author: 'Autor', downloads: 'Downloads', noResults: 'Nenhum resultado para os filtros atuais.', page: 'Página', previous: 'Anterior', next: 'Próxima', relevance: 'Relevância', popularity: 'Popularidade', updated: 'Atualizado', stable: 'Estável', byDownloads: 'Downloads', byName: 'Nome', byAuthor: 'Autor', list: 'Lista', grid: 'Grade', titles: 'Compacto', retry: 'Tentar novamente', backToCatalog: 'Voltar ao catálogo', description: 'Descrição', changelog: 'Changelog', gallery: 'Galeria', versions: 'Versões', comments: 'Comentários', openSource: 'Abrir página original', noGallery: 'Sem imagens na galeria', noVersions: 'Sem versões disponíveis', commentsHint: 'Comentários/suporte do projeto em:', type: 'Type', name: 'Name', date: 'Data', modLoaderCol: 'ModLoader', version: 'Version', actions: 'Ações', install: 'Instalar', lastUpdate: 'Última atualização', compatibleInstances: 'Instâncias compatíveis', installInInstances: 'Instalar em instâncias', dependencies: 'Dependências obrigatórias', close: 'Fechar' },
 } as const
 
 const labels = {
@@ -176,6 +176,15 @@ export function ExplorerPage({ uiLanguage }: Props) {
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState('')
   const [selectedDetail, setSelectedDetail] = useState<CatalogDetail | null>(null)
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null)
+  const [versionSearch, setVersionSearch] = useState('')
+  const [versionFilterOpen, setVersionFilterOpen] = useState(false)
+  const [versionMcFilter, setVersionMcFilter] = useState('all')
+  const [versionLoaderFilter, setVersionLoaderFilter] = useState('all')
+  const [versionPage, setVersionPage] = useState(1)
+  const [installModalOpen, setInstallModalOpen] = useState(false)
+  const [installQuery, setInstallQuery] = useState('')
+  const [selectedVersionForInstall, setSelectedVersionForInstall] = useState<CatalogVersion | null>(null)
   const cacheRef = useRef<Record<string, CatalogSearchResponse>>({})
   const detailCacheRef = useRef<Record<string, CatalogDetail>>({})
   const requestSeq = useRef(0)
@@ -257,6 +266,25 @@ export function ExplorerPage({ uiLanguage }: Props) {
 
   const dateFormatter = useMemo(() => new Intl.DateTimeFormat(uiLanguage === 'en' ? 'en-US' : uiLanguage === 'pt' ? 'pt-BR' : 'es-ES', { dateStyle: 'medium' }), [uiLanguage])
 
+  const compatibleInstances = [
+    { id: 'inst-1', name: 'Survival Fabric 1.20.1', mc: '1.20.1', loader: 'fabric', compatible: true, hasDependency: false },
+    { id: 'inst-2', name: 'Forge RPG 1.19.4', mc: '1.19.4', loader: 'forge', compatible: false, hasDependency: true },
+    { id: 'inst-3', name: 'NeoForge Tech 1.21.1', mc: '1.21.1', loader: 'neoforge', compatible: true, hasDependency: true },
+  ].filter((entry) => !installQuery || entry.name.toLowerCase().includes(installQuery.toLowerCase()))
+
+  const filteredVersions = useMemo(() => {
+    const list = selectedDetail?.versions ?? []
+    return list.filter((version) => {
+      const bySearch = !versionSearch || version.name.toLowerCase().includes(versionSearch.toLowerCase())
+      const byMc = versionMcFilter === 'all' || version.gameVersion.toLowerCase().includes(versionMcFilter.toLowerCase())
+      const byLoader = versionLoaderFilter === 'all' || version.modLoader.toLowerCase().includes(versionLoaderFilter.toLowerCase())
+      return bySearch && byMc && byLoader
+    })
+  }, [selectedDetail?.versions, versionLoaderFilter, versionMcFilter, versionSearch])
+  const versionsPerPage = 8
+  const totalVersionPages = Math.max(1, Math.ceil(filteredVersions.length / versionsPerPage))
+  const pagedVersions = filteredVersions.slice((versionPage - 1) * versionsPerPage, versionPage * versionsPerPage)
+
   return (
     <main className="content content-padded">
       <section className="instances-panel huge-panel explorer-page">
@@ -321,6 +349,7 @@ export function ExplorerPage({ uiLanguage }: Props) {
                         <div className="instance-card-meta explorer-meta-grid">
                           <small>{t.author}: {item.author}</small>
                           <small>{t.downloads}: {compactNumber(item.downloads, uiLanguage)}</small>
+                        <small>{t.lastUpdate}: {item.updatedAt ? dateFormatter.format(new Date(item.updatedAt)) : '-'}</small>
                           {item.updatedAt ? <small>{dateFormatter.format(new Date(item.updatedAt))}</small> : null}
                         </div>
                         <div className="explorer-tags">{item.tags.slice(0, 3).map((tag) => <span key={tag}>{cleanLoaderLabel(tag)}</span>)}</div>
@@ -365,6 +394,7 @@ export function ExplorerPage({ uiLanguage }: Props) {
                   <small>Loader: {selectedItem.loaders.map((entry) => cleanLoaderLabel(entry)).join(', ') || cleanLoaderLabel(selectedItem.projectType)}</small>
                   <small>MC: {selectedItem.minecraftVersions[0] || '-'}</small>
                   <small>Versión complemento: {selectedDetail?.versions[0]?.name || '-'}</small>
+                  <small>{t.lastUpdate}: {selectedItem.updatedAt ? dateFormatter.format(new Date(selectedItem.updatedAt)) : '-'}</small>
                 </div>
                 {!!selectedDetail?.url && <a className="secondary explorer-link" href={selectedDetail.url} target="_blank" rel="noreferrer">{t.openSource}</a>}
               </div>
@@ -383,47 +413,52 @@ export function ExplorerPage({ uiLanguage }: Props) {
               <div className="explorer-detail-panel">
                 {activeTab === 'description' && (
                   <div className="explorer-detail-html">
-                    {renderMarkdown(selectedDetail.description || selectedItem.description)}
+                    {renderMarkdown(selectedDetail.bodyHtml || selectedDetail.description || selectedItem.description)}
                   </div>
                 )}
                 {activeTab === 'changelog' && (
                   <div className="explorer-detail-html">
-                    {renderMarkdown(selectedDetail.changelogHtml || selectedDetail.description)}
+                    <div>{renderMarkdown(selectedDetail.changelogHtml || selectedDetail.description)}<div className="explorer-changelog-cards">{selectedDetail.versions.slice(0, 10).map((version, idx) => <article key={`${version.name}-changelog-${idx}`}><strong>{version.name}</strong><small>{version.publishedAt ? dateFormatter.format(new Date(version.publishedAt)) : '-'}</small><p>{version.versionType} · {version.modLoader || '-'} · MC {version.gameVersion || '-'}</p></article>)}</div></div>
                   </div>
                 )}
                 {activeTab === 'gallery' && (
                   <div className="explorer-gallery-grid">
                     {selectedDetail.gallery.length === 0 && <p>{t.noGallery}</p>}
-                    {selectedDetail.gallery.map((image) => <img key={image} src={image} loading="lazy" referrerPolicy="no-referrer" alt={selectedDetail.title} />)}
+                    {selectedDetail.gallery.map((image) => <img key={image} src={image} loading="lazy" referrerPolicy="no-referrer" alt={selectedDetail.title} onClick={() => setZoomedImage((prev) => prev === image ? null : image)} />)}
                   </div>
                 )}
                 {activeTab === 'versions' && (
                   <div className="explorer-versions-wrap">
-                    {selectedDetail.versions.length === 0 && <p>{t.noVersions}</p>}
-                    {selectedDetail.versions.length > 0 && (
-                      <table className="explorer-versions-table">
-                        <thead>
-                          <tr>
-                            <th>{t.type}</th><th>{t.name}</th><th>{t.date}</th><th>{t.modLoaderCol}</th><th>{t.version}</th><th>{t.actions}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {selectedDetail.versions.map((version, idx) => (
-                            <tr key={`${version.name}-${idx}`}>
-                              <td>{version.versionType}</td>
-                              <td>{version.name}</td>
-                              <td>{version.publishedAt ? dateFormatter.format(new Date(version.publishedAt)) : '-'}</td>
-                              <td>{version.modLoader || '-'}</td>
-                              <td>{version.gameVersion || '-'}</td>
-                              <td className="explorer-version-actions">
-                                {version.fileUrl ? <a href={version.fileUrl} target="_blank" rel="noreferrer">{t.open}</a> : null}
-                                {version.downloadUrl ? <a href={version.downloadUrl} target="_blank" rel="noreferrer">{t.download}</a> : null}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <div className="explorer-actions-compact">
+                      <input type="search" value={versionSearch} onChange={(event) => { setVersionSearch(event.target.value); setVersionPage(1) }} placeholder="Buscar versión" />
+                      <button className="ghost-btn" onClick={() => setVersionFilterOpen((prev) => !prev)}>{versionFilterOpen ? t.hideAdvanced : t.advanced}</button>
+                    </div>
+                    {versionFilterOpen && (
+                      <div className="advanced-filter-body inline">
+                        <label>{t.mcVersion}
+                          <input value={versionMcFilter === 'all' ? '' : versionMcFilter} onChange={(event) => { setVersionMcFilter(event.target.value || 'all'); setVersionPage(1) }} placeholder="1.20.1" />
+                        </label>
+                        <label>{t.loader}
+                          <input value={versionLoaderFilter === 'all' ? '' : versionLoaderFilter} onChange={(event) => { setVersionLoaderFilter(event.target.value || 'all'); setVersionPage(1) }} placeholder="fabric" />
+                        </label>
+                      </div>
                     )}
+                    {filteredVersions.length === 0 && <p>{t.noVersions}</p>}
+                    <div className="explorer-version-cards">
+                      {pagedVersions.map((version, idx) => (
+                        <article key={`${version.name}-${idx}`} className="explorer-version-card">
+                          <strong>{version.name}</strong>
+                          <small>{version.versionType} · {version.publishedAt ? dateFormatter.format(new Date(version.publishedAt)) : '-'}</small>
+                          <p>Loader: {version.modLoader || '-'} · MC {version.gameVersion || '-'}</p>
+                          <button className="action-elevated" onClick={() => { setSelectedVersionForInstall(version); setInstallModalOpen(true) }}>{t.install}</button>
+                        </article>
+                      ))}
+                    </div>
+                    <footer className="explorer-pagination">
+                      <button className="square" onClick={() => setVersionPage((prev) => Math.max(1, prev - 1))} disabled={versionPage <= 1}>{t.previous}</button>
+                      <span>{t.page} {versionPage} / {totalVersionPages}</span>
+                      <button className="square" onClick={() => setVersionPage((prev) => Math.min(totalVersionPages, prev + 1))} disabled={versionPage >= totalVersionPages}>{t.next}</button>
+                    </footer>
                   </div>
                 )}
                 {activeTab === 'comments' && (
@@ -437,6 +472,31 @@ export function ExplorerPage({ uiLanguage }: Props) {
           </div>
         )}
       </section>
+
+      {zoomedImage && (
+        <div className="gallery-zoom-backdrop" onClick={() => setZoomedImage(null)} role="button" tabIndex={0}>
+          <img src={zoomedImage} alt="Zoom" className="gallery-zoom-image" />
+        </div>
+      )}
+      {installModalOpen && (
+        <div className="floating-modal-overlay" role="dialog" aria-modal="true" aria-label={t.installInInstances}>
+          <div className="floating-modal explorer-install-modal">
+            <h3>{t.installInInstances}</h3>
+            <input type="search" value={installQuery} onChange={(event) => setInstallQuery(event.target.value)} placeholder="Buscar instancia" />
+            <div className="explorer-install-list">
+              {compatibleInstances.map((instance) => (
+                <label key={instance.id} className={instance.compatible ? '' : 'disabled'}>
+                  <input type="checkbox" disabled={!instance.compatible} /> {instance.name} · {instance.mc} · {instance.loader}
+                  {instance.hasDependency && <small>{t.dependencies}: ya instalada en esta instancia</small>}
+                </label>
+              ))}
+            </div>
+            <p>{t.dependencies}: {selectedVersionForInstall?.name || '-'}</p>
+            <div className="modal-actions"><button onClick={() => setInstallModalOpen(false)}>{t.close}</button><button>{t.install}</button></div>
+          </div>
+        </div>
+      )}
+
     </main>
   )
 }
