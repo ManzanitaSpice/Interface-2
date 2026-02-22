@@ -386,7 +386,7 @@ pub fn build_launch_plan(
         &version_json,
         version_id,
         &libraries_root,
-        runtime_root,
+        &runtime_root,
         &natives_dir,
         "shortcut",
     ))?;
