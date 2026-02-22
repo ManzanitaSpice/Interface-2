@@ -1251,12 +1251,25 @@ en ningún JAR del classpath del loader '{}'.\n{}",
 
     let mut resolved = resolve_launch_arguments(&version_json, &launch_context, &launch_rules)?;
 
+    let redirect_source_path: Option<PathBuf> = {
+        let redirect_json = mc_root.parent().unwrap_or(&mc_root).join(".redirect.json");
+        fs::read_to_string(&redirect_json)
+            .ok()
+            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+            .and_then(|j| {
+                j.get("source_path")
+                    .and_then(Value::as_str)
+                    .map(PathBuf::from)
+            })
+    };
+    let source_path_for_forge = redirect_source_path.as_deref().unwrap_or(&mc_root);
+
     let forge_args_resolution = if is_forge && forge_generation == ForgeGeneration::Modern {
         match load_forge_args_file(
             &mc_root,
             &selected_version_id,
             &launch_context,
-            &forge_library_directory,
+            source_path_for_forge,
             &mut logs,
         )? {
             Some(args) => args,
@@ -1308,8 +1321,8 @@ en ningún JAR del classpath del loader '{}'.\n{}",
         }
         forge_inject_system_properties(
             &mut jvm_args,
-            &forge_library_directory,
             &mc_root,
+            &forge_library_directory,
             &mut logs,
         );
     }
@@ -2373,11 +2386,322 @@ fn detect_forge_generation(
     ForgeGeneration::Transitional
 }
 
+/// Obtiene la raíz de la unidad o filesystem (C:\, A:\, /, etc.)
+fn get_drive_or_root(path: &Path) -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        let s = path.to_string_lossy();
+        if s.len() >= 3 && s.chars().nth(1) == Some(':') {
+            return Some(PathBuf::from(&s[..3]));
+        }
+    }
+
+    path.ancestors().last().map(PathBuf::from)
+}
+
+/// Encuentra el directorio libraries/ real donde Forge instaló sus JARs.
+/// Funciona con Prism, MultiMC, CurseForge, ATLauncher, Modrinth y rutas personalizadas.
+fn resolve_real_forge_library_dir(
+    mc_root: &Path,
+    source_path: &Path,
+    args_file_raw: &str,
+    logs: &mut Vec<String>,
+) -> PathBuf {
+    // ── ESTRATEGIA 1: Extraer ruta hardcodeada del win_args.txt RAW ──────────
+    for line in args_file_raw.lines() {
+        let line = line.trim();
+
+        if let Some(val) = line.strip_prefix("-DlibraryDirectory=") {
+            let p = PathBuf::from(val.trim());
+            if p.is_dir() {
+                logs.push(format!(
+                    "[FORGE-LIBDIR] Estrategia 1a (DlibraryDirectory hardcoded): {}",
+                    p.display()
+                ));
+                return p;
+            }
+        }
+
+        let separators = if cfg!(target_os = "windows") {
+            &[';'][..]
+        } else {
+            &[':'][..]
+        };
+        for segment in line.split(separators).flat_map(|s| s.split_whitespace()) {
+            let segment = segment.trim();
+            if segment.len() < 5 {
+                continue;
+            }
+
+            let lower = segment.to_ascii_lowercase();
+            if let Some(lib_pos) = lower.find("libraries") {
+                let lib_end = lib_pos + "libraries".len();
+                if lib_end > segment.len() {
+                    continue;
+                }
+                let candidate = PathBuf::from(&segment[..lib_end]);
+                if candidate.is_dir() {
+                    let has_forge = candidate.join("net/minecraftforge").is_dir()
+                        || candidate.join("cpw/mods").is_dir()
+                        || candidate.join("net/minecraft/client").is_dir();
+                    if has_forge {
+                        logs.push(format!(
+                            "[FORGE-LIBDIR] Estrategia 1b (ruta en args_file): {}",
+                            candidate.display()
+                        ));
+                        return candidate;
+                    }
+                }
+            }
+        }
+    }
+
+    // ── ESTRATEGIA 2: Subir desde source_path buscando libraries/ ────────────
+    for ancestor in source_path.ancestors().take(6) {
+        let candidate = ancestor.join("libraries");
+        if !candidate.is_dir() {
+            continue;
+        }
+        let has_forge = candidate.join("net/minecraftforge").is_dir()
+            || candidate.join("cpw/mods").is_dir()
+            || candidate.join("net/minecraft/client").is_dir();
+        if has_forge {
+            logs.push(format!(
+                "[FORGE-LIBDIR] Estrategia 2 (ascending desde source_path): {}",
+                candidate.display()
+            ));
+            return candidate;
+        }
+    }
+
+    // ── ESTRATEGIA 3: Leer config del launcher para obtener su data dir ──────
+    let mut prism_cfg_paths = Vec::new();
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        prism_cfg_paths.push(PathBuf::from(&appdata).join("PrismLauncher/prismlauncher.cfg"));
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        prism_cfg_paths
+            .push(PathBuf::from(&home).join(".local/share/PrismLauncher/prismlauncher.cfg"));
+        prism_cfg_paths.push(PathBuf::from(&home).join(".config/PrismLauncher/prismlauncher.cfg"));
+    }
+    for cfg_path in &prism_cfg_paths {
+        if let Ok(content) = fs::read_to_string(cfg_path) {
+            for line in content.lines() {
+                if let Some(val) = line.trim().strip_prefix("RootPath=") {
+                    let candidate = PathBuf::from(val.trim()).join("libraries");
+                    if candidate.is_dir() {
+                        logs.push(format!(
+                            "[FORGE-LIBDIR] Estrategia 3a (Prism cfg RootPath): {}",
+                            candidate.display()
+                        ));
+                        return candidate;
+                    }
+                }
+            }
+        }
+    }
+
+    let mut multimc_cfg_paths = Vec::new();
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        multimc_cfg_paths.push(PathBuf::from(&appdata).join("MultiMC/multimc.cfg"));
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        multimc_cfg_paths.push(PathBuf::from(&home).join(".local/share/MultiMC/multimc.cfg"));
+    }
+    for cfg_path in &multimc_cfg_paths {
+        if let Ok(content) = fs::read_to_string(cfg_path) {
+            for line in content.lines() {
+                if let Some(val) = line.trim().strip_prefix("RootPath=") {
+                    let candidate = PathBuf::from(val.trim()).join("libraries");
+                    if candidate.is_dir() {
+                        logs.push(format!(
+                            "[FORGE-LIBDIR] Estrategia 3b (MultiMC cfg): {}",
+                            candidate.display()
+                        ));
+                        return candidate;
+                    }
+                }
+            }
+        }
+    }
+
+    let mut curseforge_cfg_paths = Vec::new();
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        curseforge_cfg_paths.push(PathBuf::from(&appdata).join("CurseForge/CoreSettings.json"));
+    }
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        curseforge_cfg_paths.push(PathBuf::from(&local).join("CurseForge/Settings.json"));
+    }
+    for cfg_path in &curseforge_cfg_paths {
+        if let Some(json) = fs::read_to_string(cfg_path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        {
+            let install_path = json
+                .get("installPath")
+                .or_else(|| json.get("install_path"))
+                .and_then(Value::as_str)
+                .map(PathBuf::from);
+            if let Some(base) = install_path {
+                for subpath in [
+                    "minecraft/Install/libraries",
+                    "minecraft/libraries",
+                    "libraries",
+                ] {
+                    let candidate = base.join(subpath);
+                    if candidate.is_dir() {
+                        logs.push(format!(
+                            "[FORGE-LIBDIR] Estrategia 3c (CurseForge cfg): {}",
+                            candidate.display()
+                        ));
+                        return candidate;
+                    }
+                }
+            }
+        }
+    }
+
+    let mut atlauncher_exe_dirs = Vec::new();
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        atlauncher_exe_dirs.push(PathBuf::from(&appdata).join("ATLauncher"));
+    }
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        atlauncher_exe_dirs.push(PathBuf::from(&local).join("ATLauncher"));
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        atlauncher_exe_dirs.push(PathBuf::from(&home).join(".config/ATLauncher"));
+        atlauncher_exe_dirs.push(PathBuf::from(&home).join("ATLauncher"));
+    }
+    for base in &atlauncher_exe_dirs {
+        let candidate = base.join("libraries");
+        if candidate.is_dir() {
+            let has_forge = candidate.join("net/minecraftforge").is_dir();
+            if has_forge {
+                logs.push(format!(
+                    "[FORGE-LIBDIR] Estrategia 3d (ATLauncher dir): {}",
+                    candidate.display()
+                ));
+                return candidate;
+            }
+        }
+    }
+
+    let mut modrinth_cfg_paths = Vec::new();
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        modrinth_cfg_paths.push(PathBuf::from(&appdata).join("com.modrinth.theseus/settings.json"));
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        modrinth_cfg_paths
+            .push(PathBuf::from(&home).join(".config/com.modrinth.theseus/settings.json"));
+    }
+    for cfg_path in &modrinth_cfg_paths {
+        if let Some(json) = fs::read_to_string(cfg_path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        {
+            if let Some(game_dir) = json.get("game_directory").and_then(Value::as_str) {
+                let candidate = PathBuf::from(game_dir).join("libraries");
+                if candidate.is_dir() {
+                    logs.push(format!(
+                        "[FORGE-LIBDIR] Estrategia 3e (Modrinth cfg): {}",
+                        candidate.display()
+                    ));
+                    return candidate;
+                }
+            }
+        }
+    }
+
+    let mut mojang_paths = Vec::new();
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        mojang_paths.push(PathBuf::from(&appdata).join(".minecraft/libraries"));
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        mojang_paths
+            .push(PathBuf::from(&home).join("Library/Application Support/minecraft/libraries"));
+        mojang_paths.push(PathBuf::from(&home).join(".minecraft/libraries"));
+    }
+    for candidate in &mojang_paths {
+        if candidate.is_dir() {
+            let has_forge = candidate.join("net/minecraftforge").is_dir();
+            if has_forge {
+                logs.push(format!(
+                    "[FORGE-LIBDIR] Estrategia 3f (Mojang .minecraft): {}",
+                    candidate.display()
+                ));
+                return candidate.clone();
+            }
+        }
+    }
+
+    // ── ESTRATEGIA 4: Escanear desde la unidad/disco del source_path ─────────
+    if let Some(drive_or_root) = get_drive_or_root(source_path) {
+        if let Ok(level_one) = fs::read_dir(&drive_or_root) {
+            for entry in level_one.flatten() {
+                let top = entry.path();
+                if !top.is_dir() {
+                    continue;
+                }
+
+                let candidate = top.join("libraries");
+                if candidate.is_dir() {
+                    let has_forge = candidate.join("net/minecraftforge").is_dir()
+                        || candidate.join("cpw/mods").is_dir();
+                    if has_forge {
+                        logs.push(format!(
+                            "[FORGE-LIBDIR] Estrategia 4 (escaneo unidad): {}",
+                            candidate.display()
+                        ));
+                        return candidate;
+                    }
+                }
+
+                if let Ok(level_two) = fs::read_dir(&top) {
+                    for sub in level_two.flatten() {
+                        let sub_candidate = sub.path().join("libraries");
+                        if sub_candidate.is_dir() {
+                            let has_forge = sub_candidate.join("net/minecraftforge").is_dir();
+                            if has_forge {
+                                logs.push(format!(
+                                    "[FORGE-LIBDIR] Estrategia 4b (escaneo nivel 2): {}",
+                                    sub_candidate.display()
+                                ));
+                                return sub_candidate;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let fallback = mc_root.join("libraries");
+    logs.push(format!(
+        "[FORGE-LIBDIR] ⚠ FALLBACK: ninguna estrategia encontró libraries/ de Forge. Usando {} — los JARs srg/extra/forge-client probablemente falten aquí. Solución: abre la instancia en su launcher original al menos una vez.",
+        fallback.display()
+    ));
+    fallback
+}
+
+fn find_jar_relative(missing_absolute: &Path, real_lib_dir: &Path) -> Option<PathBuf> {
+    let normalized = missing_absolute.to_string_lossy().replace('\\', "/");
+    let lower = normalized.to_ascii_lowercase();
+    let marker = "libraries/";
+    if let Some(pos) = lower.find(marker) {
+        let rel = &normalized[pos + marker.len()..];
+        let candidate = real_lib_dir.join(rel);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
 fn load_forge_args_file(
     mc_root: &Path,
     version_id: &str,
     launch_context: &LaunchContext,
-    forge_library_dir: &Path,
+    source_path: &Path,
     logs: &mut Vec<String>,
 ) -> Result<Option<ForgeArgsResolution>, String> {
     let filename = if cfg!(target_os = "windows") {
@@ -2397,24 +2721,28 @@ fn load_forge_args_file(
         return Ok(None);
     }
 
-    let content = fs::read_to_string(&path)
+    let raw_content = fs::read_to_string(&path)
         .map_err(|e| format!("No se pudo leer {}: {e}", path.display()))?;
+
+    let real_lib_dir = resolve_real_forge_library_dir(mc_root, source_path, &raw_content, logs);
+    let mut ctx_for_forge = launch_context.clone();
+    ctx_for_forge.library_directory = real_lib_dir.display().to_string();
 
     let redirect_context = find_redirect_context(mc_root);
     let mut library_roots = libraries_dir_candidates(mc_root, redirect_context.as_ref())
         .into_iter()
         .filter(|candidate| candidate.exists())
         .collect::<Vec<_>>();
-    if forge_library_dir.exists() {
-        library_roots.insert(0, forge_library_dir.to_path_buf());
+    if real_lib_dir.exists() {
+        library_roots.insert(0, real_lib_dir.to_path_buf());
     }
     library_roots.sort();
     library_roots.dedup();
-    let effective_library_dir = forge_library_dir.to_path_buf();
+    let effective_library_dir = real_lib_dir;
 
     let mut args: Vec<String> = Vec::new();
 
-    for line in content.lines() {
+    for line in raw_content.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
@@ -2425,19 +2753,54 @@ fn load_forge_args_file(
                 let flag = &line[..space_pos];
                 let value = line[space_pos + 1..].trim();
                 args.push(flag.to_string());
-                args.push(replace_launch_variables(value, launch_context));
+                args.push(replace_launch_variables(value, &ctx_for_forge));
             } else {
-                args.push(replace_launch_variables(line, launch_context));
+                args.push(replace_launch_variables(line, &ctx_for_forge));
             }
         } else {
-            args.push(replace_launch_variables(line, launch_context));
+            args.push(replace_launch_variables(line, &ctx_for_forge));
         }
     }
 
     if let Some(module_idx) = args.iter().position(|arg| arg == "--module-path") {
         if let Some(module_value) = args.get(module_idx + 1).cloned() {
-            let fixed_value = resolve_forge_module_path_value(&module_value, &library_roots)?;
-            args[module_idx + 1] = fixed_value;
+            let separator = if module_value.contains(';') { ';' } else { ':' };
+            let mut fixed = Vec::new();
+            let mut missing_jars = Vec::new();
+            for raw in module_value
+                .split(separator)
+                .filter(|entry| !entry.trim().is_empty())
+            {
+                let entry = raw.trim();
+                let path = PathBuf::from(entry);
+                if path.exists() {
+                    fixed.push(path.display().to_string());
+                    continue;
+                }
+
+                if let Some(found) = find_jar_relative(&path, &effective_library_dir) {
+                    fixed.push(found.display().to_string());
+                    continue;
+                }
+
+                if let Some(found) = try_resolve_missing_library_path(&path, &library_roots) {
+                    fixed.push(found.display().to_string());
+                    continue;
+                }
+
+                missing_jars.push(entry.to_string());
+            }
+
+            if !missing_jars.is_empty() {
+                return Err(format!(
+                    "Forge no puede iniciar: faltan {} JARs críticos que no se encontraron en ningún directorio libraries/ conocido.\n\nJARs faltantes:\n{}\n\nDirectorio libraries/ buscado: {}\n\nSolución: abre esta instancia en su launcher original (Prism/CurseForge/etc.) al menos una vez para que Forge instale sus archivos, luego vuelve a intentarlo.",
+                    missing_jars.len(),
+                    missing_jars.join("\n"),
+                    effective_library_dir.display()
+                ));
+            }
+
+            args[module_idx + 1] = fixed.join(&separator.to_string());
         }
     }
 
@@ -2936,15 +3299,15 @@ fn forge_resolve_main_class(
 
 fn forge_inject_system_properties(
     jvm_args: &mut Vec<String>,
-    libraries_dir: &Path,
     mc_root: &Path,
+    forge_lib_dir: &Path,
     logs: &mut Vec<String>,
 ) {
     let java_home_value = mc_root.join("java").display().to_string();
     let java_home_key = ["java", "home"].join(".");
     let properties = vec![
-        ("legacyClassPath", libraries_dir.display().to_string()),
-        ("libraryDirectory", libraries_dir.display().to_string()),
+        ("legacyClassPath", forge_lib_dir.display().to_string()),
+        ("libraryDirectory", forge_lib_dir.display().to_string()),
         (
             "ignoreList",
             "bootstraplauncher,securejarhandler".to_string(),
@@ -3782,7 +4145,7 @@ mod tests {
             &root,
             version_id,
             &launch_context_for_tests(),
-            &root.join("libraries"),
+            &root,
             &mut logs,
         )
         .expect("ok")
