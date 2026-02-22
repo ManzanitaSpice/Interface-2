@@ -58,6 +58,7 @@ pub fn run() {
             commands::import::cancel_import,
             commands::catalog::search_catalogs,
             commands::catalog::get_catalog_detail,
+            commands::mods::list_instance_mods,
             commands::exports::export_instance_package,
             commands::skin_processor::optimize_skin_png,
             commands::file_manager::list_skins,

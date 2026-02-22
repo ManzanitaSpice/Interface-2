@@ -6,3 +6,4 @@ pub mod settings;
 pub mod visual_meta;
 pub mod skin_processor;
 pub mod validator;
+pub mod mods;

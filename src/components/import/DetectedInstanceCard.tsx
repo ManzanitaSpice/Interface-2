@@ -1,10 +1,11 @@
+import type { MouseEvent } from 'react'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import type { DetectedInstance } from '../../types/import'
 
 type Props = {
   item: DetectedInstance
   selected: boolean
-  onToggle: () => void
+  onToggle: (event: MouseEvent<HTMLElement>) => void
   uiLanguage: 'es' | 'en' | 'pt'
 }
 
@@ -47,7 +48,7 @@ export function DetectedInstanceCard({ item, selected, onToggle, uiLanguage }: P
   return (
     <article
       className={`instance-card clickable import-instance-card ${selected ? 'active' : ''} ${!item.importable ? 'is-dim' : ''}`}
-      onClick={() => item.importable && onToggle()}
+      onClick={(event) => item.importable && onToggle(event)}
       title={item.importWarnings.join(', ')}
     >
       {selected && <span className="instance-selected-chip">✓ Seleccionada</span>}

@@ -7,11 +7,9 @@ type Props = {
   onToggleKeepDetected: () => void
   onScan: () => void
   onClear: () => void
-  onSelectAll: () => void
-  onClearSelection: () => void
 }
 
-export function ImportToolbar({ status, detectedCount, selectedCount, isScanning, keepDetected, onToggleKeepDetected, onScan, onClear, onSelectAll, onClearSelection }: Props) {
+export function ImportToolbar({ status, detectedCount, selectedCount, isScanning, keepDetected, onToggleKeepDetected, onScan, onClear }: Props) {
   return (
     <header className="panel-actions import-toolbar">
       <div className="import-toolbar-summary">
@@ -22,11 +20,9 @@ export function ImportToolbar({ status, detectedCount, selectedCount, isScanning
         <span>Detectadas: {detectedCount}</span>
         <span>Seleccionadas: {selectedCount}</span>
       </div>
-      <button onClick={onScan} disabled={isScanning}>{isScanning ? '⏳ Escaneando...' : '🔍 Detectar'}</button>
-      <button onClick={onSelectAll} disabled={detectedCount === 0}>✅ Seleccionar todo</button>
-      <button onClick={onClearSelection} disabled={selectedCount === 0}>🧹 Limpiar selección</button>
-      <button onClick={onClear}>🗑 Limpiar panel</button>
-      <button className={keepDetected ? 'primary' : ''} onClick={onToggleKeepDetected}>{keepDetected ? '✅ Mantener' : '⬜ Mantener'}</button>
+      <button className="square" onClick={onScan} disabled={isScanning}>{isScanning ? 'Escaneando...' : 'Detectar'}</button>
+      <button className="square" onClick={onClear}>Limpiar panel</button>
+      <button className={`square ${keepDetected ? 'primary' : ''}`} onClick={onToggleKeepDetected}>{keepDetected ? 'Mantener ON' : 'Mantener OFF'}</button>
     </header>
   )
 }
