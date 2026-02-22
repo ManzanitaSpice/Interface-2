@@ -220,6 +220,28 @@ type LoaderChannelFilter = 'Todos' | 'Stable' | 'Latest' | 'Releases'
 type InstanceSettingsTab = 'General' | 'Java' | 'Ajustes' | 'Comandos Personalizados' | 'Variables de Entorno'
 type GlobalSettingsTab = 'General' | 'Idioma' | 'Apariencia' | 'Java' | 'Servicios' | 'Herramientas' | 'Network'
 type ModsAdvancedFilter = { tag: 'all' | 'dependencia' | 'incompatible' | 'crash' | 'warn'; state: 'all' | 'enabled' | 'disabled' }
+type ModsDownloaderSource = 'Modrinth' | 'CurseForge' | 'Externos' | 'Locales'
+type ModsDownloaderSort = 'relevance' | 'downloads' | 'followers' | 'newest' | 'updated'
+
+type ModsCatalogVersion = {
+  id: string
+  label: string
+  version: string
+  stage: 'alpha' | 'beta' | 'release'
+}
+
+type ModsCatalogItem = {
+  id: string
+  source: Extract<ModsDownloaderSource, 'Modrinth' | 'CurseForge'>
+  name: string
+  summary: string
+  downloads: number
+  followers: number
+  publishedAt: string
+  updatedAt: string
+  dependencies: string[]
+  versions: ModsCatalogVersion[]
+}
 
 type MicrosoftAuthStart = {
   authorizeUrl: string
@@ -638,6 +660,69 @@ function mediaTypeFromMeta(meta?: InstanceVisualMeta): 'video' | 'image' {
   return 'image'
 }
 
+const mockModsCatalog: ModsCatalogItem[] = [
+  {
+    id: 'mr-sodium',
+    source: 'Modrinth',
+    name: 'Sodium',
+    summary: 'Optimización de renderizado para mejorar FPS.',
+    downloads: 2_450_100,
+    followers: 59_400,
+    publishedAt: '2025-03-02T10:00:00Z',
+    updatedAt: '2026-01-03T09:00:00Z',
+    dependencies: [],
+    versions: [
+      { id: 'mr-sodium-r1', label: 'Sodium 0.6.0', version: '1.21.1', stage: 'release' },
+      { id: 'mr-sodium-b1', label: 'Sodium 0.7.0-beta', version: '1.21.2', stage: 'beta' },
+    ],
+  },
+  {
+    id: 'mr-iris',
+    source: 'Modrinth',
+    name: 'Iris Shaders',
+    summary: 'Compatibilidad avanzada con shaders.',
+    downloads: 1_920_000,
+    followers: 38_000,
+    publishedAt: '2025-05-12T10:00:00Z',
+    updatedAt: '2026-01-11T09:00:00Z',
+    dependencies: ['mr-sodium'],
+    versions: [
+      { id: 'mr-iris-r1', label: 'Iris 1.8.4', version: '1.21.1', stage: 'release' },
+      { id: 'mr-iris-a1', label: 'Iris 1.9.0-alpha', version: '1.21.2', stage: 'alpha' },
+    ],
+  },
+  {
+    id: 'cf-jei',
+    source: 'CurseForge',
+    name: 'Just Enough Items',
+    summary: 'Buscador de recetas e items dentro del juego.',
+    downloads: 11_300_000,
+    followers: 84_500,
+    publishedAt: '2024-11-15T10:00:00Z',
+    updatedAt: '2026-01-08T09:00:00Z',
+    dependencies: [],
+    versions: [
+      { id: 'cf-jei-r1', label: 'JEI 18.3.1', version: '1.21.1', stage: 'release' },
+      { id: 'cf-jei-b1', label: 'JEI 19.0.0-beta', version: '1.21.2', stage: 'beta' },
+    ],
+  },
+  {
+    id: 'cf-ctm',
+    source: 'CurseForge',
+    name: 'ConnectedTexturesMod',
+    summary: 'Texturas conectadas para packs visuales.',
+    downloads: 2_900_000,
+    followers: 22_100,
+    publishedAt: '2025-07-01T10:00:00Z',
+    updatedAt: '2025-12-30T09:00:00Z',
+    dependencies: ['cf-jei'],
+    versions: [
+      { id: 'cf-ctm-r1', label: 'CTM 2.1.0', version: '1.20.4', stage: 'release' },
+      { id: 'cf-ctm-r2', label: 'CTM 2.2.0', version: '1.21.1', stage: 'release' },
+    ],
+  },
+]
+
 function App() {
   const [activePage, setActivePage] = useState<MainPage>('Mis Modpacks')
   const [backHistory, setBackHistory] = useState<MainPage[]>([])
@@ -697,6 +782,13 @@ function App() {
   const [modVersionError, setModVersionError] = useState('')
   const [modVersionOptions, setModVersionOptions] = useState<Array<{ name: string; version: string; downloadUrl: string; fileName: string }>>([])
   const [selectedModId, setSelectedModId] = useState('')
+  const [modsDownloaderOpen, setModsDownloaderOpen] = useState(false)
+  const [modsDownloaderSource, setModsDownloaderSource] = useState<ModsDownloaderSource>('Modrinth')
+  const [modsDownloaderSort, setModsDownloaderSort] = useState<ModsDownloaderSort>('relevance')
+  const [selectedCatalogModId, setSelectedCatalogModId] = useState('')
+  const [selectedCatalogVersionIdByMod, setSelectedCatalogVersionIdByMod] = useState<Record<string, string>>({})
+  const [stagedDownloads, setStagedDownloads] = useState<Record<string, { mod: ModsCatalogItem; version: ModsCatalogVersion; reinstall: boolean }>>({})
+  const [reviewModalOpen, setReviewModalOpen] = useState(false)
   const [selectedLanguage, setSelectedLanguage] = useState(languageCatalog[0].name)
   const [installedLanguages, setInstalledLanguages] = useState<string[]>(languageCatalog.filter((item) => item.installedByDefault).map((item) => item.name))
   const [languageSearch, setLanguageSearch] = useState('')
@@ -2471,6 +2563,106 @@ function App() {
   }, [modsPage, modsTotalPages])
 
   const selectedMod = useMemo(() => instanceMods.find((item) => item.id === selectedModId) ?? null, [instanceMods, selectedModId])
+  const isCatalogSource = modsDownloaderSource === 'Modrinth' || modsDownloaderSource === 'CurseForge'
+
+  const downloaderCatalogMods = useMemo(() => {
+    if (!isCatalogSource) return []
+    const sortCatalog = [...mockModsCatalog].filter((item) => item.source === modsDownloaderSource)
+    const sorter: Record<ModsDownloaderSort, (left: ModsCatalogItem, right: ModsCatalogItem) => number> = {
+      relevance: (left, right) => right.followers - left.followers,
+      downloads: (left, right) => right.downloads - left.downloads,
+      followers: (left, right) => right.followers - left.followers,
+      newest: (left, right) => new Date(right.publishedAt).getTime() - new Date(left.publishedAt).getTime(),
+      updated: (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+    }
+    return sortCatalog.sort(sorter[modsDownloaderSort])
+  }, [isCatalogSource, modsDownloaderSort, modsDownloaderSource])
+
+  const selectedCatalogMod = useMemo(() => downloaderCatalogMods.find((item) => item.id === selectedCatalogModId) ?? null, [downloaderCatalogMods, selectedCatalogModId])
+
+  useEffect(() => {
+    if (!modsDownloaderOpen || !isCatalogSource) return
+    if (!selectedCatalogModId && downloaderCatalogMods.length > 0) {
+      setSelectedCatalogModId(downloaderCatalogMods[0].id)
+    }
+    if (selectedCatalogModId && !downloaderCatalogMods.some((item) => item.id === selectedCatalogModId)) {
+      setSelectedCatalogModId(downloaderCatalogMods[0]?.id ?? '')
+    }
+  }, [downloaderCatalogMods, isCatalogSource, modsDownloaderOpen, selectedCatalogModId])
+
+  const selectedCatalogVersion = useMemo(() => {
+    if (!selectedCatalogMod) return null
+    const selectedVersionId = selectedCatalogVersionIdByMod[selectedCatalogMod.id]
+    return selectedCatalogMod.versions.find((item) => item.id === selectedVersionId) ?? selectedCatalogMod.versions[0] ?? null
+  }, [selectedCatalogMod, selectedCatalogVersionIdByMod])
+
+  const openDownloader = () => {
+    setModsDownloaderOpen(true)
+    setModsDownloaderSource('Modrinth')
+  }
+
+  const closeDownloaderWithValidation = () => {
+    const selectedCount = Object.keys(stagedDownloads).length
+    if (selectedCount > 0) {
+      const confirmed = window.confirm(`Tienes ${selectedCount} mod(s) seleccionados en revisión. ¿Seguro que quieres cancelar y volver a la sección de mods?`)
+      if (!confirmed) return
+    }
+    setModsDownloaderOpen(false)
+    setReviewModalOpen(false)
+  }
+
+  const selectVersionForCurrentMod = (versionId: string) => {
+    if (!selectedCatalogMod) return
+    setSelectedCatalogVersionIdByMod((prev) => ({ ...prev, [selectedCatalogMod.id]: versionId }))
+  }
+
+  const stageSelectedMod = () => {
+    if (!selectedCatalogMod || !selectedCatalogVersion) return
+    setStagedDownloads((prev) => ({
+      ...prev,
+      [selectedCatalogMod.id]: {
+        mod: selectedCatalogMod,
+        version: selectedCatalogVersion,
+        reinstall: instanceMods.some((item) => item.name.toLowerCase() === selectedCatalogMod.name.toLowerCase()),
+      },
+    }))
+  }
+
+  const reviewTree = useMemo(() => {
+    const selected = Object.values(stagedDownloads)
+    return selected.map((entry) => ({
+      ...entry,
+      dependencies: entry.mod.dependencies
+        .map((dependencyId) => mockModsCatalog.find((item) => item.id === dependencyId))
+        .filter((item): item is ModsCatalogItem => Boolean(item))
+        .map((dependency) => ({
+          mod: dependency,
+          installed: instanceMods.some((item) => item.name.toLowerCase() === dependency.name.toLowerCase()),
+          version: dependency.versions[0] ?? null,
+        })),
+    }))
+  }, [instanceMods, stagedDownloads])
+
+  const toggleStageFromReview = (modId: string, checked: boolean) => {
+    setStagedDownloads((prev) => {
+      if (checked) return prev
+      const next = { ...prev }
+      delete next[modId]
+      return next
+    })
+  }
+
+  const confirmReviewAndInstall = () => {
+    const selected = Object.values(stagedDownloads)
+    if (selected.length === 0) {
+      window.alert('No hay mods seleccionados para descargar.')
+      return
+    }
+    window.alert(`Descarga e instalación iniciada para ${selected.length} mod(s).`)
+    setReviewModalOpen(false)
+    setModsDownloaderOpen(false)
+    setStagedDownloads({})
+  }
 
   const reloadMods = useCallback(async () => {
     if (!selectedCard?.instanceRoot) return
@@ -3571,78 +3763,172 @@ function App() {
               </section>
             ) : selectedEditSection === 'Mods' ? (
               <section className="mods-editor-view">
-                <header className="mods-topbar">
-                  <input type="search" value={modsSearch} onChange={(event) => setModsSearch(event.target.value)} placeholder="Buscar mod" aria-label="Buscar mod" />
-                  <select value={modsProviderFilter} onChange={(event) => setModsProviderFilter(event.target.value as typeof modsProviderFilter)}>
-                    <option value="all">Proveedor: Todos</option>
-                    <option value="CurseForge">CurseForge</option>
-                    <option value="Modrinth">Modrinth</option>
-                    <option value="Desconocido">Desconocido</option>
-                  </select>
-                  <button className="ghost-btn" onClick={() => setModsAdvancedOpen((prev) => !prev)}>{modsAdvancedOpen ? 'Ocultar filtros' : 'Filtro avanzado'}</button>
-                </header>
-                {modsAdvancedOpen && (
-                  <div className="advanced-filter-body inline mods-advanced-strip">
-                    <label>Estado
-                      <select value={modsAdvancedFilter.state} onChange={(event) => setModsAdvancedFilter((prev) => ({ ...prev, state: event.target.value as ModsAdvancedFilter['state'] }))}>
-                        <option value="all">Todos</option>
-                        <option value="enabled">Activos</option>
-                        <option value="disabled">Desactivados</option>
+                {!modsDownloaderOpen ? (
+                  <>
+                    <header className="mods-topbar">
+                      <input type="search" value={modsSearch} onChange={(event) => setModsSearch(event.target.value)} placeholder="Buscar mod" aria-label="Buscar mod" />
+                      <select value={modsProviderFilter} onChange={(event) => setModsProviderFilter(event.target.value as typeof modsProviderFilter)}>
+                        <option value="all">Proveedor: Todos</option>
+                        <option value="CurseForge">CurseForge</option>
+                        <option value="Modrinth">Modrinth</option>
+                        <option value="Desconocido">Desconocido</option>
                       </select>
-                    </label>
-                    <label>Etiqueta
-                      <select value={modsAdvancedFilter.tag} onChange={(event) => setModsAdvancedFilter((prev) => ({ ...prev, tag: event.target.value as ModsAdvancedFilter['tag'] }))}>
-                        <option value="all">Todas</option>
-                        <option value="dependencia">dependencia</option>
-                        <option value="incompatible">incompatible</option>
-                        <option value="crash">crash</option>
-                        <option value="warn">warn</option>
-                      </select>
-                    </label>
+                      <button className="ghost-btn" onClick={() => setModsAdvancedOpen((prev) => !prev)}>{modsAdvancedOpen ? 'Ocultar filtros' : 'Filtro avanzado'}</button>
+                    </header>
+                    {modsAdvancedOpen && (
+                      <div className="advanced-filter-body inline mods-advanced-strip">
+                        <label>Estado
+                          <select value={modsAdvancedFilter.state} onChange={(event) => setModsAdvancedFilter((prev) => ({ ...prev, state: event.target.value as ModsAdvancedFilter['state'] }))}>
+                            <option value="all">Todos</option>
+                            <option value="enabled">Activos</option>
+                            <option value="disabled">Desactivados</option>
+                          </select>
+                        </label>
+                        <label>Etiqueta
+                          <select value={modsAdvancedFilter.tag} onChange={(event) => setModsAdvancedFilter((prev) => ({ ...prev, tag: event.target.value as ModsAdvancedFilter['tag'] }))}>
+                            <option value="all">Todas</option>
+                            <option value="dependencia">dependencia</option>
+                            <option value="incompatible">incompatible</option>
+                            <option value="crash">crash</option>
+                            <option value="warn">warn</option>
+                          </select>
+                        </label>
+                      </div>
+                    )}
+                    <div className="mods-main-layout">
+                      <div className="mods-list-panel">
+                        {modsLoading && <p>Cargando mods...</p>}
+                        {modsError && <p className="error-banner">{modsError}</p>}
+                        <div className="mods-list-head">
+                          <span>Habilitar</span><span>Icono</span><span>Nombre</span><span>Versión</span><span>Última modificación</span><span>Proveedor</span><span>Tamaño</span><span>Etiqueta</span>
+                        </div>
+                        <div className="mods-list-body">
+                          {pagedMods.length === 0 && <p className="mods-empty">No hay mods para los filtros seleccionados.</p>}
+                          {pagedMods.map((mod) => (
+                            <div key={mod.id} role="button" tabIndex={0} className={`mods-row ${selectedModId === mod.id ? 'active' : ''}`} onClick={() => setSelectedModId(mod.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelectedModId(mod.id) }}>
+                              <span><button className={`chip-toggle ${mod.enabled ? 'on' : 'off'}`} onClick={(event) => { event.stopPropagation(); void toggleModEnabled(mod, !mod.enabled) }}>{mod.enabled ? 'ON' : 'OFF'}</button></span>
+                              <span>{mod.provider === 'CurseForge' ? '🔥' : mod.provider === 'Modrinth' ? '🟢' : '🧩'}</span>
+                              <span>{mod.name}</span>
+                              <span>{mod.version}</span>
+                              <span>{mod.modifiedAt ? new Date(mod.modifiedAt * 1000).toLocaleString() : '-'}</span>
+                              <span>{mod.provider}</span>
+                              <span>{formatBytes(mod.sizeBytes)}</span>
+                              <span className="mods-tag">{inferModTag(mod)}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <footer className="import-pagination">
+                          <button className="square" onClick={() => setModsPage((prev) => Math.max(1, prev - 1))} disabled={modsPage <= 1}>Anterior</button>
+                          <span>Página {modsPage} de {modsTotalPages}</span>
+                          <button className="square" onClick={() => setModsPage((prev) => Math.min(modsTotalPages, prev + 1))} disabled={modsPage >= modsTotalPages}>Siguiente</button>
+                        </footer>
+                      </div>
+                      <aside className="mods-right-sidebar">
+                        <button className="action-elevated" onClick={openDownloader}>Descargar mods</button>
+                        <button className="action-elevated" onClick={() => { void fetchVersionOptions() }} disabled={!selectedModId || modVersionLoading}>Buscar actualizaciones</button>
+                        <input type="search" value={modVersionSearch} onChange={(event) => setModVersionSearch(event.target.value)} placeholder="Buscar versión para el mod" />
+                        {modVersionError && <p className="error-banner">{modVersionError}</p>}
+                        <div className="mods-version-list">
+                          {modVersionOptions.slice(0, 6).map((option) => (
+                            <button key={`${option.name}-${option.version}`} onClick={() => { void replaceModVersion(option) }} disabled={!selectedModId}>
+                              {option.name} · MC {option.version || '-'}
+                            </button>
+                          ))}
+                        </div>
+                      </aside>
+                    </div>
+                  </>
+                ) : (
+                  <div className="mods-downloader-page">
+                    <div className="mods-downloader-layout">
+                      <aside className="mods-downloader-sidebar">
+                        {(['Modrinth', 'CurseForge', 'Externos', 'Locales'] as ModsDownloaderSource[]).map((source) => (
+                          <button key={source} className={modsDownloaderSource === source ? 'active' : ''} onClick={() => setModsDownloaderSource(source)}>{source}</button>
+                        ))}
+                      </aside>
+                      <div className="mods-downloader-center">
+                        <header className="mods-downloader-topbar">
+                          <h3>Descargador de mods</h3>
+                          <p>Catálogo y revisión previa de instalación en esta instancia.</p>
+                        </header>
+                        <div className="mods-downloader-panels">
+                          <section className="mods-catalog-panel">
+                            {isCatalogSource ? downloaderCatalogMods.map((mod) => (
+                              <button key={mod.id} className={`mods-catalog-item ${selectedCatalogModId === mod.id ? 'active' : ''}`} onClick={() => setSelectedCatalogModId(mod.id)}>
+                                <strong>{mod.name}</strong>
+                                <small>{mod.summary}</small>
+                                <span>{mod.downloads.toLocaleString()} descargas</span>
+                              </button>
+                            )) : <p className="mods-empty">Esta fuente está reservada para integración manual/local.</p>}
+                          </section>
+                          <section className="mods-preview-panel">
+                            {selectedCatalogMod ? (
+                              <>
+                                <h3>{selectedCatalogMod.name}</h3>
+                                <p>{selectedCatalogMod.summary}</p>
+                                <p>Seguidores: {selectedCatalogMod.followers.toLocaleString()} · Actualizado: {new Date(selectedCatalogMod.updatedAt).toLocaleDateString()}</p>
+                              </>
+                            ) : <p className="mods-empty">Selecciona un mod para ver su detalle.</p>}
+                          </section>
+                        </div>
+                        <div className="mods-downloader-compact-bars">
+                          <div className="mods-compact-bar">
+                            <label>Orden
+                              <select value={modsDownloaderSort} onChange={(event) => setModsDownloaderSort(event.target.value as ModsDownloaderSort)}>
+                                <option value="relevance">Relevancia</option>
+                                <option value="downloads">Descargas</option>
+                                <option value="followers">Seguidores</option>
+                                <option value="newest">Mas actual</option>
+                                <option value="updated">Ultima actualizacion</option>
+                              </select>
+                            </label>
+                          </div>
+                          <div className="mods-compact-bar vertical">
+                            <label>Versiones del mod
+                              <select value={selectedCatalogVersion?.id ?? ''} onChange={(event) => selectVersionForCurrentMod(event.target.value)} disabled={!selectedCatalogMod}>
+                                {(selectedCatalogMod?.versions ?? []).map((version) => (
+                                  <option key={version.id} value={version.id}>{selectedCatalogMod?.name ?? 'Mod'} · {version.version} · {version.label} · {version.stage.toUpperCase()} {(selectedCatalogMod && instanceMods.some((item) => item.name.toLowerCase() === selectedCatalogMod.name.toLowerCase()) ? '· INSTALADO' : '')}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <button className="action-elevated" onClick={stageSelectedMod} disabled={!selectedCatalogVersion}>Seleccione para descargar</button>
+                          </div>
+                          <div className="mods-compact-bar actions">
+                            <button onClick={() => setReviewModalOpen(true)}>Revisar y Confirmar</button>
+                            <button onClick={closeDownloaderWithValidation}>Cancelar</button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {reviewModalOpen && (
+                      <div className="floating-modal-overlay" role="dialog" aria-modal="true" aria-label="Revisión de mods seleccionados">
+                        <article className="floating-modal mods-review-modal">
+                          <h3>Revisión de mods seleccionados</h3>
+                          <div className="mods-review-list">
+                            {reviewTree.length === 0 && <p className="mods-empty">No hay mods seleccionados.</p>}
+                            {reviewTree.map((entry) => (
+                              <div key={entry.mod.id} className="mods-review-card">
+                                <label>
+                                  <input type="checkbox" checked={Boolean(stagedDownloads[entry.mod.id])} onChange={(event) => toggleStageFromReview(entry.mod.id, event.target.checked)} />
+                                  <strong>{entry.mod.name}</strong> · {entry.version.label}
+                                  {entry.reinstall && <span className="mods-tag">Instalado (desmarcado por defecto recomendado)</span>}
+                                </label>
+                                {entry.dependencies.map((dependency) => (
+                                  <p key={`${entry.mod.id}-${dependency.mod.id}`} className="mods-review-dependency">↳ Dependencia obligatoria: {dependency.mod.name} {dependency.installed ? '(ya instalada)' : ''}</p>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                          <footer className="floating-modal-actions">
+                            <button className="primary" onClick={confirmReviewAndInstall}>Ok</button>
+                            <button onClick={() => setReviewModalOpen(false)}>Cancelar</button>
+                          </footer>
+                        </article>
+                      </div>
+                    )}
                   </div>
                 )}
-                <div className="mods-main-layout">
-                  <div className="mods-list-panel">
-                    {modsLoading && <p>Cargando mods...</p>}
-                    {modsError && <p className="error-banner">{modsError}</p>}
-                    <div className="mods-list-head">
-                      <span>Habilitar</span><span>Icono</span><span>Nombre</span><span>Versión</span><span>Última modificación</span><span>Proveedor</span><span>Tamaño</span><span>Etiqueta</span>
-                    </div>
-                    <div className="mods-list-body">
-                      {pagedMods.length === 0 && <p className="mods-empty">No hay mods para los filtros seleccionados.</p>}
-                      {pagedMods.map((mod) => (
-                        <div key={mod.id} role="button" tabIndex={0} className={`mods-row ${selectedModId === mod.id ? 'active' : ''}`} onClick={() => setSelectedModId(mod.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelectedModId(mod.id) }}>
-                          <span><button className={`chip-toggle ${mod.enabled ? 'on' : 'off'}`} onClick={(event) => { event.stopPropagation(); void toggleModEnabled(mod, !mod.enabled) }}>{mod.enabled ? 'ON' : 'OFF'}</button></span>
-                          <span>{mod.provider === 'CurseForge' ? '🔥' : mod.provider === 'Modrinth' ? '🟢' : '🧩'}</span>
-                          <span>{mod.name}</span>
-                          <span>{mod.version}</span>
-                          <span>{mod.modifiedAt ? new Date(mod.modifiedAt * 1000).toLocaleString() : '-'}</span>
-                          <span>{mod.provider}</span>
-                          <span>{formatBytes(mod.sizeBytes)}</span>
-                          <span className="mods-tag">{inferModTag(mod)}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <footer className="import-pagination">
-                      <button className="square" onClick={() => setModsPage((prev) => Math.max(1, prev - 1))} disabled={modsPage <= 1}>Anterior</button>
-                      <span>Página {modsPage} de {modsTotalPages}</span>
-                      <button className="square" onClick={() => setModsPage((prev) => Math.min(modsTotalPages, prev + 1))} disabled={modsPage >= modsTotalPages}>Siguiente</button>
-                    </footer>
-                  </div>
-                  <aside className="mods-right-sidebar">
-                    <button className="action-elevated">Descargar mods</button>
-                    <button className="action-elevated" onClick={() => { void fetchVersionOptions() }} disabled={!selectedModId || modVersionLoading}>Buscar actualizaciones</button>
-                    <input type="search" value={modVersionSearch} onChange={(event) => setModVersionSearch(event.target.value)} placeholder="Buscar versión para el mod" />
-                    {modVersionError && <p className="error-banner">{modVersionError}</p>}
-                    <div className="mods-version-list">
-                      {modVersionOptions.slice(0, 6).map((option) => (
-                        <button key={`${option.name}-${option.version}`} onClick={() => { void replaceModVersion(option) }} disabled={!selectedModId}>
-                          {option.name} · MC {option.version || '-'}
-                        </button>
-                      ))}
-                    </div>
-                  </aside>
-                </div>
               </section>
             ) : (
               <section className="section-placeholder">

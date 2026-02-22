@@ -2599,3 +2599,23 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
 .explorer-install-list { display: grid; gap: .35rem; max-height: 240px; overflow: auto; margin: .5rem 0; }
 .explorer-install-list label { display: grid; gap: .12rem; border: 1px solid var(--border); border-radius: 8px; padding: .42rem .5rem; }
 .explorer-install-list label.disabled { opacity: .45; }
+.mods-downloader-page { min-height: 0; display: grid; padding: .7rem; }
+.mods-downloader-layout { border: 1px solid var(--border); border-radius: 10px; min-height: 0; display: grid; grid-template-columns: 180px 1fr; overflow: hidden; }
+.mods-downloader-sidebar { border-right: 1px solid var(--border); padding: .55rem; display: grid; gap: .45rem; align-content: start; }
+.mods-downloader-sidebar button.active { border-color: var(--accent); }
+.mods-downloader-center { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; }
+.mods-downloader-topbar { border-bottom: 1px solid var(--border); padding: .55rem .7rem; }
+.mods-downloader-topbar p { margin: .2rem 0 0; color: var(--text-muted); }
+.mods-downloader-panels { display: grid; grid-template-columns: 1fr 1fr; min-height: 340px; gap: .7rem; padding: .7rem; }
+.mods-catalog-panel, .mods-preview-panel { border: 1px solid var(--border); border-radius: 10px; padding: .55rem; overflow: auto; display: grid; align-content: start; gap: .45rem; }
+.mods-catalog-item { text-align: left; border: 1px solid var(--border); border-radius: 8px; padding: .45rem .55rem; display: grid; gap: .22rem; }
+.mods-catalog-item.active { border-color: var(--accent); }
+.mods-catalog-item small { color: var(--text-muted); }
+.mods-downloader-compact-bars { border-top: 1px solid var(--border); padding: .55rem .7rem; display: grid; gap: .45rem; }
+.mods-compact-bar { border: 1px solid var(--border); border-radius: 8px; padding: .35rem .45rem; display: flex; align-items: center; gap: .5rem; }
+.mods-compact-bar.vertical { display: grid; justify-items: start; }
+.mods-compact-bar.actions { justify-content: flex-end; }
+.mods-review-modal { width: min(900px, 96vw); }
+.mods-review-list { max-height: 340px; overflow: auto; display: grid; gap: .5rem; }
+.mods-review-card { border: 1px solid var(--border); border-radius: 8px; padding: .45rem .55rem; display: grid; gap: .3rem; }
+.mods-review-dependency { margin: 0; color: var(--text-muted); font-size: .82rem; padding-left: .4rem; }
