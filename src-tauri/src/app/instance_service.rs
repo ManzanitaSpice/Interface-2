@@ -584,6 +584,10 @@ fn try_resolve_missing_library_path(original: &Path, library_roots: &[PathBuf]) 
     None
 }
 
+fn normalize_java_path_argument(value: &str) -> String {
+    value.replace('\\', "/")
+}
+
 fn resolve_forge_module_path_value(
     module_value: &str,
     library_roots: &[PathBuf],
@@ -599,12 +603,12 @@ fn resolve_forge_module_path_value(
         let entry = raw.trim();
         let path = PathBuf::from(entry);
         if path.exists() {
-            resolved.push(path.display().to_string());
+            resolved.push(normalize_java_path_argument(&path.display().to_string()));
             continue;
         }
 
         if let Some(fixed) = try_resolve_missing_library_path(&path, library_roots) {
-            resolved.push(fixed.display().to_string());
+            resolved.push(normalize_java_path_argument(&fixed.display().to_string()));
             continue;
         }
 
@@ -636,7 +640,7 @@ fn resolve_forge_library_path_list_value(
     } else if cfg!(target_os = "windows") {
         // En Windows una ruta absoluta contiene ':' por la unidad (ej. C:\\),
         // por lo que ':' no es un separador confiable para listas de rutas.
-        return Ok(value.to_string());
+        return Ok(normalize_java_path_argument(value));
     } else {
         ':'
     };
@@ -651,12 +655,12 @@ fn resolve_forge_library_path_list_value(
         let entry = raw.trim();
         let path = PathBuf::from(entry);
         if path.exists() {
-            resolved.push(path.display().to_string());
+            resolved.push(normalize_java_path_argument(&path.display().to_string()));
             continue;
         }
 
         if let Some(fixed) = try_resolve_missing_library_path(&path, library_roots) {
-            resolved.push(fixed.display().to_string());
+            resolved.push(normalize_java_path_argument(&fixed.display().to_string()));
             continue;
         }
 
