@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:secure": "vite build --mode secure"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
@@ -31,6 +32,8 @@
     "globals": "^16.5.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.48.0",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "terser": "^5.39.0",
+    "vite-plugin-compression": "^0.5.1"
   }
 }
