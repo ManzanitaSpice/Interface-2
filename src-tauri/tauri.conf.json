@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "interface-launchers",
-  "version": "0.1.0",
+  "productName": "INTERFACE",
+  "version": "0.1.20",
   "identifier": "com.frutistudio.interfacelauncher",
   "build": {
     "frontendDist": "../dist",
