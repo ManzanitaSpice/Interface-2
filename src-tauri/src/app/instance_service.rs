@@ -439,11 +439,18 @@ fn launcher_roots_for_source(source_launcher: &str) -> Vec<PathBuf> {
         if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
             roots.push(PathBuf::from(&local_app_data).join("PrismLauncher"));
             roots.push(PathBuf::from(&local_app_data).join("MultiMC"));
+            roots.push(PathBuf::from(&local_app_data).join("CurseForge"));
+            roots.push(PathBuf::from(&local_app_data).join("Programs/CurseForge"));
+        }
+        if let Ok(app_data) = std::env::var("APPDATA") {
+            roots.push(PathBuf::from(&app_data).join(".minecraft"));
         }
     } else {
         if let Ok(home) = std::env::var("HOME") {
             roots.push(PathBuf::from(&home).join(".local/share/PrismLauncher"));
             roots.push(PathBuf::from(&home).join(".local/share/MultiMC"));
+            roots.push(PathBuf::from(&home).join(".local/share/CurseForge"));
+            roots.push(PathBuf::from(&home).join(".minecraft"));
         }
     }
 
@@ -468,6 +475,51 @@ fn find_redirect_context(mc_root: &Path) -> Option<ShortcutRedirect> {
     let redirect_path = mc_root.parent()?.join(".redirect.json");
     let raw = fs::read_to_string(redirect_path).ok()?;
     serde_json::from_str::<ShortcutRedirect>(&raw).ok()
+}
+
+fn has_forge_markers(libraries_dir: &Path) -> bool {
+    if libraries_dir.join("net/minecraftforge/forge").is_dir()
+        || libraries_dir.join("net/neoforged").is_dir()
+    {
+        return true;
+    }
+
+    let client_root = libraries_dir.join("net/minecraft/client");
+    if !client_root.is_dir() {
+        return false;
+    }
+
+    find_library_by_filename(&client_root, "client-srg.jar").is_some()
+        || find_library_by_filename(&client_root, "client-extra.jar").is_some()
+        || find_library_by_filename(&client_root, "minecraft-client-srg.jar").is_some()
+}
+
+fn resolve_forge_library_directory(
+    mc_root: &Path,
+    source_path: &Path,
+    source_launcher: &str,
+) -> PathBuf {
+    let mut candidates = vec![source_path.join("libraries")];
+    if let Some(parent) = source_path.parent() {
+        candidates.push(parent.join("libraries"));
+        if let Some(grand_parent) = parent.parent() {
+            candidates.push(grand_parent.join("libraries"));
+        }
+    }
+    for root in launcher_roots_for_source(source_launcher) {
+        candidates.push(root.join("libraries"));
+    }
+
+    candidates.sort();
+    candidates.dedup();
+
+    for candidate in candidates {
+        if candidate.is_dir() && has_forge_markers(&candidate) {
+            return candidate;
+        }
+    }
+
+    mc_root.join("libraries")
 }
 
 fn libraries_dir_candidates(mc_root: &Path, redirect: Option<&ShortcutRedirect>) -> Vec<PathBuf> {
@@ -565,7 +617,7 @@ fn resolve_forge_module_path_value(
             .collect::<Vec<_>>()
             .join(", ");
         return Err(format!(
-            "Forge --module-path contiene rutas inexistentes. Faltan [{}]. Rutas buscadas: [{}]",
+            "Forge requiere JARs que no se encontraron. Faltantes: [{}]. Buscado en: [{}]. La instancia puede necesitar ser abierta en su launcher de origen (Prism/MultiMC/CurseForge) para regenerar librerías.",
             missing.join(", "),
             searched
         ));
@@ -1136,10 +1188,34 @@ en ningún JAR del classpath del loader '{}'.\n{}",
     ));
 
     let default_libraries_dir = mc_root.join("libraries");
+    let redirect_context = find_redirect_context(&mc_root);
+    let is_redirect_instance = metadata
+        .state
+        .eq_ignore_ascii_case("REDIRECT_RUNTIME_CACHE")
+        || mc_root.components().any(|component| {
+            component
+                .as_os_str()
+                .to_string_lossy()
+                .contains("redirect-cache")
+        });
+    let forge_library_directory = if is_redirect_instance {
+        if let Some(redirect) = redirect_context.as_ref() {
+            resolve_forge_library_directory(
+                &mc_root,
+                &PathBuf::from(&redirect.source_path),
+                &redirect.source_launcher,
+            )
+        } else {
+            default_libraries_dir.clone()
+        }
+    } else {
+        default_libraries_dir.clone()
+    };
+
     let launch_context = LaunchContext {
         classpath: classpath.clone(),
         classpath_separator: sep.to_string(),
-        library_directory: default_libraries_dir.display().to_string(),
+        library_directory: forge_library_directory.display().to_string(),
         natives_dir: natives_dir.display().to_string(),
         launcher_name: "Interface-2".to_string(),
         launcher_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -1176,7 +1252,13 @@ en ningún JAR del classpath del loader '{}'.\n{}",
     let mut resolved = resolve_launch_arguments(&version_json, &launch_context, &launch_rules)?;
 
     let forge_args_resolution = if is_forge && forge_generation == ForgeGeneration::Modern {
-        match load_forge_args_file(&mc_root, &selected_version_id, &launch_context, &mut logs)? {
+        match load_forge_args_file(
+            &mc_root,
+            &selected_version_id,
+            &launch_context,
+            &forge_library_directory,
+            &mut logs,
+        )? {
             Some(args) => args,
             None => {
                 return Err(format!(
@@ -1188,7 +1270,7 @@ en ningún JAR del classpath del loader '{}'.\n{}",
     } else {
         ForgeArgsResolution {
             args: Vec::new(),
-            library_directory: default_libraries_dir.clone(),
+            library_directory: forge_library_directory.clone(),
         }
     };
     let forge_library_directory = forge_args_resolution.library_directory.clone();
@@ -2295,6 +2377,7 @@ fn load_forge_args_file(
     mc_root: &Path,
     version_id: &str,
     launch_context: &LaunchContext,
+    forge_library_dir: &Path,
     logs: &mut Vec<String>,
 ) -> Result<Option<ForgeArgsResolution>, String> {
     let filename = if cfg!(target_os = "windows") {
@@ -2318,14 +2401,16 @@ fn load_forge_args_file(
         .map_err(|e| format!("No se pudo leer {}: {e}", path.display()))?;
 
     let redirect_context = find_redirect_context(mc_root);
-    let library_roots = libraries_dir_candidates(mc_root, redirect_context.as_ref())
+    let mut library_roots = libraries_dir_candidates(mc_root, redirect_context.as_ref())
         .into_iter()
         .filter(|candidate| candidate.exists())
         .collect::<Vec<_>>();
-    let effective_library_dir = library_roots
-        .first()
-        .cloned()
-        .unwrap_or_else(|| mc_root.join("libraries"));
+    if forge_library_dir.exists() {
+        library_roots.insert(0, forge_library_dir.to_path_buf());
+    }
+    library_roots.sort();
+    library_roots.dedup();
+    let effective_library_dir = forge_library_dir.to_path_buf();
 
     let mut args: Vec<String> = Vec::new();
 
@@ -3693,10 +3778,15 @@ mod tests {
         fs::write(root.join("libraries/two"), "").expect("module two");
 
         let mut logs = Vec::new();
-        let parsed =
-            load_forge_args_file(&root, version_id, &launch_context_for_tests(), &mut logs)
-                .expect("ok")
-                .expect("some");
+        let parsed = load_forge_args_file(
+            &root,
+            version_id,
+            &launch_context_for_tests(),
+            &root.join("libraries"),
+            &mut logs,
+        )
+        .expect("ok")
+        .expect("some");
 
         assert!(
             parsed
