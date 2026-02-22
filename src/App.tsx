@@ -2,7 +2,7 @@ import { convertFileSrc } from '@tauri-apps/api/core'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { AnimatePresence, motion } from 'framer-motion'
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import './App.css'
 import { SkinStudio } from './skin/SkinStudio'
 import { FolderRow } from './components/FolderRow'
@@ -775,6 +775,8 @@ function App() {
   const [installingModalOpen, setInstallingModalOpen] = useState(false)
   const [cancelModsConfirmOpen, setCancelModsConfirmOpen] = useState(false)
   const [installProgress, setInstallProgress] = useState({ current: 0, total: 0, message: '' })
+  const deferredLogSearch = useDeferredValue(logSearch)
+  const deferredModsSearch = useDeferredValue(modsSearch)
   const selectedContentSection = useMemo<'mods' | 'resourcepacks' | 'shaderpacks' | 'worlds' | null>(() => {
     if (selectedEditSection === 'Mods') return 'mods'
     if (selectedEditSection === 'Resource Packs') return 'resourcepacks'
@@ -874,6 +876,7 @@ function App() {
   const playtimeStartRef = useRef<number | null>(null)
   const dependencyDetailCacheRef = useRef<Record<string, ModCatalogDetail>>({})
   const installedIconsCacheRef = useRef<Record<string, string>>({})
+  const downloaderCatalogCacheRef = useRef<Record<string, ModsCatalogItem[]>>({})
 
 
 
@@ -2574,30 +2577,51 @@ function App() {
     return `${size.toFixed(index === 0 ? 0 : 1)} ${units[index]}`
   }
 
-  const inferModTag = useCallback((mod: InstanceModEntry) => {
-    const logs = selectedCard?.instanceRoot ? (runtimeConsoleByInstance[selectedCard.instanceRoot] ?? []) : []
-    const related = logs.filter((entry) => entry.message.toLowerCase().includes(mod.name.toLowerCase()) || entry.message.toLowerCase().includes(mod.fileName.toLowerCase()))
-    const pool = (related.length ? related : logs).map((entry) => entry.message.toLowerCase())
-    if (pool.some((line) => line.includes('dependenc'))) return 'dependencia'
-    if (pool.some((line) => line.includes('incompat'))) return 'incompatible'
-    if (pool.some((line) => line.includes('crash'))) return 'crash'
-    if (pool.some((line) => line.includes('warn'))) return 'warn'
-    if (pool.some((line) => line.includes('login') || line.includes('sesión') || line.includes('session'))) return 'sesion'
-    if (pool.some((line) => line.includes('start') || line.includes('inicio'))) return 'inicio'
-    return '-'
+  const selectedConsoleMessages = useMemo(() => {
+    if (!selectedCard?.instanceRoot) return []
+    return (runtimeConsoleByInstance[selectedCard.instanceRoot] ?? []).map((entry) => entry.message.toLowerCase())
   }, [runtimeConsoleByInstance, selectedCard?.instanceRoot])
 
+  const modTagById = useMemo<Record<string, string>>(() => {
+    if (instanceMods.length === 0) return {}
+    const resolved: Record<string, string> = {}
+    for (const mod of instanceMods) {
+      const modName = mod.name.toLowerCase()
+      const fileName = mod.fileName.toLowerCase()
+      const related = selectedConsoleMessages.filter((message) => message.includes(modName) || message.includes(fileName))
+      const pool = related.length ? related : selectedConsoleMessages
+      if (pool.some((line) => line.includes('dependenc'))) resolved[mod.id] = 'dependencia'
+      else if (pool.some((line) => line.includes('incompat'))) resolved[mod.id] = 'incompatible'
+      else if (pool.some((line) => line.includes('crash'))) resolved[mod.id] = 'crash'
+      else if (pool.some((line) => line.includes('warn'))) resolved[mod.id] = 'warn'
+      else if (pool.some((line) => line.includes('login') || line.includes('sesión') || line.includes('session'))) resolved[mod.id] = 'sesion'
+      else if (pool.some((line) => line.includes('start') || line.includes('inicio'))) resolved[mod.id] = 'inicio'
+      else resolved[mod.id] = '-'
+    }
+    return resolved
+  }, [instanceMods, selectedConsoleMessages])
+
   const filteredMods = useMemo(() => {
-    const query = modsSearch.trim().toLowerCase()
+    const query = deferredModsSearch.trim().toLowerCase()
     return instanceMods.filter((mod) => {
       const bySearch = !query || mod.name.toLowerCase().includes(query) || mod.fileName.toLowerCase().includes(query)
       const byProvider = modsProviderFilter === 'all' || mod.provider === modsProviderFilter
-      const tag = inferModTag(mod)
+      const tag = modTagById[mod.id] ?? '-'
       const byTag = modsAdvancedFilter.tag === 'all' || tag === modsAdvancedFilter.tag
       const byState = modsAdvancedFilter.state === 'all' || (modsAdvancedFilter.state === 'enabled' ? mod.enabled : !mod.enabled)
       return bySearch && byProvider && byTag && byState
     })
-  }, [inferModTag, instanceMods, modsAdvancedFilter.state, modsAdvancedFilter.tag, modsProviderFilter, modsSearch])
+  }, [deferredModsSearch, instanceMods, modTagById, modsAdvancedFilter.state, modsAdvancedFilter.tag, modsProviderFilter])
+
+  const filteredRuntimeConsole = useMemo(() => {
+    const query = deferredLogSearch.trim().toLowerCase()
+    return runtimeConsole.filter((entry) => {
+      if (consoleLevelFilter !== 'Todos' && entry.level !== consoleLevelFilter) return false
+      if (launcherLogFilter !== 'Todos' && entry.source !== launcherLogFilter) return false
+      if (query && !entry.message.toLowerCase().includes(query)) return false
+      return true
+    })
+  }, [consoleLevelFilter, deferredLogSearch, launcherLogFilter, runtimeConsole])
 
   const modsTotalPages = Math.max(1, Math.ceil(filteredMods.length / 30))
   const pagedMods = useMemo(() => {
@@ -2701,6 +2725,21 @@ function App() {
 
   const fetchDownloaderCatalog = useCallback(async () => {
     if (!modsDownloaderOpen || !isCatalogSource) return
+    const queryKey = JSON.stringify({
+      search: debouncedDownloaderSearch,
+      classId: selectedCurseforgeClassId,
+      source: modsDownloaderSource,
+      mc: downloaderShowAllVersions ? null : (downloaderVersionFilter || selectedInstanceMetadata?.minecraftVersion || null),
+      loader: (downloaderLoaderFilter || selectedInstanceMetadata?.loader || '').toLowerCase() || null,
+      category: selectedContentSection === 'mods' ? (downloaderClientOnly ? 'client' : downloaderServerOnly ? 'server' : 'mod') : selectedCatalogCategory,
+      sort: modsDownloaderSort,
+    })
+    const cachedRows = downloaderCatalogCacheRef.current[queryKey]
+    if (cachedRows) {
+      setDownloaderCatalogMods(cachedRows)
+      setSelectedCatalogModId((prev) => (prev && cachedRows.some((item) => item.id === prev) ? prev : cachedRows[0]?.id ?? ''))
+      return
+    }
     setModsCatalogLoading(true)
     setModsCatalogError('')
     try {
@@ -2729,6 +2768,7 @@ function App() {
         publishedAt: item.updatedAt,
         updatedAt: item.updatedAt,
       }))
+      downloaderCatalogCacheRef.current[queryKey] = rows
       setDownloaderCatalogMods(rows)
       setSelectedCatalogModId((prev) => (prev && rows.some((item) => item.id === prev) ? prev : rows[0]?.id ?? ''))
     } catch (error) {
@@ -3984,11 +4024,7 @@ function App() {
                       <div className="instance-launch-progress-compact-fill" style={{ width: `${launchProgressPercent}%` }} />
                     </div>
                   )}
-                  {runtimeConsole
-                    .filter((entry) => (consoleLevelFilter === 'Todos' ? true : entry.level === consoleLevelFilter))
-                    .filter((entry) => (launcherLogFilter === 'Todos' ? true : entry.source === launcherLogFilter))
-                    .filter((entry) => !logSearch || entry.message.toLowerCase().includes(logSearch.toLowerCase()))
-                    .map((entry, index) => (
+                  {filteredRuntimeConsole.map((entry, index) => (
                       <p key={`${entry.timestamp}-${index}`} className={`log-level-${entry.level.toLowerCase()}`}>
                         [{entry.timestamp}] [{entry.source}] [{entry.level}] {entry.message}
                       </p>
@@ -4142,7 +4178,7 @@ function App() {
                               <span>{mod.modifiedAt ? new Date(mod.modifiedAt * 1000).toLocaleString() : '-'}</span>
                               <span>{resolveProviderLabel(mod.provider)}</span>
                               <span>{formatBytes(mod.sizeBytes)}</span>
-                              <span className="mods-tag">{inferModTag(mod)}</span>
+                              <span className="mods-tag">{modTagById[mod.id] ?? '-'}</span>
                             </div>
                           ))}
                         </div>
