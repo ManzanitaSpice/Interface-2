@@ -1245,6 +1245,14 @@ fn resolve_redirect_game_dir(source_path: &Path) -> PathBuf {
     source_path.to_path_buf()
 }
 
+fn should_bootstrap_redirect_cache(err: &str) -> bool {
+    let normalized = err.to_ascii_lowercase();
+    normalized.contains("no se encontró version.json válido")
+        || normalized.contains("no se encontró un jar de versión válido")
+        || normalized.contains("no se encontró carpeta libraries")
+        || normalized.contains("no se encontró carpeta assets")
+}
+
 fn merge_version_jsons(parent: &Value, child: &Value) -> Value {
     use serde_json::Map;
 
@@ -4785,12 +4793,30 @@ pub async fn launch_redirect_instance(
         loader: metadata.loader.clone(),
         loader_version: metadata.loader_version.clone(),
     };
-    let ctx = resolve_redirect_launch_context(
+    let ctx = match resolve_redirect_launch_context(
         &source_path,
         &metadata.version_id,
         &redirect.source_launcher,
         &hints,
-    )?;
+    ) {
+        Ok(ctx) => ctx,
+        Err(err) if should_bootstrap_redirect_cache(&err) => {
+            log::warn!(
+                "[REDIRECT] Contexto local incompleto para atajo, iniciando bootstrap de caché: {}",
+                err
+            );
+            ensure_redirect_cache_context(
+                &app,
+                &source_path,
+                &redirect.source_launcher,
+                &metadata.internal_uuid,
+                &metadata.version_id,
+                &hints,
+            )
+            .await?
+        }
+        Err(err) => return Err(err),
+    };
 
     let runtime = parse_java_runtime_for_redirect(&ctx.version_json, &ctx.resolved_version_id);
     let mut logs = Vec::new();
