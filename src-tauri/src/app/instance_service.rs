@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
-    env,
-    fs,
+    env, fs,
     hash::{Hash, Hasher},
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
@@ -539,6 +538,14 @@ fn libraries_dir_candidates(mc_root: &Path, redirect: Option<&ShortcutRedirect>)
     candidates.sort();
     candidates.dedup();
     candidates
+}
+
+fn add_source_ancestor_library_candidates(source_path: &Path, candidates: &mut Vec<PathBuf>) {
+    for ancestor in source_path.ancestors().take(8) {
+        candidates.push(ancestor.join("libraries"));
+        candidates.push(ancestor.join(".minecraft/libraries"));
+        candidates.push(ancestor.join("minecraft/libraries"));
+    }
 }
 
 fn find_library_by_filename(root: &Path, target_name: &str) -> Option<PathBuf> {
@@ -2773,13 +2780,12 @@ fn load_forge_args_file(
     ctx_for_forge.library_directory = real_lib_dir.display().to_string();
 
     let redirect_context = find_redirect_context(mc_root);
-    let mut library_roots = libraries_dir_candidates(mc_root, redirect_context.as_ref())
-        .into_iter()
-        .filter(|candidate| candidate.exists())
-        .collect::<Vec<_>>();
+    let mut library_roots = libraries_dir_candidates(mc_root, redirect_context.as_ref());
+    add_source_ancestor_library_candidates(source_path, &mut library_roots);
     if real_lib_dir.exists() {
         library_roots.insert(0, real_lib_dir.to_path_buf());
     }
+    library_roots.retain(|candidate| candidate.exists());
     library_roots.sort();
     library_roots.dedup();
     let effective_library_dir = real_lib_dir;
