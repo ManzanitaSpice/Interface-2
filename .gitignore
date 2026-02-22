@@ -30,6 +30,6 @@ src-tauri/skin-storage/
 .tauri/
 *.key
 *.key.pub
-
+*~
 interface-launcher.key
 interface-launcher.key.pub
