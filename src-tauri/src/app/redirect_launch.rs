@@ -2827,6 +2827,37 @@ fn collect_missing_classpath_libraries(
     missing
 }
 
+fn collect_runtime_libraries_dirs(
+    ctx: &RedirectLaunchContext,
+    source_path: &Path,
+    source_launcher: &str,
+) -> Vec<PathBuf> {
+    let mut dirs = vec![
+        ctx.libraries_dir.clone(),
+        ctx.game_dir.join("libraries"),
+        source_path.join("libraries"),
+        source_path.join(".minecraft/libraries"),
+        source_path.join("minecraft/libraries"),
+    ];
+
+    if let Some(cache_base) = ctx.versions_dir.parent() {
+        dirs.push(cache_base.join("libraries"));
+    }
+
+    if let Some(system_root) = system_minecraft_root() {
+        dirs.push(system_root.join("libraries"));
+    }
+
+    for launcher_root in launcher_roots_for_source(source_launcher) {
+        dirs.push(launcher_root.join("libraries"));
+    }
+
+    unique_paths(dirs)
+        .into_iter()
+        .filter(|p| p.is_dir())
+        .collect()
+}
+
 fn current_os_name() -> &'static str {
     #[cfg(target_os = "windows")]
     {
@@ -5007,14 +5038,8 @@ pub async fn launch_redirect_instance(
         )
     })?;
 
-    let mut libraries_dirs = vec![ctx.libraries_dir.clone()];
-    if let Some(system_root) = system_minecraft_root() {
-        libraries_dirs.push(system_root.join("libraries"));
-    }
-    for launcher_root in launcher_roots_for_source(&redirect.source_launcher) {
-        libraries_dirs.push(launcher_root.join("libraries"));
-    }
-    let libraries_dirs: Vec<PathBuf> = libraries_dirs.into_iter().filter(|p| p.is_dir()).collect();
+    let libraries_dirs =
+        collect_runtime_libraries_dirs(&ctx, &source_path, &redirect.source_launcher);
 
     let missing_before_launch =
         collect_missing_classpath_libraries(&ctx.version_json, &libraries_dirs);
@@ -5034,14 +5059,8 @@ pub async fn launch_redirect_instance(
         .await?;
     }
 
-    let mut libraries_dirs = vec![ctx.libraries_dir.clone()];
-    if let Some(system_root) = system_minecraft_root() {
-        libraries_dirs.push(system_root.join("libraries"));
-    }
-    for launcher_root in launcher_roots_for_source(&redirect.source_launcher) {
-        libraries_dirs.push(launcher_root.join("libraries"));
-    }
-    let libraries_dirs: Vec<PathBuf> = libraries_dirs.into_iter().filter(|p| p.is_dir()).collect();
+    let libraries_dirs =
+        collect_runtime_libraries_dirs(&ctx, &source_path, &redirect.source_launcher);
 
     let mut classpath = build_classpath_multi(
         &ctx.version_json,
