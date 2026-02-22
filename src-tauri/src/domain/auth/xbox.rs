@@ -46,18 +46,12 @@ fn build_minecraft_identity_token(uhs: &str, xsts_token: &str) -> String {
     format!("XBL3.0 x={uhs};{xsts_token}")
 }
 
-fn build_entitlements_unauthorized_hint(minecraft_access_token: &str) -> String {
-    let token_prefix: String = minecraft_access_token.chars().take(20).collect();
-
-    format!(
-        "La API devolvió HTTP 401 en /entitlements/mcstore. \
+fn build_entitlements_unauthorized_hint() -> String {
+    "La API devolvió HTTP 401 en /entitlements/mcstore. \
 Esto suele indicar que el Bearer token es inválido o no es de Minecraft Services. \
 Para este endpoint SOLO sirve el minecraft_access_token emitido por /authentication/login_with_xbox. \
 No funcionan tokens de Microsoft OAuth/Graph, Xbox Live, XSTS, id_token ni refresh_token. \
-Flujo obligatorio: Microsoft OAuth -> Xbox Live -> XSTS -> Minecraft login_with_xbox -> entitlements. \
-Debug rápido: prefijo del token usado (20 chars): '{token_prefix}', longitud: {} caracteres.",
-        minecraft_access_token.len(),
-    )
+Flujo obligatorio: Microsoft OAuth -> Xbox Live -> XSTS -> Minecraft login_with_xbox -> entitlements.".to_string()
 }
 
 #[derive(Debug)]
@@ -227,7 +221,7 @@ pub async fn has_minecraft_license(
         if status.as_u16() == 401 {
             return Err(format!(
                 "{}. Body completo: {body}",
-                build_entitlements_unauthorized_hint(minecraft_access_token)
+                build_entitlements_unauthorized_hint()
             ));
         }
 

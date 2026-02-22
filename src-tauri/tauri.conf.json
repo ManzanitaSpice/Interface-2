@@ -17,18 +17,17 @@
         "height": 800,
         "resizable": true,
         "fullscreen": false,
-        "maximized": true
+        "maximized": true,
+        "devtools": false
       }
     ],
     "security": {
-      "csp": null,
+      "csp": "default-src 'self'; img-src 'self' asset: data: blob:; style-src 'self'; script-src 'self'; connect-src 'self' https://launchermeta.mojang.com https://resources.download.minecraft.net https://libraries.minecraft.net https://api.minecraftservices.com https://api.mojang.com https://sessionserver.mojang.com https://piston-meta.mojang.com https://meta.fabricmc.net https://maven.fabricmc.net https://maven.quiltmc.org https://api.modrinth.com https://cdn.modrinth.com https://files.minecraftforge.net https://maven.neoforged.net https://login.microsoftonline.com https://user.auth.xboxlive.com https://xsts.auth.xboxlive.com; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none';",
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "$APPDATA/instance-media/**",
-          "$APPDATA/com.milkylauncher/**",
-          "$APPDATA/**",
-          "$HOME/**"
+          "$APPDATA/InterfaceLauncher/**",
+          "$HOME/.local/share/InterfaceLauncher/**"
         ]
       }
     }

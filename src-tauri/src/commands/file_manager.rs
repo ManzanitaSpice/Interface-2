@@ -10,6 +10,39 @@ pub struct SkinSummary {
     pub updated_at: String,
 }
 
+const MAX_SKIN_BYTES: usize = 5 * 1024 * 1024;
+
+fn sanitize_identifier(value: &str, field: &str) -> Result<String, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(format!("{field} está vacío."));
+    }
+    if trimmed.len() > 128 {
+        return Err(format!("{field} supera la longitud máxima permitida."));
+    }
+
+    let sanitized = trimmed
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_' || *ch == '-')
+        .collect::<String>();
+
+    if sanitized != trimmed {
+        return Err(format!("{field} contiene caracteres no permitidos."));
+    }
+
+    Ok(sanitized)
+}
+
+fn validate_skin_payload_size(bytes: &[u8]) -> Result<(), String> {
+    if bytes.is_empty() {
+        return Err("La skin está vacía.".to_string());
+    }
+    if bytes.len() > MAX_SKIN_BYTES {
+        return Err("La skin excede el tamaño máximo permitido (5 MB).".to_string());
+    }
+    Ok(())
+}
+
 fn root_dir() -> Result<PathBuf, String> {
     let base = if cfg!(target_os = "windows") {
         std::env::var("APPDATA")
@@ -26,7 +59,8 @@ fn root_dir() -> Result<PathBuf, String> {
 }
 
 fn account_dir(account_id: &str) -> Result<PathBuf, String> {
-    let dir = root_dir()?.join(account_id);
+    let safe_account_id = sanitize_identifier(account_id, "account_id")?;
+    let dir = root_dir()?.join(safe_account_id);
     fs::create_dir_all(&dir).map_err(|err| format!("No se pudo crear carpeta de cuenta: {err}"))?;
     Ok(dir)
 }
@@ -39,7 +73,8 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 #[tauri::command]
 pub fn list_skins(account_id: String) -> Result<Vec<SkinSummary>, String> {
-    let dir = account_dir(&account_id)?;
+    let safe_account_id = sanitize_identifier(&account_id, "account_id")?;
+    let dir = account_dir(&safe_account_id)?;
     let mut skins = Vec::new();
     let entries = fs::read_dir(&dir).map_err(|err| format!("No se pudo leer skins: {err}"))?;
     for entry in entries.flatten() {
@@ -81,6 +116,8 @@ pub fn import_skin(
     name: String,
     bytes: Vec<u8>,
 ) -> Result<SkinSummary, String> {
+    let safe_account_id = sanitize_identifier(&account_id, "account_id")?;
+    validate_skin_payload_size(&bytes)?;
     crate::commands::validator::validate_skin_png(&bytes)?;
     let optimized = crate::commands::skin_processor::optimize_skin_png(bytes)?;
 
@@ -97,7 +134,7 @@ pub fn import_skin(
         safe_name
     };
 
-    let path = account_dir(&account_id)?.join(format!("{id}__{final_name}.png"));
+    let path = account_dir(&safe_account_id)?.join(format!("{id}__{final_name}.png"));
     fs::write(&path, optimized).map_err(|err| format!("No se pudo guardar la skin: {err}"))?;
 
     Ok(SkinSummary {
@@ -109,14 +146,16 @@ pub fn import_skin(
 
 #[tauri::command]
 pub fn delete_skin(account_id: String, skin_id: String) -> Result<(), String> {
-    let dir = account_dir(&account_id)?;
+    let safe_account_id = sanitize_identifier(&account_id, "account_id")?;
+    let safe_skin_id = sanitize_identifier(&skin_id, "skin_id")?;
+    let dir = account_dir(&safe_account_id)?;
     let entries = fs::read_dir(&dir).map_err(|err| format!("No se pudo leer carpeta: {err}"))?;
     for entry in entries.flatten() {
         let path = entry.path();
         let Some(file_name) = path.file_name().and_then(|v| v.to_str()) else {
             continue;
         };
-        if file_name.starts_with(&skin_id) && file_name.ends_with(".png") {
+        if file_name.starts_with(&safe_skin_id) && file_name.ends_with(".png") {
             fs::remove_file(path).map_err(|err| format!("No se pudo eliminar skin: {err}"))?;
             return Ok(());
         }
@@ -126,14 +165,16 @@ pub fn delete_skin(account_id: String, skin_id: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn load_skin_binary(account_id: String, skin_id: String) -> Result<Vec<u8>, String> {
-    let dir = account_dir(&account_id)?;
+    let safe_account_id = sanitize_identifier(&account_id, "account_id")?;
+    let safe_skin_id = sanitize_identifier(&skin_id, "skin_id")?;
+    let dir = account_dir(&safe_account_id)?;
     let entries = fs::read_dir(&dir).map_err(|err| format!("No se pudo leer carpeta: {err}"))?;
     for entry in entries.flatten() {
         let path = entry.path();
         let Some(file_name) = path.file_name().and_then(|v| v.to_str()) else {
             continue;
         };
-        if file_name.starts_with(&skin_id) && file_name.ends_with(".png") {
+        if file_name.starts_with(&safe_skin_id) && file_name.ends_with(".png") {
             return fs::read(path).map_err(|err| format!("No se pudo abrir skin: {err}"));
         }
     }
@@ -146,17 +187,20 @@ pub fn save_skin_binary(
     skin_id: String,
     bytes: Vec<u8>,
 ) -> Result<SkinSummary, String> {
+    let safe_account_id = sanitize_identifier(&account_id, "account_id")?;
+    let safe_skin_id = sanitize_identifier(&skin_id, "skin_id")?;
+    validate_skin_payload_size(&bytes)?;
     crate::commands::validator::validate_skin_png(&bytes)?;
     let optimized = crate::commands::skin_processor::optimize_skin_png(bytes)?;
 
-    let dir = account_dir(&account_id)?;
+    let dir = account_dir(&safe_account_id)?;
     let entries = fs::read_dir(&dir).map_err(|err| format!("No se pudo leer carpeta: {err}"))?;
     for entry in entries.flatten() {
         let path = entry.path();
         let Some(file_name) = path.file_name().and_then(|v| v.to_str()) else {
             continue;
         };
-        if file_name.starts_with(&skin_id) && file_name.ends_with(".png") {
+        if file_name.starts_with(&safe_skin_id) && file_name.ends_with(".png") {
             let current =
                 fs::read(&path).map_err(|err| format!("No se pudo leer skin existente: {err}"))?;
             let incoming_hash = sha256_hex(&optimized);
@@ -172,7 +216,7 @@ pub fn save_skin_binary(
                 .unwrap_or("skin")
                 .replace('_', " ");
             return Ok(SkinSummary {
-                id: skin_id,
+                id: safe_skin_id,
                 name,
                 updated_at: chrono::Local::now().format("%d/%m/%Y %H:%M").to_string(),
             });
