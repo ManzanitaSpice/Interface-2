@@ -211,7 +211,7 @@ pub fn create_shortcut_instance(
     };
     save_shortcut_state(&instance_root, &state)?;
 
-    let runtime = runtime_for_mc(&mc_version);
+    let runtime = runtime_for_mc(&mc_version, &loader)?;
     let mut logs = vec!["[SHORTCUT][create] ensure runtime interno".to_string()];
     let java_exec = select_embedded_java(app, runtime, &mut logs)?;
     let effective_version_id = build_instance_structure(
@@ -258,7 +258,7 @@ pub fn create_shortcut_instance(
         java_path: java_exec.display().to_string(),
         java_runtime: "shortcut".to_string(),
         java_version: String::new(),
-        required_java_major: runtime.major(),
+        required_java_major: u32::from(runtime.major()),
         created_at: state.created_at.clone(),
         state: "REDIRECT".to_string(),
         last_used: None,
@@ -369,8 +369,8 @@ pub fn build_launch_plan(
     })
 }
 
-fn runtime_for_mc(mc: &str) -> JavaRuntime {
-    determine_required_java(mc, None)
+fn runtime_for_mc(mc: &str, loader: &str) -> Result<JavaRuntime, String> {
+    determine_required_java(mc, loader)
 }
 
 fn merge_version_json_chain(versions_root: &Path, version_id: &str) -> Result<Value, String> {
