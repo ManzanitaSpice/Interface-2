@@ -2295,6 +2295,61 @@ fn copy_missing_forge_jars_to_cache(
     copied
 }
 
+fn forge_critical_jars_present(lib_dir: &Path, mc_version: &str, forge_version: &str) -> bool {
+    if mc_version.trim().is_empty() || forge_version.trim().is_empty() {
+        return false;
+    }
+
+    let mc_base = format!("{mc_version}-{forge_version}");
+    let has_forge_client = lib_dir
+        .join(format!(
+            "net/minecraftforge/forge/{mc_base}/forge-{mc_base}-client.jar"
+        ))
+        .exists();
+
+    let client_dir = lib_dir.join("net/minecraft/client");
+    let mut has_client_srg = false;
+    let mut has_client_extra = false;
+    if let Ok(entries) = fs::read_dir(&client_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let dir_name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            if !dir_name.starts_with(&mc_version.to_ascii_lowercase()) {
+                continue;
+            }
+            if let Ok(files) = fs::read_dir(&path) {
+                for file in files.flatten() {
+                    let name = file
+                        .file_name()
+                        .to_string_lossy()
+                        .to_ascii_lowercase();
+                    if name.ends_with("-srg.jar") {
+                        has_client_srg = true;
+                    }
+                    if name.ends_with("-extra.jar") {
+                        has_client_extra = true;
+                    }
+                    if has_client_srg && has_client_extra {
+                        break;
+                    }
+                }
+            }
+            if has_client_srg && has_client_extra {
+                break;
+            }
+        }
+    }
+
+    has_forge_client && has_client_srg && has_client_extra
+}
+
 fn extract_minecraft_version_from_id(version_id: &str) -> String {
     if version_id.starts_with("fabric-loader-") || version_id.starts_with("quilt-loader-") {
         if let Some(mc) = version_id.rsplitn(2, '-').next() {
@@ -4819,7 +4874,21 @@ pub async fn launch_redirect_instance(
         let mut lib_logs = Vec::new();
         let real_lib_dir =
             find_real_forge_libraries_dir(&source_path, &mc_root_cache, &mut lib_logs);
-        if real_lib_dir != cache_lib_dir {
+        let mc_version = extract_minecraft_version_from_id(&ctx.resolved_version_id);
+        let forge_version = metadata.loader_version.trim();
+        let should_use_real_libdir = real_lib_dir != cache_lib_dir
+            && forge_critical_jars_present(&real_lib_dir, &mc_version, forge_version);
+
+        if real_lib_dir != cache_lib_dir && !should_use_real_libdir {
+            lib_logs.push(format!(
+                "[FORGE-FIX] Omitiendo redirección de libraryDirectory: faltan JARs críticos en {} para mc={} forge={}",
+                real_lib_dir.display(),
+                mc_version,
+                forge_version
+            ));
+        }
+
+        if should_use_real_libdir {
             log::info!(
                 "[FORGE-FIX] Redirigiendo -DlibraryDirectory a: {}",
                 real_lib_dir.display()
