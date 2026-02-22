@@ -65,6 +65,13 @@ pub struct CatalogVersion {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CatalogExternalLink {
+    pub label: String,
+    pub url: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CatalogDetailResponse {
     pub id: String,
     pub source: String,
@@ -75,6 +82,7 @@ pub struct CatalogDetailResponse {
     pub changelog_html: String,
     pub url: String,
     pub image: String,
+    pub links: Vec<CatalogExternalLink>,
     pub gallery: Vec<String>,
     pub versions: Vec<CatalogVersion>,
     pub comments_url: String,
@@ -246,6 +254,14 @@ fn fetch_modrinth_detail(client: &Client, id: &str) -> Result<CatalogDetailRespo
         })
         .unwrap_or_default();
 
+    let mut links = vec![CatalogExternalLink { label: "Página".to_string(), url: format!("https://modrinth.com/project/{id}") }];
+    if let Some(wiki) = project.get("wiki_url").and_then(Value::as_str) {
+        if !wiki.is_empty() { links.push(CatalogExternalLink { label: "Wiki".to_string(), url: wiki.to_string() }); }
+    }
+    if let Some(discord) = project.get("discord_url").and_then(Value::as_str) {
+        if !discord.is_empty() { links.push(CatalogExternalLink { label: "Discord".to_string(), url: discord.to_string() }); }
+    }
+
     Ok(CatalogDetailResponse {
         id: id.to_string(),
         source: "Modrinth".to_string(),
@@ -277,6 +293,7 @@ fn fetch_modrinth_detail(client: &Client, id: &str) -> Result<CatalogDetailRespo
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string(),
+        links,
         gallery,
         versions,
         comments_url: format!("https://modrinth.com/project/{id}"),
@@ -404,6 +421,17 @@ fn fetch_curseforge_detail(client: &Client, id: &str) -> Result<CatalogDetailRes
         })
         .unwrap_or_default();
 
+    let mut links = vec![CatalogExternalLink { label: "Página".to_string(), url: format!("https://www.curseforge.com/minecraft/mc-mods/{}", project_data.get("slug").and_then(Value::as_str).unwrap_or(id)) }];
+    if let Some(website) = project_data.get("links").and_then(|v| v.get("websiteUrl")).and_then(Value::as_str) {
+        if !website.is_empty() { links.push(CatalogExternalLink { label: "Sitio".to_string(), url: website.to_string() }); }
+    }
+    if let Some(wiki) = project_data.get("links").and_then(|v| v.get("wikiUrl")).and_then(Value::as_str) {
+        if !wiki.is_empty() { links.push(CatalogExternalLink { label: "Wiki".to_string(), url: wiki.to_string() }); }
+    }
+    if let Some(discord) = project_data.get("links").and_then(|v| v.get("issuesUrl")).and_then(Value::as_str) {
+        if !discord.is_empty() { links.push(CatalogExternalLink { label: "Issues".to_string(), url: discord.to_string() }); }
+    }
+
     Ok(CatalogDetailResponse {
         id: id.to_string(),
         source: "CurseForge".to_string(),
@@ -444,6 +472,7 @@ fn fetch_curseforge_detail(client: &Client, id: &str) -> Result<CatalogDetailRes
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string(),
+        links,
         gallery,
         versions,
         comments_url: project_data
