@@ -6,6 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
@@ -21,6 +22,7 @@ use crate::{
         },
         models::{instance::LaunchAuthSession, java::JavaRuntime},
     },
+    infrastructure::downloader::queue::{build_official_client, download_with_retry},
     infrastructure::filesystem::paths::resolve_launcher_root,
     services::{
         instance_builder::build_instance_structure, java_installer::ensure_embedded_java,
@@ -361,6 +363,7 @@ pub fn build_launch_plan(
     let assets_root = PathBuf::from(&state.runtime.assets_root);
     let natives_dir = PathBuf::from(&state.runtime.natives_dir);
     let version_json = merge_version_json_chain(&versions_root, version_id)?;
+    let _ = ensure_libraries(&version_json, &libraries_root, &mut Vec::new())?;
     let classpath = build_classpath_multi(
         &version_json,
         &[libraries_root.clone()],
@@ -436,6 +439,153 @@ pub fn build_launch_plan(
         versions_root: versions_root.display().to_string(),
         version_id: version_id.to_string(),
     })
+}
+
+fn ensure_libraries(
+    version_json: &Value,
+    libraries_root: &Path,
+    logs: &mut Vec<String>,
+) -> Result<(), String> {
+    let client: Client = build_official_client()?;
+    let current_os = if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "x86_64") {
+        "amd64"
+    } else if cfg!(target_arch = "x86") {
+        "x86"
+    } else if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "amd64"
+    };
+    logs.push(format!(
+        "[SHORTCUT][ensure_libraries] arch_detectada={} os={}",
+        arch, current_os
+    ));
+    log::info!(
+        "[SHORTCUT][ensure_libraries] arch_detectada={} os={}",
+        arch,
+        current_os
+    );
+
+    let libraries = version_json
+        .get("libraries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    let ctx = RuleContext::current();
+    for lib in libraries {
+        if let Some(rules) = lib.get("rules").and_then(Value::as_array) {
+            if !crate::domain::minecraft::rule_engine::evaluate_rules(rules, &ctx) {
+                continue;
+            }
+        }
+
+        if let Some(artifact) = lib.get("downloads").and_then(|d| d.get("artifact")) {
+            let path = artifact
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if !path.is_empty() {
+                let url = artifact
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| format!("https://libraries.minecraft.net/{path}"));
+                let sha1 = artifact
+                    .get("sha1")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let target = libraries_root.join(path);
+                download_with_retry(&client, &url, &target, sha1, false)?;
+                logs.push(format!(
+                    "[SHORTCUT][ensure_libraries] jar_guardado={}",
+                    target.display()
+                ));
+                log::info!(
+                    "[SHORTCUT][ensure_libraries] jar_guardado={}",
+                    target.display()
+                );
+            }
+        }
+
+        let classifier = lib
+            .get("natives")
+            .and_then(|n| {
+                n.get(if current_os == "macos" {
+                    "osx"
+                } else {
+                    current_os
+                })
+            })
+            .and_then(Value::as_str)
+            .map(|raw| {
+                if raw.contains("${arch}") {
+                    raw.replace("${arch}", if arch == "amd64" { "64" } else { "32" })
+                } else {
+                    raw.to_string()
+                }
+            })
+            .or_else(|| {
+                if current_os == "windows" {
+                    Some(
+                        match arch {
+                            "amd64" => "natives-windows",
+                            "x86" => "natives-windows-x86",
+                            "arm64" => "natives-windows-arm64",
+                            _ => "natives-windows",
+                        }
+                        .to_string(),
+                    )
+                } else {
+                    None
+                }
+            });
+
+        if let Some(classifier_key) = classifier {
+            if let Some(item) = lib
+                .get("downloads")
+                .and_then(|d| d.get("classifiers"))
+                .and_then(|c| c.get(&classifier_key))
+            {
+                let path = item.get("path").and_then(Value::as_str).unwrap_or_default();
+                if !path.is_empty() {
+                    let url = item
+                        .get("url")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned)
+                        .unwrap_or_else(|| format!("https://libraries.minecraft.net/{path}"));
+                    let sha1 = item.get("sha1").and_then(Value::as_str).unwrap_or_default();
+                    let target = libraries_root.join(path);
+                    logs.push(format!(
+                        "[SHORTCUT][ensure_libraries] classifier_elegido={}",
+                        classifier_key
+                    ));
+                    log::info!(
+                        "[SHORTCUT][ensure_libraries] classifier_elegido={}",
+                        classifier_key
+                    );
+                    download_with_retry(&client, &url, &target, sha1, false)?;
+                    logs.push(format!(
+                        "[SHORTCUT][ensure_libraries] jar_guardado={}",
+                        target.display()
+                    ));
+                    log::info!(
+                        "[SHORTCUT][ensure_libraries] jar_guardado={}",
+                        target.display()
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn runtime_for_mc(mc: &str, loader: &str) -> Result<JavaRuntime, String> {

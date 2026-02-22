@@ -2619,6 +2619,26 @@ fn library_required_paths(library: &Value, current_os: &str, current_arch: &str)
     paths
 }
 
+fn native_classifier_matches_arch(classifier: &str, current_os: &str, current_arch: &str) -> bool {
+    if !classifier.starts_with("natives-") {
+        return true;
+    }
+
+    let expected = preferred_native_classifier(current_os, current_arch);
+    expected
+        .as_deref()
+        .map(|value| value.eq_ignore_ascii_case(classifier))
+        .unwrap_or(true)
+}
+
+fn library_name_classifier(name: &str) -> Option<&str> {
+    let mut parts = name.split(':');
+    let _group = parts.next()?;
+    let _artifact = parts.next()?;
+    let _version = parts.next()?;
+    parts.next()
+}
+
 fn library_download_entries(
     library: &Value,
     current_os: &str,
@@ -2910,6 +2930,13 @@ pub fn build_classpath_multi(
     };
     let ctx = RuleContext::current();
     let mut entries = Vec::new();
+    let mut missing = Vec::new();
+
+    log::info!(
+        "[REDIRECT] build_classpath_multi arch_detectada={} os={}",
+        normalized_arch(),
+        current_os_name()
+    );
 
     for library in merged_version_json
         .get("libraries")
@@ -2930,6 +2957,16 @@ pub fn build_classpath_multi(
             .get("name")
             .and_then(Value::as_str)
             .unwrap_or("<unknown>");
+        if let Some(classifier) = library_name_classifier(name) {
+            if !native_classifier_matches_arch(classifier, current_os_name(), normalized_arch()) {
+                log::info!(
+                    "[REDIRECT] Saltando native no aplicable por arquitectura: {} ({})",
+                    name,
+                    classifier
+                );
+                continue;
+            }
+        }
         let required_paths = library_required_paths(&library, current_os_name(), normalized_arch());
 
         for relative_str in required_paths {
@@ -2945,13 +2982,24 @@ pub fn build_classpath_multi(
 
             match found {
                 Some(path) => entries.push(path.display().to_string()),
-                None => log::warn!(
-                    "[REDIRECT] Library faltante en todas las rutas: {} ({})",
-                    name,
-                    relative.display()
-                ),
+                None => {
+                    log::warn!(
+                        "[REDIRECT] Library faltante en todas las rutas: {} ({})",
+                        name,
+                        relative.display()
+                    );
+                    missing.push(format!("{} ({})", name, relative.display()));
+                }
             }
         }
+    }
+
+    if !missing.is_empty() {
+        return Err(format!(
+            "Classpath incompleto, faltan {} jars: {}",
+            missing.len(),
+            missing.into_iter().take(20).collect::<Vec<_>>().join(" | ")
+        ));
     }
 
     let main_jar = versions_dir
