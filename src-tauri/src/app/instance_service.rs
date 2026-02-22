@@ -626,6 +626,58 @@ fn resolve_forge_module_path_value(
     Ok(resolved.join(&separator.to_string()))
 }
 
+fn resolve_forge_library_path_list_value(
+    value: &str,
+    library_roots: &[PathBuf],
+) -> Result<String, String> {
+    let separator = if value.contains(';') {
+        ';'
+    } else if cfg!(target_os = "windows") {
+        // En Windows una ruta absoluta contiene ':' por la unidad (ej. C:\\),
+        // por lo que ':' no es un separador confiable para listas de rutas.
+        return Ok(value.to_string());
+    } else {
+        ':'
+    };
+
+    let mut resolved = Vec::new();
+    let mut missing = Vec::new();
+
+    for raw in value
+        .split(separator)
+        .filter(|entry| !entry.trim().is_empty())
+    {
+        let entry = raw.trim();
+        let path = PathBuf::from(entry);
+        if path.exists() {
+            resolved.push(path.display().to_string());
+            continue;
+        }
+
+        if let Some(fixed) = try_resolve_missing_library_path(&path, library_roots) {
+            resolved.push(fixed.display().to_string());
+            continue;
+        }
+
+        missing.push(entry.to_string());
+    }
+
+    if !missing.is_empty() {
+        let searched = library_roots
+            .iter()
+            .map(|root| root.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(format!(
+            "Forge requiere rutas de librerías que no se encontraron. Faltantes: [{}]. Buscado en: [{}].",
+            missing.join(", "),
+            searched
+        ));
+    }
+
+    Ok(resolved.join(&separator.to_string()))
+}
+
 #[derive(Debug, Clone)]
 struct ForgeArgsResolution {
     args: Vec<String>,
@@ -2683,20 +2735,6 @@ fn resolve_real_forge_library_dir(
     fallback
 }
 
-fn find_jar_relative(missing_absolute: &Path, real_lib_dir: &Path) -> Option<PathBuf> {
-    let normalized = missing_absolute.to_string_lossy().replace('\\', "/");
-    let lower = normalized.to_ascii_lowercase();
-    let marker = "libraries/";
-    if let Some(pos) = lower.find(marker) {
-        let rel = &normalized[pos + marker.len()..];
-        let candidate = real_lib_dir.join(rel);
-        if candidate.exists() {
-            return Some(candidate);
-        }
-    }
-    None
-}
-
 fn load_forge_args_file(
     mc_root: &Path,
     version_id: &str,
@@ -2764,43 +2802,20 @@ fn load_forge_args_file(
 
     if let Some(module_idx) = args.iter().position(|arg| arg == "--module-path") {
         if let Some(module_value) = args.get(module_idx + 1).cloned() {
-            let separator = if module_value.contains(';') { ';' } else { ':' };
-            let mut fixed = Vec::new();
-            let mut missing_jars = Vec::new();
-            for raw in module_value
-                .split(separator)
-                .filter(|entry| !entry.trim().is_empty())
-            {
-                let entry = raw.trim();
-                let path = PathBuf::from(entry);
-                if path.exists() {
-                    fixed.push(path.display().to_string());
-                    continue;
-                }
+            args[module_idx + 1] = resolve_forge_module_path_value(&module_value, &library_roots)
+                .map_err(|_| {
+                    format!(
+                        "Forge no puede iniciar: faltan JARs críticos del --module-path en los directorios libraries/ conocidos. Directorio principal: {}. Solución: abre esta instancia en su launcher original (Prism/CurseForge/etc.) al menos una vez para que Forge instale sus archivos, luego vuelve a intentarlo.",
+                        effective_library_dir.display()
+                    )
+                })?;
+        }
+    }
 
-                if let Some(found) = find_jar_relative(&path, &effective_library_dir) {
-                    fixed.push(found.display().to_string());
-                    continue;
-                }
-
-                if let Some(found) = try_resolve_missing_library_path(&path, &library_roots) {
-                    fixed.push(found.display().to_string());
-                    continue;
-                }
-
-                missing_jars.push(entry.to_string());
-            }
-
-            if !missing_jars.is_empty() {
-                return Err(format!(
-                    "Forge no puede iniciar: faltan {} JARs críticos que no se encontraron en ningún directorio libraries/ conocido.\n\nJARs faltantes:\n{}\n\nDirectorio libraries/ buscado: {}\n\nSolución: abre esta instancia en su launcher original (Prism/CurseForge/etc.) al menos una vez para que Forge instale sus archivos, luego vuelve a intentarlo.",
-                    missing_jars.len(),
-                    missing_jars.join("\n"),
-                    effective_library_dir.display()
-                ));
-            }
-
-            args[module_idx + 1] = fixed.join(&separator.to_string());
+    for arg in &mut args {
+        if let Some(path_list) = arg.strip_prefix("-DlegacyClassPath=") {
+            let resolved = resolve_forge_library_path_list_value(path_list, &library_roots)?;
+            *arg = format!("-DlegacyClassPath={resolved}");
         }
     }
 
@@ -4164,6 +4179,67 @@ mod tests {
                 .windows(2)
                 .any(|w| matches!(w, [f, v] if f == "--add-modules" && v == "ALL-MODULE-PATH")),
             "--add-modules debe preservar su valor en la siguiente posición"
+        );
+    }
+
+    #[test]
+    fn forge_args_file_resolves_legacy_classpath_paths() {
+        let root = test_temp_dir("forge-legacy-classpath");
+        let version_id = "forge-test";
+        let version_dir = root.join("versions").join(version_id);
+        fs::create_dir_all(&version_dir).expect("version dir");
+        let args_path = if cfg!(target_os = "windows") {
+            version_dir.join("win_args.txt")
+        } else {
+            version_dir.join("unix_args.txt")
+        };
+
+        let forge_jar = root
+            .join("libraries/net/minecraftforge/forge/1.20.1-47.4.0")
+            .join("forge-1.20.1-47.4.0-client.jar");
+        fs::create_dir_all(
+            forge_jar
+                .parent()
+                .expect("forge jar parent must exist for test setup"),
+        )
+        .expect("forge parent");
+        fs::write(&forge_jar, "").expect("forge jar");
+
+        let legacy_value = if cfg!(target_os = "windows") {
+            "A:\\curseforge\\Install\\libraries\\net\\minecraftforge\\forge\\1.20.1-47.4.0\\forge-1.20.1-47.4.0-client.jar"
+        } else {
+            "/tmp/curseforge/Install/libraries/net/minecraftforge/forge/1.20.1-47.4.0/forge-1.20.1-47.4.0-client.jar"
+        };
+
+        fs::write(
+            &args_path,
+            format!(
+                "--module-path {}\n-DlegacyClassPath={}\n",
+                forge_jar.display(),
+                legacy_value
+            ),
+        )
+        .expect("args file");
+
+        let mut logs = Vec::new();
+        let parsed = load_forge_args_file(
+            &root,
+            version_id,
+            &launch_context_for_tests(),
+            &root,
+            &mut logs,
+        )
+        .expect("ok")
+        .expect("some");
+
+        let legacy_arg = parsed
+            .args
+            .iter()
+            .find(|arg| arg.starts_with("-DlegacyClassPath="))
+            .expect("legacy class path arg");
+        assert!(
+            legacy_arg.contains(&forge_jar.display().to_string()),
+            "legacyClassPath debe apuntar al JAR real dentro de libraries locales"
         );
     }
 
