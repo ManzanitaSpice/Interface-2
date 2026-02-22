@@ -54,6 +54,7 @@ pub struct CatalogDetailRequest {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogVersion {
+    pub id: String,
     pub version_type: String,
     pub name: String,
     pub published_at: String,
@@ -61,6 +62,7 @@ pub struct CatalogVersion {
     pub game_version: String,
     pub download_url: String,
     pub file_url: String,
+    pub required_dependencies: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -213,6 +215,11 @@ fn fetch_modrinth_detail(client: &Client, id: &str) -> Result<CatalogDetailRespo
                 .to_string();
 
             CatalogVersion {
+                id: entry
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
                 version_type: entry
                     .get("version_type")
                     .and_then(Value::as_str)
@@ -238,6 +245,34 @@ fn fetch_modrinth_detail(client: &Client, id: &str) -> Result<CatalogDetailRespo
                         format!("https://modrinth.com/project/{id}/version/{version_id}")
                     })
                     .unwrap_or(download_url),
+                required_dependencies: entry
+                    .get("dependencies")
+                    .and_then(Value::as_array)
+                    .map(|dependencies| {
+                        dependencies
+                            .iter()
+                            .filter(|dependency| {
+                                dependency
+                                    .get("dependency_type")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or_default()
+                                    .eq_ignore_ascii_case("required")
+                            })
+                            .filter_map(|dependency| {
+                                dependency
+                                    .get("project_id")
+                                    .and_then(Value::as_str)
+                                    .map(str::to_string)
+                                    .or_else(|| {
+                                        dependency
+                                            .get("version_id")
+                                            .and_then(Value::as_str)
+                                            .map(str::to_string)
+                                    })
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default(),
             }
         })
         .collect::<Vec<_>>();
@@ -254,12 +289,25 @@ fn fetch_modrinth_detail(client: &Client, id: &str) -> Result<CatalogDetailRespo
         })
         .unwrap_or_default();
 
-    let mut links = vec![CatalogExternalLink { label: "Página".to_string(), url: format!("https://modrinth.com/project/{id}") }];
+    let mut links = vec![CatalogExternalLink {
+        label: "Página".to_string(),
+        url: format!("https://modrinth.com/project/{id}"),
+    }];
     if let Some(wiki) = project.get("wiki_url").and_then(Value::as_str) {
-        if !wiki.is_empty() { links.push(CatalogExternalLink { label: "Wiki".to_string(), url: wiki.to_string() }); }
+        if !wiki.is_empty() {
+            links.push(CatalogExternalLink {
+                label: "Wiki".to_string(),
+                url: wiki.to_string(),
+            });
+        }
     }
     if let Some(discord) = project.get("discord_url").and_then(Value::as_str) {
-        if !discord.is_empty() { links.push(CatalogExternalLink { label: "Discord".to_string(), url: discord.to_string() }); }
+        if !discord.is_empty() {
+            links.push(CatalogExternalLink {
+                label: "Discord".to_string(),
+                url: discord.to_string(),
+            });
+        }
     }
 
     Ok(CatalogDetailResponse {
@@ -368,6 +416,11 @@ fn fetch_curseforge_detail(client: &Client, id: &str) -> Result<CatalogDetailRes
                 .to_string();
 
             CatalogVersion {
+                id: entry
+                    .get("id")
+                    .and_then(Value::as_u64)
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
                 version_type: entry
                     .get("displayName")
                     .and_then(Value::as_str)
@@ -405,6 +458,24 @@ fn fetch_curseforge_detail(client: &Client, id: &str) -> Result<CatalogDetailRes
                         format!("https://www.curseforge.com/minecraft/mc-mods/{id}/files/{file_id}")
                     })
                     .unwrap_or_default(),
+                required_dependencies: entry
+                    .get("dependencies")
+                    .and_then(Value::as_array)
+                    .map(|dependencies| {
+                        dependencies
+                            .iter()
+                            .filter(|dependency| {
+                                dependency.get("relationType").and_then(Value::as_u64) == Some(3)
+                            })
+                            .filter_map(|dependency| {
+                                dependency
+                                    .get("modId")
+                                    .and_then(Value::as_u64)
+                                    .map(|value| value.to_string())
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default(),
             }
         })
         .collect::<Vec<_>>();
@@ -421,15 +492,51 @@ fn fetch_curseforge_detail(client: &Client, id: &str) -> Result<CatalogDetailRes
         })
         .unwrap_or_default();
 
-    let mut links = vec![CatalogExternalLink { label: "Página".to_string(), url: format!("https://www.curseforge.com/minecraft/mc-mods/{}", project_data.get("slug").and_then(Value::as_str).unwrap_or(id)) }];
-    if let Some(website) = project_data.get("links").and_then(|v| v.get("websiteUrl")).and_then(Value::as_str) {
-        if !website.is_empty() { links.push(CatalogExternalLink { label: "Sitio".to_string(), url: website.to_string() }); }
+    let mut links = vec![CatalogExternalLink {
+        label: "Página".to_string(),
+        url: format!(
+            "https://www.curseforge.com/minecraft/mc-mods/{}",
+            project_data
+                .get("slug")
+                .and_then(Value::as_str)
+                .unwrap_or(id)
+        ),
+    }];
+    if let Some(website) = project_data
+        .get("links")
+        .and_then(|v| v.get("websiteUrl"))
+        .and_then(Value::as_str)
+    {
+        if !website.is_empty() {
+            links.push(CatalogExternalLink {
+                label: "Sitio".to_string(),
+                url: website.to_string(),
+            });
+        }
     }
-    if let Some(wiki) = project_data.get("links").and_then(|v| v.get("wikiUrl")).and_then(Value::as_str) {
-        if !wiki.is_empty() { links.push(CatalogExternalLink { label: "Wiki".to_string(), url: wiki.to_string() }); }
+    if let Some(wiki) = project_data
+        .get("links")
+        .and_then(|v| v.get("wikiUrl"))
+        .and_then(Value::as_str)
+    {
+        if !wiki.is_empty() {
+            links.push(CatalogExternalLink {
+                label: "Wiki".to_string(),
+                url: wiki.to_string(),
+            });
+        }
     }
-    if let Some(discord) = project_data.get("links").and_then(|v| v.get("issuesUrl")).and_then(Value::as_str) {
-        if !discord.is_empty() { links.push(CatalogExternalLink { label: "Issues".to_string(), url: discord.to_string() }); }
+    if let Some(discord) = project_data
+        .get("links")
+        .and_then(|v| v.get("issuesUrl"))
+        .and_then(Value::as_str)
+    {
+        if !discord.is_empty() {
+            links.push(CatalogExternalLink {
+                label: "Issues".to_string(),
+                url: discord.to_string(),
+            });
+        }
     }
 
     Ok(CatalogDetailResponse {

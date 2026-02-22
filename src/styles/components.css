@@ -267,22 +267,35 @@
 .floating-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: radial-gradient(circle at top, rgba(12, 19, 34, 0.52), rgba(0, 0, 0, 0.72));
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  animation: modal-fade-in .2s ease;
 }
 
 .floating-modal {
   width: min(460px, calc(100vw - 2rem));
-  background: color-mix(in srgb, var(--bg-surface) 96%, #121923);
-  border: 1px solid var(--border);
-  border-radius: 0.75rem;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 96%, #172033), color-mix(in srgb, var(--bg-surface) 95%, #0f1728));
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: 0.95rem;
   padding: 1rem;
   display: flex;
   flex-direction: column;
   gap: 0.8rem;
+  box-shadow: 0 18px 40px rgba(2, 6, 23, 0.55);
+  animation: modal-pop-in .22s ease;
+}
+
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modal-pop-in {
+  from { opacity: 0; transform: translateY(8px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .auth-login-card {
@@ -2644,10 +2657,10 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
 .mods-compact-bar.vertical { display: grid; justify-items: start; }
 .mods-downloader-compact-bars .mods-compact-bar.actions { grid-column: 1 / -1; justify-content: flex-end; }
 .mods-compact-bar.actions button { min-height: 30px; margin-left: .32rem; }
-.mods-review-modal { width: min(900px, 96vw); }
-.mods-review-list { max-height: 340px; overflow: auto; display: grid; gap: .5rem; }
-.mods-review-card { border: 1px solid var(--border); border-radius: 0; padding: .45rem .55rem; display: grid; gap: .3rem; }
-.mods-review-dependency { margin: 0; color: var(--text-muted); font-size: .82rem; padding-left: .4rem; }
+.mods-review-modal { width: min(900px, 96vw); max-height: min(82vh, 760px); }
+.mods-review-list { max-height: min(52vh, 420px); overflow: auto; display: grid; gap: .55rem; padding-right: .2rem; }
+.mods-review-card { border: 1px solid color-mix(in srgb, var(--border) 80%, var(--accent)); border-radius: .62rem; padding: .55rem .65rem; display: grid; gap: .3rem; background: color-mix(in srgb, var(--bg-soft) 84%, #0b1220); }
+.mods-review-dependency { margin: 0; color: var(--text-muted); font-size: .82rem; padding-left: .6rem; border-left: 2px solid color-mix(in srgb, var(--accent) 40%, transparent); }
 
 .mods-list-head,
 .mods-row { font-size: .72rem; }
@@ -2728,3 +2741,5 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
   position: absolute;
   inset: 0;
 }
+
+.mods-updates-modal .mods-review-card strong { color: color-mix(in srgb, var(--text-main) 92%, var(--accent)); }

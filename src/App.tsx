@@ -182,7 +182,7 @@ type ModCatalogDetail = {
   url: string
   image: string
   links?: Array<{ label: string; url: string }>
-  versions: Array<{ name: string; gameVersion: string; downloadUrl: string; versionType?: string; publishedAt?: string }>
+  versions: Array<{ id?: string; name: string; gameVersion: string; downloadUrl: string; versionType?: string; publishedAt?: string; requiredDependencies?: string[] }>
 }
 
 type ManifestVersion = {
@@ -253,6 +253,7 @@ type CatalogVersionItem = {
   versionType: string
   publishedAt: string
   downloadUrl: string
+  requiredDependencies?: string[]
 }
 
 type StagedDownloadEntry = {
@@ -765,6 +766,7 @@ function App() {
   const [stagedDownloads, setStagedDownloads] = useState<Record<string, StagedDownloadEntry>>({})
   const [reviewModalOpen, setReviewModalOpen] = useState(false)
   const [installingModalOpen, setInstallingModalOpen] = useState(false)
+  const [cancelModsConfirmOpen, setCancelModsConfirmOpen] = useState(false)
   const [installProgress, setInstallProgress] = useState({ current: 0, total: 0, message: '' })
   const [selectedLanguage, setSelectedLanguage] = useState(languageCatalog[0].name)
   const [installedLanguages, setInstalledLanguages] = useState<string[]>(languageCatalog.filter((item) => item.installedByDefault).map((item) => item.name))
@@ -1411,12 +1413,13 @@ function App() {
         if (selectedEditSection === 'Mods' && modsDownloaderOpen) {
           const selectedCount = Object.values(stagedDownloads).filter((entry) => entry.selected).length
           if (selectedCount > 0) {
-            const confirmed = window.confirm(`Tienes ${selectedCount} mod(s) seleccionados en revisión. ¿Seguro que quieres cancelar y volver a la sección de mods?`)
-            if (!confirmed) return
+            setCancelModsConfirmOpen(true)
+            return
           }
           setModsDownloaderOpen(false)
           setReviewModalOpen(false)
           setInstallingModalOpen(false)
+          setCancelModsConfirmOpen(false)
           return
         }
         if (selectedEditSection === 'Configuración' && selectedSettingsTab !== 'General') {
@@ -2581,12 +2584,13 @@ function App() {
     return detail.versions
       .filter((entry) => !!entry.downloadUrl)
       .map((entry) => ({
-        id: `${entry.name}-${entry.gameVersion}-${entry.downloadUrl}`,
+        id: entry.id || `${entry.name}-${entry.gameVersion}-${entry.downloadUrl}`,
         name: entry.name,
         gameVersion: entry.gameVersion,
         versionType: (entry as { versionType?: string }).versionType ?? 'release',
         publishedAt: (entry as { publishedAt?: string }).publishedAt ?? '',
         downloadUrl: entry.downloadUrl,
+        requiredDependencies: entry.requiredDependencies ?? [],
       }))
   }, [])
 
@@ -2671,18 +2675,62 @@ function App() {
     setDownloaderShowAllVersions(false)
   }
 
-  const closeDownloaderWithValidation = useCallback(() => {
-    const selectedCount = Object.values(stagedDownloads).filter((entry) => entry.selected).length
-    if (selectedCount > 0) {
-      const confirmed = window.confirm(`Tienes ${selectedCount} mod(s) seleccionados en revisión. ¿Seguro que quieres cancelar y volver a la sección de mods?`)
-      if (!confirmed) return
-    }
+  const closeDownloader = useCallback(() => {
     setModsDownloaderOpen(false)
     setReviewModalOpen(false)
     setInstallingModalOpen(false)
-  }, [stagedDownloads])
+    setCancelModsConfirmOpen(false)
+  }, [])
 
-  const stageSelectedMod = () => {
+  const closeDownloaderWithValidation = useCallback(() => {
+    const selectedCount = Object.values(stagedDownloads).filter((entry) => entry.selected).length
+    if (selectedCount > 0) {
+      setCancelModsConfirmOpen(true)
+      return
+    }
+    closeDownloader()
+  }, [closeDownloader, stagedDownloads])
+
+  const resolveRequiredDependencies = useCallback(async (mod: ModsCatalogItem, version: CatalogVersionItem, visited = new Set<string>()) => {
+    if (visited.has(mod.id)) return [] as StagedDownloadEntry['dependencies']
+    visited.add(mod.id)
+    const dependencyIds = version.requiredDependencies ?? []
+    const resolved: StagedDownloadEntry['dependencies'] = []
+    for (const dependencyId of dependencyIds) {
+      const knownDependency = downloaderCatalogMods.find((item) => item.id === dependencyId && item.source === mod.source)
+      const dependencyMod: ModsCatalogItem = knownDependency ?? {
+        id: dependencyId,
+        source: mod.source,
+        name: `Dependencia ${dependencyId}`,
+        summary: 'Dependencia obligatoria detectada automáticamente.',
+        image: '',
+        downloads: 0,
+        followers: 0,
+        publishedAt: '',
+        updatedAt: '',
+      }
+      let dependencyVersion: CatalogVersionItem | null = null
+      try {
+        const detail = await invoke<ModCatalogDetail>('get_catalog_detail', { request: { id: dependencyMod.id, source: dependencyMod.source } })
+        dependencyVersion = mapDetailToCatalogVersions(detail)[0] ?? null
+      } catch {
+        dependencyVersion = null
+      }
+      const installed = instanceMods.some((item) => item.name.toLowerCase() === dependencyMod.name.toLowerCase())
+      resolved.push({ mod: dependencyMod, version: dependencyVersion, installed, selected: !installed })
+      if (dependencyVersion) {
+        const nested = await resolveRequiredDependencies(dependencyMod, dependencyVersion, visited)
+        for (const nestedDependency of nested) {
+          if (!resolved.some((item) => item.mod.id === nestedDependency.mod.id)) {
+            resolved.push(nestedDependency)
+          }
+        }
+      }
+    }
+    return resolved
+  }, [downloaderCatalogMods, instanceMods, mapDetailToCatalogVersions])
+
+  const stageSelectedMod = async () => {
     if (!selectedCatalogMod || !selectedCatalogVersion) return
     if (stagedDownloads[selectedCatalogMod.id]) {
       setStagedDownloads((prev) => {
@@ -2692,7 +2740,7 @@ function App() {
       })
       return
     }
-    const dependencies: StagedDownloadEntry['dependencies'] = []
+    const dependencies = await resolveRequiredDependencies(selectedCatalogMod, selectedCatalogVersion)
     const reinstall = instanceMods.some((item) => item.name.toLowerCase() === selectedCatalogMod.name.toLowerCase())
     setStagedDownloads((prev) => ({
       ...prev,
@@ -4010,6 +4058,61 @@ function App() {
                         {modVersionError && <p className="error-banner">{modVersionError}</p>}
                       </aside>
                     </div>
+
+                    {modVersionModalOpen && selectedMod && (
+                      <div className="floating-modal-overlay" role="dialog" aria-modal="true" aria-label="Cambiar versión del mod">
+                        <article className="floating-modal mods-version-modal">
+                          <h3>Cambiar versión · {selectedMod.name}</h3>
+                          <div className="mods-downloader-panels mods-version-modal-panels">
+                            <section className="mods-preview-panel">
+                              <h4>{selectedMod.name}</h4>
+                              <p>{modVersionDetail?.description || 'Sin descripción del catálogo para este mod.'}</p>
+                              {modVersionDetail?.bodyHtml && <div className="mods-preview-description" dangerouslySetInnerHTML={{ __html: renderCatalogBody(modVersionDetail.bodyHtml) }} />}
+                            </section>
+                            <section className="mods-catalog-panel">
+                              <label>Versiones disponibles</label>
+                              <select value={selectedVersionOptionId} onChange={(event) => setSelectedVersionOptionId(event.target.value)}>
+                                {modVersionOptions.map((option) => {
+                                  const optionId = `${option.name}-${option.version}`
+                                  return <option key={optionId} value={optionId}>{option.name} · MC {option.version || '-'}</option>
+                                })}
+                              </select>
+                              <p>Instalada actualmente: {selectedMod.version}</p>
+                            </section>
+                          </div>
+                          <footer className="floating-modal-actions">
+                            <button className="primary" onClick={() => {
+                              const selectedOption = modVersionOptions.find((option) => `${option.name}-${option.version}` === selectedVersionOptionId)
+                              if (!selectedOption) return
+                              void replaceModVersion(selectedOption)
+                              setModVersionModalOpen(false)
+                            }} disabled={!selectedVersionOptionId}>Reinstalar</button>
+                            <button onClick={() => setModVersionModalOpen(false)}>Cancelar</button>
+                          </footer>
+                        </article>
+                      </div>
+                    )}
+
+                    {updatesModalOpen && (
+                      <div className="floating-modal-overlay" role="dialog" aria-modal="true" aria-label="Actualizaciones de mods">
+                        <article className="floating-modal mods-review-modal mods-updates-modal">
+                          <h3>Actualizaciones compatibles disponibles</h3>
+                          <div className="mods-review-list">
+                            {updatesCandidates.length === 0 && <p className="mods-empty">No se encontraron actualizaciones compatibles con el loader y la versión de Minecraft actuales.</p>}
+                            {updatesCandidates.map((candidate) => (
+                              <div key={candidate.mod.id} className="mods-review-card">
+                                <strong>{candidate.mod.name}</strong>
+                                <p>Instalada: {candidate.mod.version} · Nueva: {candidate.nextVersion.name} · MC {candidate.nextVersion.version || '-'}</p>
+                              </div>
+                            ))}
+                          </div>
+                          <footer className="floating-modal-actions">
+                            <button className="primary" onClick={() => { void applyAllUpdates() }} disabled={updatesCandidates.length === 0}>Ok y reinstalar</button>
+                            <button onClick={() => setUpdatesModalOpen(false)}>Cancelar</button>
+                          </footer>
+                        </article>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <div className="mods-downloader-page">
@@ -4059,7 +4162,7 @@ function App() {
                               const isStaged = Boolean(stagedDownloads[mod.id])
                               return (
                                 <article key={mod.id} className={`mods-catalog-item ${isSelected ? 'active' : ''}`}>
-                                  <button className="mods-catalog-toggle" onClick={() => setSelectedCatalogModId(mod.id)}>{isStaged ? '✓' : '+'}</button>
+                                  <button className="mods-catalog-toggle" onClick={() => { if (selectedCatalogModId !== mod.id) { setSelectedCatalogModId(mod.id); return } void stageSelectedMod() }}>{isStaged ? '✓' : '+'}</button>
                                   <button className="mods-catalog-main" onClick={() => setSelectedCatalogModId(mod.id)}>
                                     {mod.image && <img src={mod.image} alt={mod.name} loading="lazy" />}
                                     <span>
@@ -4116,7 +4219,7 @@ function App() {
                             <span className="mods-channel-chip">{(selectedCatalogVersion?.versionType ?? 'release').toUpperCase()}</span>
                           </div>
                           <div className="mods-compact-bar actions-row">
-                            <button className="secondary" onClick={stageSelectedMod} disabled={!selectedCatalogVersion}>{stagedDownloads[selectedCatalogModId] ? 'Deseleccionar' : 'Seleccionar para descargar'}</button>
+                            <button className="secondary" onClick={() => { void stageSelectedMod() }} disabled={!selectedCatalogVersion}>{stagedDownloads[selectedCatalogModId] ? 'Deseleccionar' : 'Seleccionar para descargar'}</button>
                             <div className="actions-group-right">
                               <button className="ghost-btn" onClick={closeDownloaderWithValidation}>Cancelar</button>
                               <button className="primary" onClick={() => setReviewModalOpen(true)}>Revisar y confirmar</button>
@@ -4216,6 +4319,20 @@ function App() {
                           <footer className="floating-modal-actions">
                             <button className="primary" onClick={confirmReviewAndInstall}>Ok</button>
                             <button onClick={() => setReviewModalOpen(false)}>Cancelar</button>
+                          </footer>
+                        </article>
+                      </div>
+                    )}
+
+
+                    {cancelModsConfirmOpen && (
+                      <div className="floating-modal-overlay" role="dialog" aria-modal="true" aria-label="Cancelar selección de mods">
+                        <article className="floating-modal mods-review-modal">
+                          <h3>¿Cancelar selección de mods?</h3>
+                          <p>Todavía tienes mods seleccionados para descargar. Si sales ahora perderás la revisión pendiente.</p>
+                          <footer className="floating-modal-actions">
+                            <button className="primary" onClick={closeDownloader}>Salir y descartar</button>
+                            <button onClick={() => setCancelModsConfirmOpen(false)}>Seguir revisando</button>
                           </footer>
                         </article>
                       </div>
