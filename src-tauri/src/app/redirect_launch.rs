@@ -2785,6 +2785,48 @@ pub fn build_classpath_multi(
         .join(sep))
 }
 
+fn collect_missing_classpath_libraries(
+    merged_version_json: &serde_json::Value,
+    libraries_dirs: &[PathBuf],
+) -> Vec<String> {
+    let ctx = RuleContext::current();
+    let mut missing = Vec::new();
+
+    for library in merged_version_json
+        .get("libraries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        let rules = library
+            .get("rules")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if !rules.is_empty() && !evaluate_rules(&rules, &ctx) {
+            continue;
+        }
+
+        let Some(name) = library.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(relative) = maven_library_path(name) else {
+            continue;
+        };
+
+        let found = libraries_dirs
+            .iter()
+            .any(|dir| dir.join(&relative).exists());
+        if !found {
+            missing.push(name.to_string());
+        }
+    }
+
+    missing.sort();
+    missing.dedup();
+    missing
+}
+
 fn current_os_name() -> &'static str {
     #[cfg(target_os = "windows")]
     {
@@ -4931,7 +4973,7 @@ pub async fn launch_redirect_instance(
         loader: metadata.loader.clone(),
         loader_version: metadata.loader_version.clone(),
     };
-    let ctx = match resolve_redirect_launch_context(
+    let mut ctx = match resolve_redirect_launch_context(
         &source_path,
         &metadata.version_id,
         &redirect.source_launcher,
@@ -4964,6 +5006,33 @@ pub async fn launch_redirect_instance(
             runtime.major()
         )
     })?;
+
+    let mut libraries_dirs = vec![ctx.libraries_dir.clone()];
+    if let Some(system_root) = system_minecraft_root() {
+        libraries_dirs.push(system_root.join("libraries"));
+    }
+    for launcher_root in launcher_roots_for_source(&redirect.source_launcher) {
+        libraries_dirs.push(launcher_root.join("libraries"));
+    }
+    let libraries_dirs: Vec<PathBuf> = libraries_dirs.into_iter().filter(|p| p.is_dir()).collect();
+
+    let missing_before_launch =
+        collect_missing_classpath_libraries(&ctx.version_json, &libraries_dirs);
+    if !missing_before_launch.is_empty() {
+        log::warn!(
+            "[REDIRECT] Se detectaron {} libraries faltantes; forzando bootstrap de caché REDIRECT",
+            missing_before_launch.len()
+        );
+        ctx = ensure_redirect_cache_context(
+            &app,
+            &source_path,
+            &redirect.source_launcher,
+            &metadata.internal_uuid,
+            &metadata.version_id,
+            &hints,
+        )
+        .await?;
+    }
 
     let mut libraries_dirs = vec![ctx.libraries_dir.clone()];
     if let Some(system_root) = system_minecraft_root() {
