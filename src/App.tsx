@@ -264,6 +264,12 @@ type StagedDownloadEntry = {
   dependencies: Array<{ mod: ModsCatalogItem; version: CatalogVersionItem | null; installed: boolean; selected: boolean }>
 }
 
+type VisibleCatalogSlice = {
+  rows: CatalogVersionItem[]
+  canScrollUp: boolean
+  canScrollDown: boolean
+}
+
 type MicrosoftAuthStart = {
   authorizeUrl: string
   codeVerifier: string
@@ -751,6 +757,7 @@ function App() {
   const [modsDownloaderSource, setModsDownloaderSource] = useState<ModsDownloaderSource>('Modrinth')
   const [modsDownloaderSort, setModsDownloaderSort] = useState<ModsDownloaderSort>('relevance')
   const [selectedCatalogModId, setSelectedCatalogModId] = useState('')
+  const [selectedCatalogVersionId, setSelectedCatalogVersionId] = useState('')
   const [downloaderSearch, setDownloaderSearch] = useState('')
   const [debouncedDownloaderSearch, setDebouncedDownloaderSearch] = useState('')
   const [downloaderShowAllVersions, setDownloaderShowAllVersions] = useState(false)
@@ -798,6 +805,21 @@ function App() {
         ? 17
         : 6
   const selectedCatalogCategory = selectedContentSection === 'resourcepacks' ? 'resourcepack' : selectedContentSection === 'shaderpacks' ? 'shader' : selectedContentSection === 'worlds' ? 'world' : 'mod'
+
+
+  useEffect(() => {
+    setModsPage(1)
+    setSelectedModId('')
+    setModsSearch('')
+    setModsAdvancedOpen(false)
+    setModsDownloaderOpen(false)
+    setReviewModalOpen(false)
+    setCancelModsConfirmOpen(false)
+    setInstallingModalOpen(false)
+    setStagedDownloads({})
+    setSelectedCatalogModId('')
+    setSelectedCatalogVersionId('')
+  }, [selectedContentSection])
   const [selectedLanguage, setSelectedLanguage] = useState(languageCatalog[0].name)
   const [installedLanguages, setInstalledLanguages] = useState<string[]>(languageCatalog.filter((item) => item.installedByDefault).map((item) => item.name))
   const [languageSearch, setLanguageSearch] = useState('')
@@ -850,6 +872,8 @@ function App() {
   const creationConsoleRef = useRef<HTMLDivElement | null>(null)
   const runtimeConsoleRef = useRef<HTMLDivElement | null>(null)
   const playtimeStartRef = useRef<number | null>(null)
+  const dependencyDetailCacheRef = useRef<Record<string, ModCatalogDetail>>({})
+  const installedIconsCacheRef = useRef<Record<string, string>>({})
 
 
 
@@ -1429,12 +1453,15 @@ function App() {
   }, [appendRuntimeForRoot, isInstanceRunning, isStartingInstance])
 
   useEffect(() => {
-    const onEscapePress = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
+    const onNavigationKeyPress = (event: KeyboardEvent) => {
+      const isBackKey = event.key === 'Escape' || event.key === 'ArrowLeft'
+      if (!isBackKey) return
 
       const activeElement = document.activeElement as HTMLElement | null
       if (activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeElement.tagName)) {
-        activeElement.blur()
+        if (event.key === 'Escape') {
+          activeElement.blur()
+        }
         return
       }
 
@@ -1496,9 +1523,9 @@ function App() {
       }
     }
 
-    window.addEventListener('keydown', onEscapePress)
-    return () => window.removeEventListener('keydown', onEscapePress)
-  }, [activePage, backHistory.length, isInstanceRunning, isStartingInstance, modsDownloaderOpen, selectedCard, selectedEditSection, selectedSettingsTab, stagedDownloads])
+    window.addEventListener('keydown', onNavigationKeyPress)
+    return () => window.removeEventListener('keydown', onNavigationKeyPress)
+  }, [activePage, backHistory.length, isInstanceRunning, isStartingInstance, modsDownloaderOpen, selectedCard, selectedContentSection, selectedEditSection, selectedSettingsTab, stagedDownloads])
 
   useEffect(() => {
     let cancelled = false
@@ -2590,16 +2617,24 @@ function App() {
         setModIconById({})
         return
       }
-      const entries = await Promise.all(instanceMods.map(async (mod) => {
-        try {
-          const payload = await invoke<{ items: Array<{ image?: string }> }>('search_catalogs', { request: { search: mod.name, curseforgeClassId: selectedCurseforgeClassId, platform: 'Todas', mcVersion: selectedInstanceMetadata?.minecraftVersion ?? null, loader: (selectedInstanceMetadata?.loader ?? '').toLowerCase() || null, category: selectedCatalogCategory, modrinthSort: 'relevance', curseforgeSortField: 1, limit: 1, page: 1 } })
-          return [mod.id, payload.items[0]?.image ?? ''] as const
-        } catch {
-          return [mod.id, ''] as const
+      const iconMap: Record<string, string> = {}
+      for (const mod of instanceMods.slice(0, 80)) {
+        if (cancelled) return
+        const cacheKey = `${selectedCatalogCategory}:${mod.name.toLowerCase()}`
+        let icon = installedIconsCacheRef.current[cacheKey]
+        if (icon === undefined) {
+          try {
+            const payload = await invoke<{ items: Array<{ image?: string }> }>('search_catalogs', { request: { search: mod.name, curseforgeClassId: selectedCurseforgeClassId, platform: 'Todas', mcVersion: selectedInstanceMetadata?.minecraftVersion ?? null, loader: (selectedInstanceMetadata?.loader ?? '').toLowerCase() || null, category: selectedCatalogCategory, modrinthSort: 'relevance', curseforgeSortField: 1, limit: 1, page: 1 } })
+            icon = payload.items[0]?.image ?? ''
+          } catch {
+            icon = ''
+          }
+          installedIconsCacheRef.current[cacheKey] = icon
         }
-      }))
+        if (icon) iconMap[mod.id] = icon
+      }
       if (cancelled) return
-      setModIconById(Object.fromEntries(entries.filter(([, icon]) => icon)))
+      setModIconById(iconMap)
     }
     void fetchInstalledModIcons()
     return () => { cancelled = true }
@@ -2630,7 +2665,32 @@ function App() {
     return mapDetailToCatalogVersions(selectedCatalogDetail)
   }, [mapDetailToCatalogVersions, selectedCatalogDetail])
 
-  const selectedCatalogVersion = useMemo(() => selectedCatalogVersions[0] ?? null, [selectedCatalogVersions])
+  useEffect(() => {
+    if (selectedCatalogVersions.length === 0) {
+      setSelectedCatalogVersionId('')
+      return
+    }
+    setSelectedCatalogVersionId((prev) => (prev && selectedCatalogVersions.some((item) => item.id === prev) ? prev : selectedCatalogVersions[0].id))
+  }, [selectedCatalogVersions])
+
+  const selectedCatalogVersion = useMemo(
+    () => selectedCatalogVersions.find((item) => item.id === selectedCatalogVersionId) ?? selectedCatalogVersions[0] ?? null,
+    [selectedCatalogVersionId, selectedCatalogVersions],
+  )
+
+  const visibleCatalogVersionSlice = useMemo<VisibleCatalogSlice>(() => {
+    const maxVisible = 4
+    if (selectedCatalogVersions.length <= maxVisible) {
+      return { rows: selectedCatalogVersions, canScrollUp: false, canScrollDown: false }
+    }
+    const selectedIndex = Math.max(0, selectedCatalogVersions.findIndex((item) => item.id === selectedCatalogVersionId))
+    const start = Math.min(Math.max(0, selectedIndex - 1), selectedCatalogVersions.length - maxVisible)
+    return {
+      rows: selectedCatalogVersions.slice(start, start + maxVisible),
+      canScrollUp: start > 0,
+      canScrollDown: start + maxVisible < selectedCatalogVersions.length,
+    }
+  }, [selectedCatalogVersionId, selectedCatalogVersions])
 
   const releaseMinecraftVersions = useMemo(() => manifestVersions.filter((entry) => entry.type === 'release').map((entry) => entry.id), [manifestVersions])
 
@@ -2725,9 +2785,11 @@ function App() {
     if (visited.has(mod.id)) return [] as StagedDownloadEntry['dependencies']
     visited.add(mod.id)
     const dependencyIds = version.requiredDependencies ?? []
-    const resolved: StagedDownloadEntry['dependencies'] = []
+    const installedNames = new Set(instanceMods.map((item) => item.name.toLowerCase()))
+    const resolvedById = new Map<string, StagedDownloadEntry['dependencies'][number]>()
+
     for (const dependencyId of dependencyIds) {
-      const knownDependency = downloaderCatalogMods.find((item) => item.id === dependencyId && item.source === mod.source)
+      const knownDependency = downloaderCatalogMods.find((item) => item.id === dependencyId)
       const dependencyMod: ModsCatalogItem = knownDependency ?? {
         id: dependencyId,
         source: mod.source,
@@ -2739,25 +2801,32 @@ function App() {
         publishedAt: '',
         updatedAt: '',
       }
-      let dependencyVersion: CatalogVersionItem | null = null
-      try {
-        const detail = await invoke<ModCatalogDetail>('get_catalog_detail', { request: { id: dependencyMod.id, source: dependencyMod.source } })
-        dependencyVersion = mapDetailToCatalogVersions(detail)[0] ?? null
-      } catch {
-        dependencyVersion = null
-      }
-      const installed = instanceMods.some((item) => item.name.toLowerCase() === dependencyMod.name.toLowerCase())
-      resolved.push({ mod: dependencyMod, version: dependencyVersion, installed, selected: !installed })
-      if (dependencyVersion) {
-        const nested = await resolveRequiredDependencies(dependencyMod, dependencyVersion, visited)
-        for (const nestedDependency of nested) {
-          if (!resolved.some((item) => item.mod.id === nestedDependency.mod.id)) {
-            resolved.push(nestedDependency)
-          }
+
+      let detail: ModCatalogDetail | undefined = dependencyDetailCacheRef.current[dependencyMod.id]
+      if (!detail) {
+        try {
+          detail = await invoke<ModCatalogDetail>('get_catalog_detail', { request: { id: dependencyMod.id, source: dependencyMod.source } })
+          dependencyDetailCacheRef.current[dependencyMod.id] = detail
+        } catch {
+          detail = undefined
         }
       }
+
+      const dependencyVersion = detail ? (mapDetailToCatalogVersions(detail)[0] ?? null) : null
+      const installed = installedNames.has(dependencyMod.name.toLowerCase())
+      resolvedById.set(dependencyMod.id, { mod: dependencyMod, version: dependencyVersion, installed, selected: !installed })
+
+      if (dependencyVersion) {
+        const nested = await resolveRequiredDependencies(dependencyMod, dependencyVersion, visited)
+        nested.forEach((nestedDependency) => {
+          if (!resolvedById.has(nestedDependency.mod.id)) {
+            resolvedById.set(nestedDependency.mod.id, nestedDependency)
+          }
+        })
+      }
     }
-    return resolved
+
+    return Array.from(resolvedById.values())
   }, [downloaderCatalogMods, instanceMods, mapDetailToCatalogVersions])
 
   const stageSelectedMod = async () => {
@@ -4093,7 +4162,7 @@ function App() {
 
                     {modVersionModalOpen && selectedMod && (
                       <div className="floating-modal-overlay" role="dialog" aria-modal="true" aria-label="Cambiar versión del mod">
-                        <article className="floating-modal mods-version-modal">
+                        <article className="floating-modal mods-version-modal elevated-floating">
                           <h3>Cambiar versión de {selectedContentLabel} · {selectedMod.name}</h3>
                           <div className="mods-downloader-panels mods-version-modal-panels">
                             <section className="mods-preview-panel">
@@ -4103,7 +4172,7 @@ function App() {
                             </section>
                             <section className="mods-catalog-panel">
                               <label>Versiones disponibles</label>
-                              <select value={selectedVersionOptionId} onChange={(event) => setSelectedVersionOptionId(event.target.value)}>
+                              <select className="mods-version-list" size={4} value={selectedVersionOptionId} onChange={(event) => setSelectedVersionOptionId(event.target.value)}>
                                 {modVersionOptions.map((option) => {
                                   const optionId = `${option.name}-${option.version}`
                                   return <option key={optionId} value={optionId}>{option.name} · MC {option.version || '-'}</option>
@@ -4241,13 +4310,34 @@ function App() {
                             </label>
                           </div>
                           <div className="mods-compact-bar versions-block">
-                            <label>Versiones del contenido
-                              <select value={selectedCatalogVersion?.id ?? ''} disabled={!selectedCatalogMod}>
-                                {selectedCatalogVersions.map((version) => (
-                                  <option key={`${version.name}-${version.gameVersion}-${version.downloadUrl}`} value={`${version.name}-${version.gameVersion}`}>{selectedCatalogMod?.name ?? 'Mod'} · {version.gameVersion} · {version.name} · {(version.versionType ?? 'release').toUpperCase()} {((selectedCatalogMod && instanceMods.some((item) => item.name.toLowerCase() === selectedCatalogMod.name.toLowerCase())) ? '· INSTALADO' : '')}</option>
+                            <label>Versiones del contenido</label>
+                            <div className="versions-scroll-wrap">
+                              <button
+                                className="square"
+                                onClick={() => {
+                                  const index = selectedCatalogVersions.findIndex((item) => item.id === selectedCatalogVersionId)
+                                  const previous = selectedCatalogVersions[Math.max(0, index - 1)]
+                                  if (previous) setSelectedCatalogVersionId(previous.id)
+                                }}
+                                disabled={!visibleCatalogVersionSlice.canScrollUp}
+                                aria-label="Versión anterior"
+                              >↑</button>
+                              <select size={4} value={selectedCatalogVersion?.id ?? ''} disabled={!selectedCatalogMod} onChange={(event) => setSelectedCatalogVersionId(event.target.value)}>
+                                {visibleCatalogVersionSlice.rows.map((version) => (
+                                  <option key={version.id} value={version.id}>{selectedCatalogMod?.name ?? 'Mod'} · {version.gameVersion} · {version.name} · {(version.versionType ?? 'release').toUpperCase()} {((selectedCatalogMod && instanceMods.some((item) => item.name.toLowerCase() === selectedCatalogMod.name.toLowerCase())) ? '· INSTALADO' : '')}</option>
                                 ))}
                               </select>
-                            </label>
+                              <button
+                                className="square"
+                                onClick={() => {
+                                  const index = selectedCatalogVersions.findIndex((item) => item.id === selectedCatalogVersionId)
+                                  const next = selectedCatalogVersions[Math.min(selectedCatalogVersions.length - 1, Math.max(0, index) + 1)]
+                                  if (next) setSelectedCatalogVersionId(next.id)
+                                }}
+                                disabled={!visibleCatalogVersionSlice.canScrollDown}
+                                aria-label="Versión siguiente"
+                              >↓</button>
+                            </div>
                             <span className="mods-channel-chip">{(selectedCatalogVersion?.versionType ?? 'release').toUpperCase()}</span>
                           </div>
                           <div className="mods-compact-bar actions-row">
@@ -4265,7 +4355,7 @@ function App() {
 
                     {modVersionModalOpen && selectedMod && (
                       <div className="floating-modal-overlay" role="dialog" aria-modal="true" aria-label="Cambiar versión del mod">
-                        <article className="floating-modal mods-version-modal">
+                        <article className="floating-modal mods-version-modal elevated-floating">
                           <h3>Cambiar versión de {selectedContentLabel} · {selectedMod.name}</h3>
                           <div className="mods-downloader-panels mods-version-modal-panels">
                             <section className="mods-preview-panel">
@@ -4275,7 +4365,7 @@ function App() {
                             </section>
                             <section className="mods-catalog-panel">
                               <label>Versiones disponibles</label>
-                              <select value={selectedVersionOptionId} onChange={(event) => setSelectedVersionOptionId(event.target.value)}>
+                              <select className="mods-version-list" size={4} value={selectedVersionOptionId} onChange={(event) => setSelectedVersionOptionId(event.target.value)}>
                                 {modVersionOptions.map((option) => {
                                   const optionId = `${option.name}-${option.version}`
                                   return <option key={optionId} value={optionId}>{option.name} · MC {option.version || '-'}</option>
@@ -4299,7 +4389,7 @@ function App() {
 
                     {updatesModalOpen && (
                       <div className="floating-modal-overlay" role="dialog" aria-modal="true" aria-label="Actualizaciones de mods">
-                        <article className="floating-modal mods-review-modal">
+                        <article className="floating-modal mods-review-modal elevated-floating">
                           <h3>Actualizaciones compatibles disponibles</h3>
                           <div className="mods-review-list">
                             {updatesCandidates.length === 0 && <p className="mods-empty">No se encontraron actualizaciones compatibles con el loader y la versión de Minecraft actuales.</p>}
@@ -4320,7 +4410,7 @@ function App() {
 
                     {installingModalOpen && (
                       <div className="floating-modal-overlay" role="dialog" aria-modal="true" aria-label="Instalando mods">
-                        <article className="floating-modal mods-review-modal">
+                        <article className="floating-modal mods-review-modal elevated-floating">
                           <h3>Descargando e instalando {selectedContentLabelPlural}</h3>
                           <p>{installProgress.message}</p>
                           <progress max={Math.max(1, installProgress.total)} value={installProgress.current} />
@@ -4331,7 +4421,7 @@ function App() {
 
                     {reviewModalOpen && (
                       <div className="floating-modal-overlay" role="dialog" aria-modal="true" aria-label={`Revisión de ${selectedContentLabelPlural} seleccionados`}>
-                        <article className="floating-modal mods-review-modal">
+                        <article className="floating-modal mods-review-modal elevated-floating">
                           <h3>Revisión de {selectedContentLabelPlural} seleccionados</h3>
                           <div className="mods-review-list">
                             {reviewTree.length === 0 && <p className="mods-empty">No hay mods seleccionados.</p>}
@@ -4359,7 +4449,7 @@ function App() {
 
                     {cancelModsConfirmOpen && (
                       <div className="floating-modal-overlay" role="dialog" aria-modal="true" aria-label="Cancelar selección de mods">
-                        <article className="floating-modal mods-review-modal">
+                        <article className="floating-modal mods-review-modal elevated-floating">
                           <h3>¿Cancelar selección de {selectedContentLabelPlural}?</h3>
                           <p>Todavía tienes {selectedContentLabelPlural} seleccionados para descargar. Si sales ahora perderás la revisión pendiente.</p>
                           <footer className="floating-modal-actions">
