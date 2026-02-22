@@ -3357,13 +3357,23 @@ async fn download_redirect_runtime(
                     }
                     match link_or_copy(&found, &target) {
                         Ok(()) => {
-                            log::info!("[REDIRECT] JAR instalador copiado: {}", target.display())
+                            log::info!("[REDIRECT] JAR instalador copiado: {}", target.display());
+                            if !target.is_file() {
+                                missing_critical.push(format!("  • {} ({})", lib_name, rel_path));
+                                log::warn!(
+                                    "[REDIRECT] JAR instalador reportado como copiado pero no existe en destino: {}",
+                                    target.display()
+                                );
+                            }
                         }
-                        Err(err) => log::warn!(
-                            "[REDIRECT] No se pudo copiar JAR instalador {}: {}",
-                            lib_name,
-                            err
-                        ),
+                        Err(err) => {
+                            log::warn!(
+                                "[REDIRECT] No se pudo copiar JAR instalador {}: {}",
+                                lib_name,
+                                err
+                            );
+                            missing_critical.push(format!("  • {} ({})", lib_name, rel_path));
+                        }
                     }
                 }
                 None => {
@@ -3447,6 +3457,22 @@ async fn download_redirect_runtime(
                 download_url
             ),
             Err(err) => log::warn!("[REDIRECT] Error descargando {}: {}", lib_name, err),
+        }
+    }
+
+    if matches!(
+        hints.loader.trim().to_ascii_lowercase().as_str(),
+        "forge" | "neoforge"
+    ) {
+        let missing_installer = missing_forge_runtime_artifacts(&final_version_json, &libs_dir);
+        if !missing_installer.is_empty() {
+            missing_critical.extend(
+                missing_installer
+                    .into_iter()
+                    .map(|path| format!("  • {}", path)),
+            );
+            missing_critical.sort();
+            missing_critical.dedup();
         }
     }
 
@@ -3708,9 +3734,7 @@ async fn ensure_redirect_cache_context(
                 fs::read_to_string(&cached_version_json_path)
                     .ok()
                     .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-                    .map(|version_json| {
-                        missing_forge_runtime_artifacts(&version_json, &cache_libs)
-                    })
+                    .map(|version_json| missing_forge_runtime_artifacts(&version_json, &cache_libs))
                     .unwrap_or_else(|| vec!["forge-version-json-missing".to_string()])
             } else {
                 vec!["forge-client-generated".to_string()]
