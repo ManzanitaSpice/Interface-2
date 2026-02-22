@@ -1688,11 +1688,13 @@
 
 
 .updates-page .updates-panel {
-  min-height: calc(100vh - 220px);
-  max-height: calc(100vh - 180px);
+  min-height: calc(100vh - 170px);
+  max-height: calc(100vh - 140px);
+  position: sticky;
+  top: 0.85rem;
   display: grid;
   grid-template-rows: auto auto auto 1fr auto;
-  gap: 0.85rem;
+  gap: 0.95rem;
 }
 
 .updates-header.professional {
@@ -1715,12 +1717,14 @@
 }
 
 .updates-hero-card {
-  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-  border-radius: 0.9rem;
-  padding: 0.9rem;
-  background: linear-gradient(155deg, color-mix(in srgb, var(--bg-surface) 92%, #162438), color-mix(in srgb, var(--bg-surface-muted) 94%, #121d2e));
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+  border-radius: 0;
+  padding: 1rem;
+  background:
+    linear-gradient(155deg, color-mix(in srgb, var(--bg-surface) 86%, #1e3551), color-mix(in srgb, var(--bg-surface-muted) 88%, #101a29));
+  box-shadow: 0 12px 22px color-mix(in srgb, #04070e 65%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent);
   display: grid;
-  gap: 0.3rem;
+  gap: 0.34rem;
 }
 
 .updates-hero-card strong {
@@ -1739,11 +1743,12 @@
 }
 
 .updates-status-bar {
-  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
-  background: color-mix(in srgb, var(--accent) 12%, var(--bg-surface));
-  padding: 0.6rem 0.8rem;
-  border-radius: 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 58%, var(--border));
+  background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 20%, var(--bg-surface)), color-mix(in srgb, var(--bg-surface-muted) 92%, #0f1827));
+  padding: 0.7rem 0.9rem;
+  border-radius: 0;
   color: var(--text-main);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 .updates-release-grid {
@@ -1757,14 +1762,15 @@
 }
 
 .updates-release-card {
-  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
-  border-radius: 0.85rem;
-  background: linear-gradient(170deg, color-mix(in srgb, var(--bg-surface) 95%, #1d2b41), color-mix(in srgb, var(--bg-surface-muted) 94%, #131f32));
-  padding: 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: 0;
+  background: linear-gradient(168deg, color-mix(in srgb, var(--bg-surface) 88%, #223755), color-mix(in srgb, var(--bg-surface-muted) 90%, #0f1b2c));
+  padding: 0.95rem;
   display: grid;
-  gap: 0.4rem;
+  gap: 0.44rem;
   cursor: pointer;
-  transition: border-color 0.15s ease, transform 0.15s ease;
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.2s ease;
+  box-shadow: 0 8px 20px color-mix(in srgb, #04070e 55%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .updates-release-card:hover {
@@ -1773,8 +1779,8 @@
 }
 
 .updates-release-card.selected {
-  border-color: color-mix(in srgb, var(--accent) 80%, white);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent) inset;
+  border-color: color-mix(in srgb, var(--accent) 88%, white);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent) inset, 0 14px 24px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 .updates-release-head {
@@ -1850,6 +1856,9 @@
 .updates-release-detail {
   display: grid;
   gap: 0.45rem;
+  border-radius: 0;
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: linear-gradient(160deg, color-mix(in srgb, var(--bg-surface) 90%, #1f334d), color-mix(in srgb, var(--bg-surface-muted) 90%, #101b2a));
 }
 
 .updates-notes-label {
