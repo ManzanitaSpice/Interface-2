@@ -1703,6 +1703,109 @@ fn find_loader_jar_in_dirs(libraries_dirs: &[PathBuf], loader: &str) -> Option<P
     None
 }
 
+fn resolve_missing_library_path(path: &Path, library_roots: &[PathBuf]) -> Option<PathBuf> {
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    if let Some(idx) = normalized.to_ascii_lowercase().find("/libraries/") {
+        let relative = normalized[idx + "/libraries/".len()..].trim_start_matches('/');
+        for root in library_roots {
+            let candidate = root.join(relative);
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+    }
+
+    let file_name = path.file_name().and_then(|n| n.to_str())?;
+    for root in library_roots {
+        let mut queue = std::collections::VecDeque::from([root.clone()]);
+        while let Some(current) = queue.pop_front() {
+            let Ok(entries) = fs::read_dir(&current) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let candidate = entry.path();
+                if candidate.is_dir() {
+                    queue.push_back(candidate);
+                    continue;
+                }
+                if candidate
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.eq_ignore_ascii_case(file_name))
+                {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+fn fix_redirect_cache_library_paths_in_jvm_args(
+    jvm_args: &mut [String],
+    library_roots: &[PathBuf],
+) -> Result<(), String> {
+    for idx in 0..jvm_args.len() {
+        if let Some(value) = jvm_args[idx].strip_prefix("-DlibraryDirectory=") {
+            let current = PathBuf::from(value);
+            if !current.exists() {
+                let replacement = library_roots
+                    .iter()
+                    .find(|candidate| {
+                        candidate.is_dir()
+                            && (candidate.join("net/minecraftforge").is_dir()
+                                || candidate.join("cpw/mods").is_dir()
+                                || candidate.join("net/minecraft/client").is_dir())
+                    })
+                    .or_else(|| library_roots.iter().find(|candidate| candidate.is_dir()));
+                if let Some(replacement) = replacement {
+                    jvm_args[idx] = format!("-DlibraryDirectory={}", replacement.display());
+                }
+            }
+            continue;
+        }
+
+        let is_module_path = jvm_args[idx] == "--module-path";
+        if !is_module_path {
+            continue;
+        }
+
+        let Some(module_value) = jvm_args.get(idx + 1).cloned() else {
+            continue;
+        };
+        let separator = if module_value.contains(';') { ';' } else { ':' };
+        let mut missing = Vec::new();
+        let fixed_segments: Vec<String> = module_value
+            .split(separator)
+            .filter(|segment| !segment.trim().is_empty())
+            .map(|segment| {
+                let segment = segment.trim();
+                let path = PathBuf::from(segment);
+                if path.exists() {
+                    return path.display().to_string();
+                }
+                if let Some(fixed) = resolve_missing_library_path(&path, library_roots) {
+                    return fixed.display().to_string();
+                }
+                missing.push(segment.to_string());
+                segment.to_string()
+            })
+            .collect();
+
+        if !missing.is_empty() {
+            return Err(format!(
+                "Forge REDIRECT no puede iniciar: faltan JARs en --module-path. Faltantes: [{}]",
+                missing.join(", ")
+            ));
+        }
+
+        jvm_args[idx + 1] = fixed_segments.join(&separator.to_string());
+    }
+
+    Ok(())
+}
+
 fn extract_minecraft_version_from_id(version_id: &str) -> String {
     if version_id.starts_with("fabric-loader-") || version_id.starts_with("quilt-loader-") {
         if let Some(mc) = version_id.rsplitn(2, '-').next() {
@@ -4205,6 +4308,8 @@ pub async fn launch_redirect_instance(
     ];
     jvm_args.extend(resolved.jvm);
     jvm_args.extend(metadata.java_args.clone());
+
+    fix_redirect_cache_library_paths_in_jvm_args(&mut jvm_args, &libraries_dirs)?;
 
     let _ = app.emit(
         "redirect_launch_status",
