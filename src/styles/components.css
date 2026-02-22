@@ -2511,6 +2511,7 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
   gap: .7rem;
   min-height: 0;
   padding: .7rem;
+  align-items: stretch;
 }
 
 .mods-list-panel {
@@ -2567,11 +2568,15 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
   display: grid;
   align-content: start;
   gap: .5rem;
+  min-height: 680px;
+  max-height: 680px;
+  position: sticky;
+  top: .35rem;
 }
 
 
 .mods-advanced-strip { margin: .45rem .7rem 0; border: 1px solid var(--border); border-radius: 10px; }
-.mods-list-panel { min-height: 560px; }
+.mods-list-panel { min-height: 680px; max-height: 680px; position: sticky; top: .35rem; }
 .mods-list-body { align-content: start; }
 .mods-empty { padding: .8rem; color: var(--text-muted); }
 .mods-row { grid-template-columns: 88px 42px 1.8fr .8fr 1fr .8fr .7fr .45fr; cursor: pointer; transition: transform .14s ease, border-color .14s ease, background .16s ease; }
@@ -2658,3 +2663,7 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
 .mods-sort-select { min-width: 180px; }
 .mods-downloader-compact-bars { gap: .25rem; }
 .mods-compact-bar { min-height: 32px; padding: .15rem .3rem; }
+
+.mods-row-icon { width: 28px; height: 28px; object-fit: cover; border: 1px solid var(--border); border-radius: 4px; }
+.mods-version-modal { width: min(1200px, 96vw); }
+.mods-version-modal-panels { min-height: 460px; }
