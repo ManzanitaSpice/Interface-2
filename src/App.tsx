@@ -702,9 +702,11 @@ function resolveVisualMedia(meta?: InstanceVisualMeta): string {
   return meta?.mediaDataUrl ?? ''
 }
 
-function mediaTypeFromMime(mime?: string): 'video' | 'image' {
+function mediaTypeFromMime(mime?: string): 'video' | 'image' | 'other' {
   if (!mime) return 'image'
-  return mime.startsWith('video/') ? 'video' : 'image'
+  if (mime.startsWith('video/')) return 'video'
+  if (mime.startsWith('image/')) return 'image'
+  return 'other'
 }
 
 function inferMimeFromName(fileName: string): string | undefined {
@@ -714,16 +716,30 @@ function inferMimeFromName(fileName: string): string | undefined {
   if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg'
   if (ext === 'gif') return 'image/gif'
   if (ext === 'webp') return 'image/webp'
+  if (ext === 'svg') return 'image/svg+xml'
+  if (ext === 'bmp') return 'image/bmp'
+  if (ext === 'avif') return 'image/avif'
   if (ext === 'mp4') return 'video/mp4'
+  if (ext === 'webm') return 'video/webm'
+  if (ext === 'mov') return 'video/quicktime'
+  if (ext === 'mkv') return 'video/x-matroska'
   return undefined
 }
 
-function mediaTypeFromMeta(meta?: InstanceVisualMeta): 'video' | 'image' {
+function mediaTypeFromMeta(meta?: InstanceVisualMeta): 'video' | 'image' | 'other' {
   const mime = meta?.mediaMime?.toLowerCase()
   if (mime) return mediaTypeFromMime(mime)
   const path = meta?.mediaPath?.toLowerCase() ?? meta?.mediaDataUrl?.toLowerCase() ?? ''
-  if (path.includes('.mp4') || path.startsWith('data:video/')) return 'video'
+  if (path.includes('.mp4') || path.includes('.webm') || path.includes('.mov') || path.includes('.mkv') || path.startsWith('data:video/')) return 'video'
+  if (path.startsWith('data:image/')) return 'image'
   return 'image'
+}
+
+function renderVisualMedia(mediaUrl: string, mediaType: 'video' | 'image' | 'other') {
+  if (!mediaUrl) return '🧱'
+  if (mediaType === 'video') return <video src={mediaUrl} muted loop autoPlay playsInline />
+  if (mediaType === 'image') return <img src={mediaUrl} alt="" loading="lazy" />
+  return <object data={mediaUrl} aria-label="Vista previa de archivo" />
 }
 
 const BOOT_TITLE = 'INTERFACE'
@@ -2262,23 +2278,26 @@ function App() {
     if (!file || !selectedCard) return
 
     const normalizedMime = file.type || inferMimeFromName(file.name) || ''
-    const isSupported = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'video/mp4'].includes(normalizedMime)
+    const fallbackMime = normalizedMime || 'application/octet-stream'
+    const isSupported = Boolean(normalizedMime)
     if (!isSupported) {
-      setCreationConsoleLogs((prev) => [...prev, `Error: formato no soportado (${file.name}). Usa PNG, JPG, JPEG, GIF, WEBP o MP4.`])
+      setCreationConsoleLogs((prev) => [...prev, `Error: formato no soportado (${file.name}).`])
       return
     }
 
     try {
       const bytes = Array.from(new Uint8Array(await file.arrayBuffer()))
+      const previousMediaPath = instanceVisualMeta[selectedCard.id]?.mediaPath
       let mediaPath: string | undefined
       if (selectedCard.instanceRoot) {
         mediaPath = await invoke<string>('save_instance_visual_media', {
           instanceRoot: selectedCard.instanceRoot,
           fileName: file.name,
           bytes,
+          previousMediaPath,
         })
       }
-      const shouldStoreInline = !mediaPath && normalizedMime.startsWith('image/')
+      const shouldStoreInline = !mediaPath
       const data = shouldStoreInline
         ? await new Promise<string>((resolve, reject) => {
           const reader = new FileReader()
@@ -2293,7 +2312,7 @@ function App() {
           ...(prev[selectedCard.id] ?? {}),
           mediaDataUrl: data || undefined,
           mediaPath: mediaPath ?? prev[selectedCard.id]?.mediaPath,
-          mediaMime: normalizedMime,
+          mediaMime: fallbackMime,
         },
       }))
     } catch (error) {
@@ -3556,7 +3575,7 @@ function App() {
                       transition={{ duration: 0.14 }}
                     >
                       <div className="instance-card-icon hero" aria-hidden="true">
-                        {!mediaDataUrl ? '🧱' : mediaType === 'video' ? <video src={mediaDataUrl} muted loop autoPlay playsInline /> : <img src={mediaDataUrl} alt="" loading="lazy" />}
+                        {renderVisualMedia(mediaDataUrl, mediaType)}
                       </div>
                       {metadata?.state?.toUpperCase() === 'REDIRECT' && <span className="instance-tag atajo">Atajo</span>}
                       <strong className="instance-card-title">{card.name}</strong>
@@ -3609,8 +3628,7 @@ function App() {
                     {(() => {
                       const media = resolveVisualMedia(instanceVisualMeta[selectedCard.id])
                       const type = mediaTypeFromMeta(instanceVisualMeta[selectedCard.id])
-                      if (!media) return '🧱'
-                      return type === 'video' ? <video src={media} muted loop autoPlay playsInline /> : <img src={media} alt="" loading="lazy" />
+                      return renderVisualMedia(media, type)
                     })()}
                   </div>
                   <header>
