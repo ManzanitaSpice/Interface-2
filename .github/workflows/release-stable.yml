@@ -70,6 +70,15 @@ jobs:
 
           Get-ChildItem $outDir
 
+      - name: Write signing key to disk
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\tauri" | Out-Null
+          $keyPath = "$env:RUNNER_TEMP\tauri\signing.key"
+          [IO.File]::WriteAllText($keyPath, "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}")
+          echo "TAURI_KEY_PATH=$keyPath" >> $env:GITHUB_ENV
+
       - name: Upload updater bundles to release
         uses: softprops/action-gh-release@v2
         with:
