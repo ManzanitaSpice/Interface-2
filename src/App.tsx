@@ -4814,7 +4814,7 @@ function PrincipalTopBar({
       <div className="top-bar principal">
         <div className="launcher-brand-block">
           <div className="launcher-brand-logo-slot" aria-hidden="true">
-            <img className="launcher-brand-logo-image" src="/vite.svg" alt="" />
+            <img className="launcher-brand-logo-image" src="/icons/logo.png" alt="" />
           </div>
           <strong>INTERFACE</strong>
           <button type="button" className="window-chip" aria-label={labels.back} onClick={onNavigateBack} disabled={!canNavigateBack}>←</button>
