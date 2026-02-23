@@ -135,15 +135,22 @@ jobs:
             throw "No Windows updater bundle (.nsis.zip/.msi.zip) found in release $tag. Assets: $($release.assets.name -join ', ')"
           }
 
-          $sigAsset = $release.assets | Where-Object {
-            $_.name -eq "$($updaterAsset.name).sig"
-          } | Select-Object -First 1
+          # Retry: wait for GitHub to index the .sig asset in the release
+          $sigName = "$($updaterAsset.name).sig"
+          $sigAsset = $null
 
-          if (-not $sigAsset) {
-            throw "No signature asset found for $($updaterAsset.name)"
+          for ($i = 0; $i -lt 12; $i++) {
+            $release = Invoke-RestMethod -Headers $headers -Uri $api
+            $sigAsset = $release.assets | Where-Object { $_.name -eq $sigName } | Select-Object -First 1
+            if ($sigAsset) { break }
+            Start-Sleep -Seconds 5
           }
 
-          $signature = (Invoke-RestMethod -Headers $headers -Uri $sigAsset.browser_download_url).Trim()
+          if (-not $sigAsset) {
+            throw "No signature asset found for $($updaterAsset.name). Expected: $sigName. Assets: $($release.assets.name -join ', ')"
+          }
+
+          $signature = (Invoke-WebRequest -Headers $headers -Uri $sigAsset.browser_download_url).Content.Trim()
 
           $manifest = @{
             version = $tag.TrimStart('v')
