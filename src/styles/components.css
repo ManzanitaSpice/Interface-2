@@ -2118,18 +2118,51 @@
 
 .explorer-left-sidebar {
   position: sticky;
-  top: .4rem;
+  top: .35rem;
   align-self: start;
-  max-height: calc(100vh - 108px);
-  min-height: calc(100vh - 108px);
+  max-height: calc(100vh - 110px);
+  min-height: calc(100vh - 110px);
   overflow-y: auto;
   overflow-x: hidden;
   border: 1px solid var(--border);
-  border-radius: .6rem;
-  padding: .45rem;
+  border-radius: .75rem;
+  padding: .6rem;
   background: color-mix(in srgb, var(--bg-surface) 95%, #0d1422);
   display: grid;
-  gap: .4rem;
+  gap: .55rem;
+}
+
+
+.explorer-sidebar-header {
+  display: grid;
+  gap: .14rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  padding-bottom: .45rem;
+}
+
+.explorer-sidebar-header strong {
+  font-size: .83rem;
+  letter-spacing: .01em;
+}
+
+.explorer-sidebar-header small {
+  font-size: .7rem;
+  color: var(--text-muted);
+}
+
+.explorer-sidebar-search {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: color-mix(in srgb, var(--bg-surface) 96%, #0d1422);
+  padding-bottom: .2rem;
+}
+
+.explorer-sidebar-group {
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: .55rem;
+  padding: .45rem;
+  background: color-mix(in srgb, var(--bg-surface-muted) 45%, transparent);
 }
 
 .explorer-main-content {
@@ -2158,27 +2191,33 @@
 }
 
 .explorer-filter-actions {
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: stretch;
-  gap: .4rem;
+  gap: .35rem;
 }
 
 .explorer-filter-actions button {
   width: 100%;
-  min-height: 28px;
-  padding: .2rem .45rem;
+}
+
+.explorer-compact-btn {
+  min-height: 30px;
+  padding: .22rem .5rem;
   font-size: .7rem;
+  border-radius: .45rem;
 }
 
 .explorer-sidebar-section {
   display: grid;
-  gap: .3rem;
+  gap: .35rem;
 }
 
 .explorer-sidebar-section label {
   display: grid;
-  gap: .16rem;
-  font-size: .71rem;
+  gap: .18rem;
+  font-size: .68rem;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--text-main) 90%, var(--text-muted));
 }
 
 .explorer-sidebar-section button {
@@ -2187,15 +2226,15 @@
 
 .explorer-sidebar-section input,
 .explorer-sidebar-section select {
-  min-height: 28px;
-  height: 28px;
-  padding: .2rem .45rem;
-  font-size: .72rem;
+  min-height: 30px;
+  height: 30px;
+  padding: .18rem .44rem;
+  font-size: .7rem;
 }
 
 .explorer-left-sidebar .instance-search-compact {
-  min-height: 30px;
-  height: 30px;
+  min-height: 32px;
+  height: 32px;
   padding: .22rem .5rem;
   font-size: .72rem;
 }
@@ -2301,7 +2340,14 @@
   background: color-mix(in srgb, var(--bg-surface) 96%, #0d1422);
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
-  gap: .45rem;
+  gap: .5rem;
+}
+
+.explorer-results-shell {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: .2rem;
 }
 
 .explorer-toolbar label {
@@ -2369,23 +2415,17 @@
 
 .explorer-results.grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
   gap: .5rem;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
   align-content: start;
-  padding-right: .2rem;
 }
 
 .explorer-results.list {
   display: grid;
   gap: .54rem;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
   align-content: start;
-  padding-right: .2rem;
 }
 
 .explorer-results.list .explorer-card {
@@ -2426,13 +2466,10 @@
 
 .explorer-results.titles {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   gap: .45rem;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
   align-content: start;
-  padding-right: .2rem;
 }
 
 .explorer-results.titles .explorer-card {
@@ -2543,22 +2580,27 @@
 
 .explorer-pagination-bar {
   justify-content: center;
-  gap: .4rem;
-  padding: .2rem .4rem;
+  gap: .55rem;
+  padding: .35rem .55rem;
   border: 1px solid var(--border);
-  border-radius: .45rem;
+  border-radius: .55rem;
   background: color-mix(in srgb, var(--bg-surface) 96%, #0d1422);
+  position: sticky;
+  bottom: 0;
 }
 
 .explorer-pagination-bar button {
-  min-height: 26px;
-  padding: .16rem .44rem;
-  font-size: .7rem;
+  min-height: 30px;
+  min-width: 96px;
+  padding: .22rem .58rem;
+  font-size: .72rem;
 }
 
 .explorer-pagination-bar span {
   font-size: .76rem;
   color: var(--text-muted);
+  min-width: 84px;
+  text-align: center;
 }
 
 
@@ -3034,6 +3076,6 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
 
 @media (max-width: 980px) {
   .explorer-workspace { grid-template-columns: 1fr; }
-  .explorer-left-sidebar { position: static; max-height: none; }
+  .explorer-left-sidebar { position: static; max-height: none; min-height: 0; }
   .explorer-sidebar-resizer { display: none; }
 }
