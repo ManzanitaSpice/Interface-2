@@ -91,7 +91,7 @@ jobs:
 
           foreach ($b in $bundles) {
             Write-Host "Signing $($b.Name)"
-            npx tauri signer sign -k "$keyPath" -f "$($b.FullName)"
+            npx tauri signer sign --private-key-path "$keyPath" "$($b.FullName)"
             if (-not (Test-Path "$($b.FullName).sig")) { throw "Missing sig for $($b.Name)" }
           }
 
