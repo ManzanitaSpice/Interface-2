@@ -1713,6 +1713,23 @@
   display: flex;
   gap: 0.55rem;
   flex-wrap: wrap;
+  align-items: end;
+}
+
+.updates-channel-select {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  min-width: 150px;
+}
+
+.updates-channel-select select {
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: 0.55rem;
+  background: color-mix(in srgb, var(--bg-surface-muted) 90%, #09111d);
+  color: var(--text-main);
+  padding: 0.46rem 0.52rem;
 }
 
 .updates-hero {
@@ -1754,6 +1771,58 @@
   border-radius: 0;
   color: var(--text-main);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.updates-health-panel {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.updates-health-card {
+  border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--bg-surface) 90%, #1a2535), color-mix(in srgb, var(--bg-surface-muted) 92%, #101620));
+  border-radius: 0.6rem;
+  padding: 0.72rem 0.78rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.updates-health-card.ok {
+  border-color: color-mix(in srgb, #2ecc71 45%, var(--border));
+}
+
+.updates-health-card.warn {
+  border-color: color-mix(in srgb, #f1c40f 52%, var(--border));
+}
+
+.updates-health-card.error {
+  border-color: color-mix(in srgb, #e74c3c 62%, var(--border));
+}
+
+.updates-health-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.updates-health-title span {
+  font-weight: 600;
+}
+
+.updates-health-title strong {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.updates-health-card p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.32;
 }
 
 .updates-release-grid {
