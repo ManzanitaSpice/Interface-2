@@ -51,20 +51,20 @@ jobs:
 
           $release = Invoke-RestMethod -Headers $headers -Uri $api
 
-          $installer = $release.assets | Where-Object {
-            $_.name -match 'x64-setup\.exe$' -or $_.name -match '\.msi$'
+          $updaterAsset = $release.assets | Where-Object {
+            $_.name -match '_x64-setup\.nsis\.zip$' -or $_.name -match '_x64.*\.msi\.zip$'
           } | Select-Object -First 1
 
-          if (-not $installer) {
-            throw "No Windows installer asset found in release $tag"
+          if (-not $updaterAsset) {
+            throw "No Windows updater bundle (.nsis.zip/.msi.zip) found in release $tag"
           }
 
           $sigAsset = $release.assets | Where-Object {
-            $_.name -eq "$($installer.name).sig"
+            $_.name -eq "$($updaterAsset.name).sig"
           } | Select-Object -First 1
 
           if (-not $sigAsset) {
-            throw "No signature asset found for $($installer.name)"
+            throw "No signature asset found for $($updaterAsset.name)"
           }
 
           $signature = (Invoke-RestMethod -Headers $headers -Uri $sigAsset.browser_download_url).Trim()
@@ -72,11 +72,11 @@ jobs:
           $manifest = @{
             version = $tag.TrimStart('v')
             notes = "Stable update $tag"
-            pub_date = (Get-Date).ToString('o')
+            pub_date = $release.published_at
             platforms = @{
               "windows-x86_64" = @{
                 signature = $signature
-                url = $installer.browser_download_url
+                url = $updaterAsset.browser_download_url
               }
             }
           } | ConvertTo-Json -Depth 8
