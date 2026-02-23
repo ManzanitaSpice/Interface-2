@@ -2118,10 +2118,10 @@
 
 .explorer-left-sidebar {
   position: sticky;
-  top: 0;
+  top: -8px;
   align-self: start;
-  max-height: calc(100vh - 165px);
-  min-height: calc(100vh - 165px);
+  max-height: calc(100vh - 150px);
+  min-height: calc(100vh - 150px);
   overflow-y: auto;
   overflow-x: hidden;
   border: 1px solid var(--border);
@@ -2193,7 +2193,7 @@
 }
 
 .explorer-filter-actions {
-  grid-template-columns: repeat(2, max-content);
+  grid-template-columns: repeat(2, auto);
   align-items: stretch;
   gap: .35rem;
   justify-content: start;
@@ -2204,10 +2204,14 @@
 }
 
 .explorer-compact-btn {
-  min-height: 28px;
-  padding: .18rem .46rem;
-  font-size: .7rem;
-  border-radius: .45rem;
+  min-height: 26px;
+  padding: .12rem .34rem;
+  font-size: .66rem;
+  border-radius: .38rem;
+}
+
+.explorer-filter-actions .explorer-compact-btn {
+  min-width: 0;
 }
 
 .explorer-sidebar-section {
@@ -2322,7 +2326,7 @@
   display: grid;
   grid-template-rows: 1fr;
   gap: .6rem;
-  height: calc(100vh - 150px);
+  height: calc(100vh - 140px);
   min-height: 0;
   overflow: hidden;
 }
@@ -2339,6 +2343,7 @@
 
 .explorer-catalog-panel {
   min-height: 0;
+  min-height: calc(100vh - 190px);
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: .6rem;
@@ -2598,10 +2603,10 @@
 }
 
 .explorer-pagination-bar button {
-  min-height: 30px;
-  min-width: 96px;
-  padding: .22rem .58rem;
-  font-size: .72rem;
+  min-height: 28px;
+  min-width: 80px;
+  padding: .16rem .42rem;
+  font-size: .68rem;
 }
 
 .explorer-pagination-bar span {

@@ -214,6 +214,7 @@ export function ExplorerPage({ uiLanguage }: Props) {
   const cacheRef = useRef<Record<string, CatalogSearchResponse>>({})
   const detailCacheRef = useRef<Record<string, CatalogDetail>>({})
   const requestSeq = useRef(0)
+  const resultsShellRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     localStorage.setItem(explorerViewModeKey, view)
@@ -227,6 +228,12 @@ export function ExplorerPage({ uiLanguage }: Props) {
     const timer = window.setTimeout(() => { setDebouncedSearch(deferredSearch.trim()); setPage(1) }, 220)
     return () => window.clearTimeout(timer)
   }, [deferredSearch])
+
+  useEffect(() => {
+    resultsShellRef.current?.scrollTo({ top: 0, behavior: 'auto' })
+    document.querySelector<HTMLElement>('.content')?.scrollTo({ top: 0, behavior: 'auto' })
+    window.scrollTo({ top: 0, behavior: 'auto' })
+  }, [page])
 
   useEffect(() => {
     const queryKey = JSON.stringify({ debouncedSearch, category, sort, platform, mcVersion, loader, tag, page })
@@ -420,7 +427,7 @@ export function ExplorerPage({ uiLanguage }: Props) {
             {error && <p className="error-banner">{error}</p>}
 
                 <section className="explorer-catalog-panel">
-                  <div className="explorer-results-shell">
+                  <div ref={resultsShellRef} className="explorer-results-shell">
                     <div className={`explorer-results ${view}`}>
                       {items.map((item) => (
                         <article key={`${item.source}-${item.id}`} className="instance-card explorer-card clickable" onClick={() => { setSelectedItem(item); setSelectedDetail(null); setActiveTab('description') }}>
