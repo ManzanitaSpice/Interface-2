@@ -367,10 +367,14 @@ export function ExplorerPage({ uiLanguage }: Props) {
           <>
             <div className="explorer-workspace" style={{ gridTemplateColumns: `minmax(${minSidebarWidth}px, ${sidebarWidth}px) 8px minmax(0, 1fr)` }}>
               <aside className="explorer-left-sidebar">
-                <div className="explorer-sidebar-section">
+                <div className="explorer-sidebar-header">
+                  <strong>Explorador</strong>
+                  <small>Catálogo y filtros</small>
+                </div>
+                <div className="explorer-sidebar-section explorer-sidebar-search">
                   <input className="instance-search-compact" placeholder={t.search} value={search} onChange={(e) => setSearch(e.target.value)} />
                 </div>
-                <div className="explorer-sidebar-section">
+                <div className="explorer-sidebar-section explorer-sidebar-group">
                   <label>{t.categories}
                     <select value={category} onChange={(e) => { setCategory(e.target.value as Category); setPage(1) }}>{Object.keys(categoryToProjectType).map((value) => <option key={value} value={value}>{labels.category[value as Category][uiLanguage]}</option>)}</select>
                   </label>
@@ -380,16 +384,18 @@ export function ExplorerPage({ uiLanguage }: Props) {
                   <label>{t.platform}
                     <select value={platform} onChange={(e) => { setPlatform(e.target.value as Platform); setPage(1) }}><option value="all">{t.all}</option><option value="curseforge">CurseForge</option><option value="modrinth">Modrinth</option></select>
                   </label>
+                </div>
+                <div className="explorer-sidebar-section explorer-sidebar-group">
                   <label>{t.view}
                     <select value={view} onChange={(e) => setView(e.target.value as ViewMode)}><option value="list">{t.list}</option><option value="grid">{t.grid}</option><option value="titles">{t.titles}</option></select>
                   </label>
                 </div>
                 <div className="explorer-sidebar-section explorer-filter-actions">
-                  <button className="secondary square" onClick={() => setShowAdvanced((v) => !v)}>{showAdvanced ? t.hideAdvanced : t.advanced}</button>
-                  <button className="secondary square explorer-reset-btn" onClick={() => { setSearch(''); setCategory('all'); setSort('relevance'); setPlatform('all'); setMcVersion(''); setLoader('all'); setTag('all'); setPage(1) }}>{t.resetFilters} 🧻</button>
+                  <button className="secondary explorer-compact-btn" onClick={() => setShowAdvanced((v) => !v)}>{showAdvanced ? t.hideAdvanced : t.advanced}</button>
+                  <button className="secondary explorer-compact-btn explorer-reset-btn" onClick={() => { setSearch(''); setCategory('all'); setSort('relevance'); setPlatform('all'); setMcVersion(''); setLoader('all'); setTag('all'); setPage(1) }}>{t.resetFilters}</button>
                 </div>
                 {showAdvanced && (
-                  <div className="explorer-sidebar-section">
+                  <div className="explorer-sidebar-section explorer-sidebar-group">
                     <label>{t.mcVersion}
                       <select value={mcVersion} onChange={(e) => { setMcVersion(e.target.value); setPage(1) }}>
                         <option value="">{t.all}</option>
@@ -414,39 +420,42 @@ export function ExplorerPage({ uiLanguage }: Props) {
             {error && <p className="error-banner">{error}</p>}
 
                 <section className="explorer-catalog-panel">
-                  <div className={`explorer-results ${view}`}>
-                    {items.map((item) => (
-                      <article key={`${item.source}-${item.id}`} className="instance-card explorer-card clickable" onClick={() => { setSelectedItem(item); setSelectedDetail(null); setActiveTab('description') }}>
-                        <div className="explorer-card-media-wrapper">
-                          <div className="instance-card-icon hero explorer-card-media">
-                            {resolveCardImage(item.image, item.title)}
+                  <div className="explorer-results-shell">
+                    <div className={`explorer-results ${view}`}>
+                      {items.map((item) => (
+                        <article key={`${item.source}-${item.id}`} className="instance-card explorer-card clickable" onClick={() => { setSelectedItem(item); setSelectedDetail(null); setActiveTab('description') }}>
+                          <div className="explorer-card-media-wrapper">
+                            <div className="instance-card-icon hero explorer-card-media">
+                              {resolveCardImage(item.image, item.title)}
+                            </div>
                           </div>
-                        </div>
-                        <div className="explorer-card-info">
-                          <strong className="instance-card-title" title={item.title}>{item.title}</strong>
-                          {view !== 'titles' && (
-                            <>
-                              <small className="explorer-description" title={item.description}>{item.description}</small>
-                              <div className="explorer-top-badges">
-                                <span className={`platform-badge ${item.source.toLowerCase()}`}>{item.source}</span>
-                                <span className="loader-badge">{cleanLoaderLabel(item.loaders[0] ?? item.projectType)}</span>
-                                {item.minecraftVersions[0] ? <span className="mc-chip">MC {item.minecraftVersions[0]}</span> : null}
-                              </div>
-                              <div className="instance-card-meta explorer-meta-grid">
-                                <small>{t.author}: {item.author}</small>
-                                <small>{t.downloads}: {compactNumber(item.downloads, uiLanguage)}</small>
-                                <small>{t.lastUpdate}: {item.updatedAt ? dateFormatter.format(new Date(item.updatedAt)) : '-'}</small>
-                                {item.updatedAt ? <small>{dateFormatter.format(new Date(item.updatedAt))}</small> : null}
-                              </div>
-                              <div className="explorer-tags">{item.tags.slice(0, 3).map((tag) => <span key={tag}>{cleanLoaderLabel(tag)}</span>)}</div>
-                            </>
-                          )}
-                        </div>
-                      </article>
-                    ))}
+                          <div className="explorer-card-info">
+                            <strong className="instance-card-title" title={item.title}>{item.title}</strong>
+                            {view !== 'titles' && (
+                              <>
+                                <small className="explorer-description" title={item.description}>{item.description}</small>
+                                <div className="explorer-top-badges">
+                                  <span className={`platform-badge ${item.source.toLowerCase()}`}>{item.source}</span>
+                                  <span className="loader-badge">{cleanLoaderLabel(item.loaders[0] ?? item.projectType)}</span>
+                                  {item.minecraftVersions[0] ? <span className="mc-chip">MC {item.minecraftVersions[0]}</span> : null}
+                                </div>
+                                <div className="instance-card-meta explorer-meta-grid">
+                                  <small>{t.author}: {item.author}</small>
+                                  <small>{t.downloads}: {compactNumber(item.downloads, uiLanguage)}</small>
+                                  <small>{t.lastUpdate}: {item.updatedAt ? dateFormatter.format(new Date(item.updatedAt)) : '-'}</small>
+                                  {item.updatedAt ? <small>{dateFormatter.format(new Date(item.updatedAt))}</small> : null}
+                                </div>
+                                <div className="explorer-tags">{item.tags.slice(0, 3).map((tag) => <span key={tag}>{cleanLoaderLabel(tag)}</span>)}</div>
+                              </>
+                            )}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+
+                    {!loading && items.length === 0 ? <p className="explorer-empty-state">{t.noResults}</p> : null}
                   </div>
 
-                  {!loading && items.length === 0 ? <p className="explorer-empty-state">{t.noResults}</p> : null}
 
                   <footer className="explorer-pagination explorer-pagination-bar">
                     <button className="secondary" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1 || loading}>{t.previous}</button>
