@@ -130,8 +130,16 @@ INTERFACE está orientado a evolución continua. Se recomienda mantener dependen
 - Se incluyen dos workflows de release:
   - `release-stable.yml`: tags `vX.Y.Z` publican release estable y actualizan `updates/stable.json`.
   - `release-beta.yml`: tags `vX.Y.Z-beta.N` publican prerelease y actualizan `updates/beta.json`.
+- Los manifiestos de updater deben apuntar al bundle firmado de updater (`*.nsis.zip` o `*.msi.zip`) y usar su firma (`*.sig`).
+  - **No** usar el instalador crudo (`*.exe` / `*.msi`) en `platforms.windows-x86_64.url`.
 - Secrets requeridos en GitHub Actions:
   - `TAURI_SIGNING_PRIVATE_KEY`
   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+
+Checklist rápido si no detecta updates:
+1. `src-tauri/tauri.conf.json` tiene `plugins.updater.pubkey` y endpoint correctos.
+2. La release tiene artefacto `*.nsis.zip` o `*.msi.zip` **y** su archivo `.sig`.
+3. `updates/stable.json` o `updates/beta.json` en `gh-pages` apunta a ese `.zip` y firma real.
+4. El `version` del manifiesto es mayor que la versión actual (`getVersion()`) y respeta semver.
 
 Esto evita depender de `releases/latest` y separa claramente los canales de actualización.
