@@ -726,6 +726,13 @@ function mediaTypeFromMeta(meta?: InstanceVisualMeta): 'video' | 'image' {
   return 'image'
 }
 
+const BOOT_TITLE = 'INTERFACE'
+const BOOT_TITLE_CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+
+function randomBootChar() {
+  return BOOT_TITLE_CHARSET[Math.floor(Math.random() * BOOT_TITLE_CHARSET.length)]
+}
+
 function App() {
   const [activePage, setActivePage] = useState<MainPage>('Mis Modpacks')
   const [backHistory, setBackHistory] = useState<MainPage[]>([])
@@ -886,6 +893,7 @@ function App() {
   const [launchProgressPercent, setLaunchProgressPercent] = useState(0)
   const [bootLoading, setBootLoading] = useState(true)
   const [bootProgress, setBootProgress] = useState(0)
+  const [bootTitleChars, setBootTitleChars] = useState<string[]>(() => BOOT_TITLE.split('').map(() => randomBootChar()))
   const [hasPendingLauncherUpdate, setHasPendingLauncherUpdate] = useState(false)
   const [updatesBadgeDismissed, setUpdatesBadgeDismissed] = useState(false)
   const [folderRoutes, setFolderRoutes] = useState<FolderRouteItem[]>(defaultFolderRoutes)
@@ -1247,6 +1255,27 @@ function App() {
     void run()
     return () => { cancelled = true }
   }, [refreshLauncherReleases])
+
+  useEffect(() => {
+    if (!bootLoading) {
+      setBootTitleChars(BOOT_TITLE.split(''))
+      return
+    }
+
+    const intervalId = window.setInterval(() => {
+      setBootTitleChars((previous) => {
+        const targetChars = BOOT_TITLE.split('')
+        const lockedCount = Math.floor((bootProgress / 100) * targetChars.length)
+        return targetChars.map((char, index) => {
+          if (index < lockedCount) return char
+          const keepPrevious = Math.random() < 0.3
+          return keepPrevious ? previous[index] ?? randomBootChar() : randomBootChar()
+        })
+      })
+    }, 85)
+
+    return () => window.clearInterval(intervalId)
+  }, [bootLoading, bootProgress])
 
   const syncManagedAccountFromSession = (session: AuthSession, email = '-') => {
     setManagedAccounts((prev) => {
@@ -3317,12 +3346,11 @@ function App() {
   }, [replaceSpecificModVersion, updatesCandidates])
 
   if (bootLoading) {
-    const titleChars = ['I', 'N', 'T', 'E', 'R', 'F', 'A', 'C', 'E']
     return (
       <div className="launcher-boot-screen" role="status" aria-live="polite">
         <h1 className="launcher-boot-title">
-          {titleChars.map((char, index) => (
-            <span key={`${char}-${index}`} style={{ '--char-index': index } as CSSProperties}>{char}</span>
+          {bootTitleChars.map((char, index) => (
+            <span key={`boot-char-${index}`} style={{ '--char-index': index } as CSSProperties}>{char}</span>
           ))}
         </h1>
         <div className="launcher-boot-progress" aria-label="Progreso de carga">

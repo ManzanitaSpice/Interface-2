@@ -2729,7 +2729,19 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
 }
 
 .explorer-versions-wrap {
-  overflow: auto;
+  min-height: 0;
+  height: clamp(220px, 44vh, 420px);
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: .5rem;
+}
+
+.explorer-versions-wrap .explorer-pagination {
+  position: sticky;
+  bottom: 0;
+  background: color-mix(in srgb, var(--bg-surface) 94%, black);
+  padding-top: .35rem;
 }
 
 .explorer-versions-table {
@@ -2903,15 +2915,15 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
 .action-elevated:hover { transform: translateY(-1px); box-shadow: 0 6px 14px rgba(0,0,0,.22); }
 .mods-version-list { display: grid; gap: .4rem; max-height: 220px; overflow: auto; }
 
-.explorer-card { border-radius: 12px; border: 1px solid var(--border); background: color-mix(in srgb, var(--bg-surface) 94%, black); }
+.explorer-card { border-radius: 0; border: 1px solid var(--border); background: color-mix(in srgb, var(--bg-surface) 94%, black); }
 .explorer-card-info { gap: .45rem; padding: .55rem .65rem .75rem; }
 .explorer-gallery-grid { gap: .9rem; }
 .explorer-gallery-grid img { padding: .2rem; background: color-mix(in srgb, var(--bg-surface-muted) 90%, black); cursor: zoom-in; transition: transform .16s ease; }
 .explorer-gallery-grid img:hover { transform: scale(1.02); }
 .gallery-zoom-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.66); display: grid; place-items: center; z-index: 80; }
 .gallery-zoom-image { max-width: min(95vw, 1200px); max-height: 90vh; border-radius: 10px; border: 1px solid var(--border); }
-.explorer-version-cards { display: grid; gap: .55rem; margin-top: .55rem; }
-.explorer-version-card { border: 1px solid var(--border); border-radius: 10px; padding: .55rem .65rem; display: grid; gap: .3rem; background: color-mix(in srgb, var(--bg-surface) 94%, black); }
+.explorer-version-cards { display: grid; gap: .42rem; margin-top: .2rem; overflow: auto; padding-right: .2rem; align-content: start; }
+.explorer-version-card { border: 1px solid var(--border); border-radius: 0; padding: .45rem .55rem; display: flex; align-items: center; justify-content: space-between; gap: .65rem; background: color-mix(in srgb, var(--bg-surface) 94%, black); min-height: 58px; }
 .explorer-changelog-cards { display: grid; gap: .45rem; margin-top: .8rem; }
 .explorer-changelog-cards article { border: 1px solid var(--border); border-radius: 9px; padding: .45rem .55rem; }
 .explorer-install-modal { width: min(760px, 95vw); }
@@ -3066,14 +3078,14 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
 }
 
 .mods-downloader-layout {
-  border-radius: 14px;
+  border-radius: 0;
 }
 
 .mods-catalog-panel,
 .mods-preview-panel,
 .mods-downloader-advanced-sidebar,
 .mods-catalog-item {
-  border-radius: 10px;
+  border-radius: 0;
 }
 
 .versions-scroll-wrap {
@@ -3083,10 +3095,10 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
   gap: .4rem;
 }
 
-.versions-scroll-wrap .square { min-height: 92px; }
+.versions-scroll-wrap .square { min-height: 72px; }
 
 .versions-scroll-wrap select {
-  min-height: 92px;
+  min-height: 72px;
 }
 
 .versions-block {
@@ -3182,4 +3194,70 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
   height: 100%;
   background: linear-gradient(90deg, #cc0000, #ff3434);
   transition: width .35s ease;
+}
+
+
+.explorer-version-main {
+  min-width: 0;
+  display: grid;
+  gap: .14rem;
+}
+
+.explorer-version-main strong {
+  font-size: .84rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.explorer-version-main small,
+.explorer-version-main p {
+  margin: 0;
+  font-size: .72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.explorer-version-install {
+  margin-left: auto;
+  min-height: 30px;
+  height: 30px;
+  padding: 0 .55rem;
+  font-size: .72rem;
+  white-space: nowrap;
+}
+
+.mods-preview-panel.compact-info {
+  display: none;
+}
+
+.mods-downloader-panels {
+  grid-template-columns: 1fr;
+}
+
+.versions-block {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .4rem;
+}
+
+.versions-scroll-wrap {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 28px;
+  align-items: stretch;
+  gap: .3rem;
+}
+
+.versions-scroll-wrap select {
+  font-size: .72rem;
+}
+
+.actions-row .secondary {
+  height: 32px;
+  padding: 0 .55rem;
+  font-size: .74rem;
 }
