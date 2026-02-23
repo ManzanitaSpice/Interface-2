@@ -79,11 +79,30 @@ jobs:
           [IO.File]::WriteAllText($keyPath, "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}")
           echo "TAURI_KEY_PATH=$keyPath" >> $env:GITHUB_ENV
 
-      - name: Upload updater bundles to release
+      - name: Sign updater-bundles zips
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $keyPath = "$env:TAURI_KEY_PATH"
+          if (-not (Test-Path $keyPath)) { throw "Signing key not found: $keyPath" }
+
+          $bundles = Get-ChildItem "updater-bundles" -Filter *.zip
+          if (-not $bundles) { throw "No updater-bundles/*.zip found" }
+
+          foreach ($b in $bundles) {
+            Write-Host "Signing $($b.Name)"
+            npx tauri signer sign -k "$keyPath" -f "$($b.FullName)"
+            if (-not (Test-Path "$($b.FullName).sig")) { throw "Missing sig for $($b.Name)" }
+          }
+
+          Get-ChildItem "updater-bundles"
+
+      - name: Upload updater bundles + sigs
         uses: softprops/action-gh-release@v2
         with:
           files: |
             updater-bundles/*.zip
+            updater-bundles/*.zip.sig
 
       - name: Generate beta manifest
         shell: pwsh
