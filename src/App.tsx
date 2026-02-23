@@ -802,6 +802,7 @@ function sortLoaderVersions(items: LoaderVersionItem[]): LoaderVersionItem[] {
 
 
 function resolveVisualMedia(meta?: InstanceVisualMeta): string {
+  if (meta?.mediaDataUrl) return meta.mediaDataUrl
   if (meta?.mediaPath) {
     try {
       return convertFileSrc(meta.mediaPath)
@@ -809,7 +810,7 @@ function resolveVisualMedia(meta?: InstanceVisualMeta): string {
       return meta.mediaPath
     }
   }
-  return meta?.mediaDataUrl ?? ''
+  return ''
 }
 
 function mediaTypeFromMime(mime?: string): 'video' | 'image' | 'other' {
@@ -1200,7 +1201,9 @@ function App() {
         fetch(launcherReleasesApiUrl, {
           headers: {
             Accept: 'application/vnd.github+json',
+            'Cache-Control': 'no-cache',
           },
+          cache: 'no-store',
         }),
         fetchUpdateManifest('stable'),
         fetchUpdateManifest('beta'),
@@ -1321,6 +1324,17 @@ function App() {
     () => (updatesChannel === 'beta' ? betaUpdateManifest : stableUpdateManifest),
     [betaUpdateManifest, stableUpdateManifest, updatesChannel],
   )
+
+  const hasAvailableUpdate = useMemo(() => {
+    if (!launcherCurrentVersion) return false
+    const current = normalizeVersionTag(launcherCurrentVersion)
+    if (selectedChannelManifest?.version) {
+      return compareSemver(normalizeVersionTag(selectedChannelManifest.version), current) > 0
+    }
+    const latestStable = launcherUpdatesFeed[0]?.version
+    if (!latestStable) return false
+    return compareSemver(normalizeVersionTag(latestStable), current) > 0
+  }, [launcherCurrentVersion, launcherUpdatesFeed, selectedChannelManifest])
 
   const updateHealthChecks = useMemo(
     () => getUpdateHealthChecks({
@@ -1611,11 +1625,25 @@ function App() {
             loader?: string
           } | null>('load_instance_visual_meta', { instanceRoot: card.instanceRoot })
           if (!result || cancelled) continue
+
+          let mediaDataUrl = result.mediaDataUrl
+          if (!mediaDataUrl && result.mediaPath) {
+            try {
+              mediaDataUrl = await invoke<string | null>('read_visual_media_as_data_url', {
+                mediaPath: result.mediaPath,
+                mediaMime: result.mediaMime ?? null,
+              }) ?? undefined
+            } catch {
+              mediaDataUrl = undefined
+            }
+          }
+
           setInstanceVisualMeta((prev) => ({
             ...prev,
             [card.id]: {
               ...(prev[card.id] ?? {}),
               ...result,
+              mediaDataUrl: mediaDataUrl ?? prev[card.id]?.mediaDataUrl,
             },
           }))
         } catch {
@@ -2441,20 +2469,17 @@ function App() {
           previousMediaPath,
         })
       }
-      const shouldStoreInline = !mediaPath
-      const data = shouldStoreInline
-        ? await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
-          reader.onerror = () => reject(new Error('No se pudo leer el archivo visual.'))
-          reader.readAsDataURL(file)
-        })
-        : ''
+      const data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+        reader.onerror = () => reject(new Error('No se pudo leer el archivo visual.'))
+        reader.readAsDataURL(file)
+      })
       setInstanceVisualMeta((prev) => ({
         ...prev,
         [selectedCard.id]: {
           ...(prev[selectedCard.id] ?? {}),
-          mediaDataUrl: data || undefined,
+          mediaDataUrl: data || prev[selectedCard.id]?.mediaDataUrl,
           mediaPath: mediaPath ?? prev[selectedCard.id]?.mediaPath,
           mediaMime: fallbackMime,
         },
@@ -3852,8 +3877,8 @@ function App() {
                     <option value="beta">Beta</option>
                   </select>
                 </label>
-                <button className="primary" onClick={() => void checkLauncherUpdates()} disabled={updatesLoading}>Buscar e instalar update</button>
-                <button onClick={() => void refreshLauncherReleases()} disabled={updatesLoading}>Recargar diagnóstico</button>
+                <button className="primary" onClick={() => void checkLauncherUpdates()} disabled={updatesLoading || !hasAvailableUpdate}>Actualizar</button>
+                <button onClick={() => void refreshLauncherReleases()} disabled={updatesLoading}>Recargar</button>
               </div>
             </header>
 
@@ -3899,7 +3924,8 @@ function App() {
                     <h3>{item.title}</h3>
                     <span className="news-chip">{item.status}</span>
                   </div>
-                  <p className="updates-release-version">{item.version}</p>
+                  <p className="updates-release-version">Versión: {item.version}</p>
+                  <p className="updates-release-meta">Tag: {item.tag}</p>
                   <p className="updates-release-meta">Publicado: {formatIsoDate(item.publishedAt)} · Assets: {item.assetsCount}</p>
                   <p className="updates-release-summary">{item.summary}</p>
                 </article>

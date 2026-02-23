@@ -1698,7 +1698,7 @@
   position: sticky;
   top: 0.85rem;
   display: grid;
-  grid-template-rows: auto auto auto 1fr auto;
+  grid-template-rows: auto auto auto auto 1fr auto;
   gap: 0.95rem;
 }
 
@@ -1830,7 +1830,7 @@
   grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
   gap: 0.7rem;
   align-content: start;
-  max-height: 420px;
+  max-height: calc(100vh - 340px);
   overflow: auto;
   padding-right: 0.2rem;
 }

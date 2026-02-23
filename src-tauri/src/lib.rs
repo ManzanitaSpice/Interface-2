@@ -72,7 +72,8 @@ pub fn run() {
             commands::file_manager::save_skin_binary,
             commands::visual_meta::save_instance_visual_meta,
             commands::visual_meta::save_instance_visual_media,
-            commands::visual_meta::load_instance_visual_meta
+            commands::visual_meta::load_instance_visual_meta,
+            commands::visual_meta::read_visual_media_as_data_url
         ])
         .setup(|app| {
             let _ = app::redirect_launch::cleanup_redirect_cache_on_startup(app.handle());
