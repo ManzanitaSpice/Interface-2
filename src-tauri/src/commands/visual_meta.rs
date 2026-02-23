@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::{fs, path::{Path, PathBuf}, time::{SystemTime, UNIX_EPOCH}};
 
@@ -51,6 +52,34 @@ pub fn save_instance_visual_media(
     Ok(target.display().to_string())
 }
 
+
+#[tauri::command]
+pub fn read_visual_media_as_data_url(media_path: String, media_mime: Option<String>) -> Result<Option<String>, String> {
+    let path = PathBuf::from(media_path);
+    if !path.exists() || !path.is_file() {
+        return Ok(None);
+    }
+
+    let bytes = fs::read(&path).map_err(|err| format!("No se pudo leer archivo visual: {err}"))?;
+    if bytes.is_empty() {
+        return Ok(None);
+    }
+
+    const MAX_INLINE_BYTES: usize = 8 * 1024 * 1024;
+    if bytes.len() > MAX_INLINE_BYTES {
+        return Ok(None);
+    }
+
+    let mime = media_mime
+        .and_then(|value| {
+            let trimmed = value.trim().to_string();
+            if trimmed.is_empty() { None } else { Some(trimmed) }
+        })
+        .unwrap_or_else(|| infer_media_mime_from_path(&path));
+    let payload = format!("data:{mime};base64,{}", STANDARD.encode(bytes));
+    Ok(Some(payload))
+}
+
 #[tauri::command]
 pub fn save_instance_visual_meta(instance_root: String, meta: InstanceVisualMeta) -> Result<(), String> {
     let path = PathBuf::from(instance_root).join(VISUAL_META_FILE);
@@ -84,4 +113,27 @@ fn sanitize_file_name(file_name: &str) -> String {
         .chars()
         .map(|char| if char.is_ascii_alphanumeric() || char == '.' || char == '-' || char == '_' { char } else { '_' })
         .collect::<String>()
+}
+
+fn infer_media_mime_from_path(path: &Path) -> String {
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "png" => "image/png".to_string(),
+        "jpg" | "jpeg" => "image/jpeg".to_string(),
+        "gif" => "image/gif".to_string(),
+        "webp" => "image/webp".to_string(),
+        "svg" => "image/svg+xml".to_string(),
+        "bmp" => "image/bmp".to_string(),
+        "avif" => "image/avif".to_string(),
+        "mp4" => "video/mp4".to_string(),
+        "webm" => "video/webm".to_string(),
+        "mov" => "video/quicktime".to_string(),
+        "mkv" => "video/x-matroska".to_string(),
+        _ => "application/octet-stream".to_string(),
+    }
 }
