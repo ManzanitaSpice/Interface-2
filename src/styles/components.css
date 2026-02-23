@@ -2109,7 +2109,7 @@
 
 .explorer-workspace {
   display: grid;
-  grid-template-columns: minmax(220px, 260px) 8px minmax(0, 1fr);
+  grid-template-columns: minmax(260px, 320px) 8px minmax(0, 1fr);
   gap: .4rem;
   height: 100%;
   min-height: 0;
@@ -2120,8 +2120,8 @@
   position: sticky;
   top: .4rem;
   align-self: start;
-  max-height: calc(100vh - 128px);
-  min-height: calc(100vh - 128px);
+  max-height: calc(100vh - 108px);
+  min-height: calc(100vh - 108px);
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: .6rem;
@@ -2134,7 +2134,7 @@
 .explorer-main-content {
   min-width: 0;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: .5rem;
   min-height: 0;
   overflow: hidden;
@@ -2157,16 +2157,16 @@
 }
 
 .explorer-filter-actions {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: .35rem;
+  grid-template-columns: 1fr;
+  align-items: stretch;
+  gap: .4rem;
 }
 
 .explorer-filter-actions button {
-  width: auto;
-  min-height: 30px;
-  padding: .24rem .5rem;
-  font-size: .72rem;
+  width: 100%;
+  min-height: 32px;
+  padding: .3rem .55rem;
+  font-size: .74rem;
 }
 
 .explorer-sidebar-section {
@@ -2181,7 +2181,12 @@
 }
 
 .explorer-sidebar-section button {
-  border-radius: 0;
+  border-radius: .42rem;
+}
+
+.explorer-sidebar-section input,
+.explorer-sidebar-section select {
+  min-height: 34px;
 }
 .explorer-actions-compact {
   display: flex;
@@ -2261,7 +2266,7 @@
   display: grid;
   grid-template-rows: 1fr;
   gap: .6rem;
-  height: calc(100vh - 185px);
+  height: calc(100vh - 150px);
   min-height: 0;
   overflow: hidden;
 }
@@ -2273,6 +2278,16 @@
 
 .explorer-toolbar {
   display: none;
+}
+
+
+.explorer-catalog-panel {
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: .6rem;
+  padding: .45rem;
+  background: color-mix(in srgb, var(--bg-surface) 96%, #0d1422);
 }
 
 .explorer-toolbar label {
@@ -2301,8 +2316,8 @@
 .explorer-card-media-wrapper {
   position: relative;
   width: 100%;
-  aspect-ratio: 3 / 3;
-  min-height: 108px;
+  aspect-ratio: 1 / 1;
+  min-height: 92px;
   overflow: hidden;
   border-radius: 0;
   background: transparent;
@@ -2340,19 +2355,22 @@
 
 .explorer-results.grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
   gap: .5rem;
+  min-height: 0;
   overflow: auto;
 }
 
 .explorer-results.list {
   display: grid;
   gap: .54rem;
+  min-height: 0;
+  overflow: auto;
 }
 
 .explorer-results.list .explorer-card {
   display: grid;
-  grid-template-columns: 118px minmax(0, 1fr);
+  grid-template-columns: 100px minmax(0, 1fr);
   align-items: stretch;
   column-gap: .6rem;
 }
@@ -2388,8 +2406,10 @@
 
 .explorer-results.titles {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
   gap: .45rem;
+  min-height: 0;
+  overflow: auto;
 }
 
 .explorer-results.titles .explorer-card {
@@ -2429,7 +2449,7 @@
 .explorer-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: .35rem;
+  gap: .4rem;
 }
 
 .explorer-tags span {
@@ -2442,7 +2462,7 @@
 
 .instance-export-menu {
   display: grid;
-  gap: .35rem;
+  gap: .4rem;
   margin-top: .25rem;
 }
 
@@ -2493,17 +2513,17 @@
 
 .explorer-pagination-bar {
   justify-content: center;
-  gap: .45rem;
-  padding: .28rem .45rem;
+  gap: .4rem;
+  padding: .2rem .4rem;
   border: 1px solid var(--border);
   border-radius: .45rem;
   background: color-mix(in srgb, var(--bg-surface) 96%, #0d1422);
 }
 
 .explorer-pagination-bar button {
-  min-height: 28px;
-  padding: .18rem .48rem;
-  font-size: .72rem;
+  min-height: 26px;
+  padding: .16rem .44rem;
+  font-size: .7rem;
 }
 
 .explorer-pagination-bar span {
@@ -2722,7 +2742,7 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
   padding: .5rem;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .mods-list-head,
@@ -2742,7 +2762,7 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
 .mods-list-body {
   overflow: auto;
   display: grid;
-  gap: .35rem;
+  gap: .4rem;
 }
 
 .mods-row {
@@ -2968,7 +2988,7 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
   display: grid;
   grid-template-columns: 36px 1fr 36px;
   align-items: stretch;
-  gap: .35rem;
+  gap: .4rem;
 }
 
 .versions-scroll-wrap .square { min-height: 92px; }
