@@ -3032,11 +3032,11 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
   min-height: 36px;
 }
 .sort-block { grid-column: 1; grid-row: 1; }
-.versions-block { grid-column: 2; grid-row: 1; display: grid; grid-template-columns: 1fr auto; align-items: end; gap: .5rem; }
+.versions-block { grid-column: 2; grid-row: 1; display: grid; grid-template-columns: 1fr; align-items: end; gap: .35rem; }
 .actions-row { grid-column: 1 / -1; grid-row: 2; display: flex; justify-content: space-between; align-items: center; padding-top: .1rem; }
 .mods-compact-bar label { display: grid; gap: .18rem; font-size: 12px; color: color-mix(in srgb, var(--text-muted) 82%, transparent); }
 .mods-compact-bar select { height: 36px; padding: 0 12px; border-radius: 8px; }
-.mods-channel-chip { align-self: center; font-size: .68rem; border: 1px solid color-mix(in srgb, var(--accent) 48%, var(--border)); border-radius: 999px; padding: .2rem .55rem; }
+.mods-channel-chip { align-self: center; font-size: .68rem; border: 1px solid color-mix(in srgb, var(--accent) 48%, var(--border)); border-radius: 999px; padding: .2rem .55rem; justify-self: center; }
 .actions-group-right { display: inline-flex; gap: .4rem; }
 .actions-row .secondary,
 .actions-row .ghost-btn,
@@ -3090,20 +3090,28 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
 
 .versions-scroll-wrap {
   display: grid;
-  grid-template-columns: 36px 1fr 36px;
+  grid-template-columns: 1fr;
   align-items: stretch;
-  gap: .4rem;
+  gap: .3rem;
 }
-
-.versions-scroll-wrap .square { min-height: 72px; }
 
 .versions-scroll-wrap select {
   min-height: 72px;
 }
 
-.versions-block {
-  grid-template-columns: 1fr auto;
+.versions-pagination-compact {
+  display: grid;
+  grid-template-columns: 32px auto 32px;
   align-items: center;
+  justify-content: center;
+  gap: .35rem;
+}
+
+.versions-pagination-compact .square {
+  min-height: 30px;
+  height: 30px;
+  width: 32px;
+  padding: 0;
 }
 
 @media (max-width: 980px) {
@@ -3240,16 +3248,21 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
 
 .versions-block {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: .4rem;
 }
 
 .versions-scroll-wrap {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 28px;
+  grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
   gap: .3rem;
+}
+
+.versions-pagination-compact {
+  grid-template-columns: 28px auto 28px;
+  gap: .25rem;
 }
 
 .versions-scroll-wrap select {

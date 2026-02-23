@@ -4635,6 +4635,13 @@ function App() {
                           <div className="mods-compact-bar versions-block">
                             <label>Versiones del contenido</label>
                             <div className="versions-scroll-wrap">
+                              <select size={4} value={selectedCatalogVersion?.id ?? ''} disabled={!selectedCatalogMod} onChange={(event) => setSelectedCatalogVersionId(event.target.value)}>
+                                {visibleCatalogVersionSlice.rows.map((version) => (
+                                  <option key={version.id} value={version.id}>{selectedCatalogMod?.name ?? 'Mod'} · {version.gameVersion} · {version.name} · {(version.versionType ?? 'release').toUpperCase()} {((selectedCatalogMod && instanceMods.some((item) => item.name.toLowerCase() === selectedCatalogMod.name.toLowerCase())) ? '· INSTALADO' : '')}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="versions-pagination-compact">
                               <button
                                 className="square"
                                 onClick={() => {
@@ -4645,11 +4652,7 @@ function App() {
                                 disabled={!visibleCatalogVersionSlice.canScrollUp}
                                 aria-label="Versión anterior"
                               >↑</button>
-                              <select size={4} value={selectedCatalogVersion?.id ?? ''} disabled={!selectedCatalogMod} onChange={(event) => setSelectedCatalogVersionId(event.target.value)}>
-                                {visibleCatalogVersionSlice.rows.map((version) => (
-                                  <option key={version.id} value={version.id}>{selectedCatalogMod?.name ?? 'Mod'} · {version.gameVersion} · {version.name} · {(version.versionType ?? 'release').toUpperCase()} {((selectedCatalogMod && instanceMods.some((item) => item.name.toLowerCase() === selectedCatalogMod.name.toLowerCase())) ? '· INSTALADO' : '')}</option>
-                                ))}
-                              </select>
+                              <span className="mods-channel-chip">{(selectedCatalogVersion?.versionType ?? 'release').toUpperCase()}</span>
                               <button
                                 className="square"
                                 onClick={() => {
@@ -4661,7 +4664,6 @@ function App() {
                                 aria-label="Versión siguiente"
                               >↓</button>
                             </div>
-                            <span className="mods-channel-chip">{(selectedCatalogVersion?.versionType ?? 'release').toUpperCase()}</span>
                           </div>
                           <div className="mods-compact-bar actions-row">
                             <button className="secondary" onClick={() => { void stageSelectedMod() }} disabled={!selectedCatalogVersion}>{stagedDownloads[selectedCatalogModId] ? 'Deseleccionar' : 'Seleccionar para descargar'}</button>
