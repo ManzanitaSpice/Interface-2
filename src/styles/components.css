@@ -2123,10 +2123,10 @@
 
 .explorer-left-sidebar {
   position: sticky;
-  top: -8px;
+  top: 12px;                 /* antes -8px */
   align-self: start;
   max-height: calc(100vh - 150px);
-  min-height: calc(100vh - 150px);
+  min-height: auto;          /* evita forzar altura */
   overflow-y: auto;
   overflow-x: hidden;
   border: 1px solid var(--border);
