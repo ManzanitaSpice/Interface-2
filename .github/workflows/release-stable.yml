@@ -51,12 +51,21 @@ jobs:
 
           $release = Invoke-RestMethod -Headers $headers -Uri $api
 
-          $updaterAsset = $release.assets | Where-Object {
-            $_.name -match '_x64-setup\.nsis\.zip$' -or $_.name -match '_x64.*\.msi\.zip$'
+          $windowsUpdaterAssets = $release.assets | Where-Object {
+            $_.name -match '(?i)(nsis|setup|msi).*\.zip$' -and
+            ($_.name -match '(?i)x64|x86_64|amd64' -or $_.name -notmatch '(?i)arm64|aarch64')
+          }
+
+          $updaterAsset = $windowsUpdaterAssets | Where-Object {
+            $_.name -match '(?i)x64|x86_64|amd64'
           } | Select-Object -First 1
 
           if (-not $updaterAsset) {
-            throw "No Windows updater bundle (.nsis.zip/.msi.zip) found in release $tag"
+            $updaterAsset = $windowsUpdaterAssets | Select-Object -First 1
+          }
+
+          if (-not $updaterAsset) {
+            throw "No Windows updater bundle (.nsis.zip/.msi.zip) found in release $tag. Assets: $($release.assets.name -join ', ')"
           }
 
           $sigAsset = $release.assets | Where-Object {
