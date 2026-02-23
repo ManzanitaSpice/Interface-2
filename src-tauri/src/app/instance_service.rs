@@ -823,6 +823,13 @@ pub fn validate_and_prepare_launch(
     let mut metadata = get_instance_metadata(instance_root.clone())?;
     logs.push("✔ .instance.json leído correctamente".to_string());
 
+    let launcher_root = resolve_launcher_root_from_instance_path(instance_path)?;
+    let launcher_libraries_root = launcher_root.join("libraries");
+    logs.push(format!(
+        "✔ libraries root del launcher: {}",
+        launcher_libraries_root.display()
+    ));
+
     let verified_auth = validate_official_minecraft_auth(&auth_session, &mut logs)?;
 
     let embedded_java = ensure_instance_embedded_java(instance_path, &metadata, &mut logs)?;
@@ -921,19 +928,21 @@ pub fn validate_and_prepare_launch(
     ));
 
     let rule_context = RuleContext::current();
-    let resolved_libraries = resolve_libraries(&mc_root, &version_json, &rule_context);
+    let resolved_libraries =
+        resolve_libraries(&launcher_libraries_root, &version_json, &rule_context);
 
     if !resolved_libraries.missing_classpath_entries.is_empty() {
+        let sample = resolved_libraries
+            .missing_classpath_entries
+            .iter()
+            .take(3)
+            .map(|entry| format!("{} <= {}", entry.path, entry.url))
+            .collect::<Vec<_>>()
+            .join(" | ");
         return Err(format!(
-            "Hay librerías faltantes en disco ({}). Ejemplo: {}",
+            "Hay librerías faltantes en disco ({}). Ejemplo: {}. Ejecuta 'Reparar instancia' para reintentar y revisar conectividad/SSL/proxy/antivirus.",
             resolved_libraries.missing_classpath_entries.len(),
-            resolved_libraries
-                .missing_classpath_entries
-                .iter()
-                .take(3)
-                .map(|entry| entry.path.clone())
-                .collect::<Vec<_>>()
-                .join(" | ")
+            sample
         ));
     }
 
@@ -1007,7 +1016,7 @@ pub fn validate_and_prepare_launch(
 
             let found_in_libraries_dir = is_forge_or_neo
                 && search_keyword.map_or(false, |kw| {
-                    jar_exists_in_libraries_dir(&mc_root.join("libraries"), kw)
+                    jar_exists_in_libraries_dir(&launcher_libraries_root, kw)
                 });
 
             if found_in_libraries_dir {
@@ -1060,7 +1069,7 @@ en ningún JAR del classpath del loader '{}'.\n{}",
             .any(|entry| entry.to_ascii_lowercase().contains("bootstraplauncher"))
         // Modern Forge puts BootstrapLauncher on --module-path, not on classpath.
         // Fall back to checking the libraries directory on disk.
-        || jar_exists_in_libraries_dir(&mc_root.join("libraries"), "bootstraplauncher");
+        || jar_exists_in_libraries_dir(&launcher_libraries_root, "bootstraplauncher");
     logs.push(format!("BOOTSTRAP EN CP: {has_bootstrap}"));
 
     logs.push(format!("JAVA ejecutado: {}", embedded_java));
@@ -1108,7 +1117,7 @@ en ningún JAR del classpath del loader '{}'.\n{}",
             .classpath_entries
             .iter()
             .any(|e| e.to_ascii_lowercase().contains("net.neoforged"))
-        || jar_exists_in_libraries_dir(&mc_root.join("libraries"), "neoforged");
+        || jar_exists_in_libraries_dir(&launcher_libraries_root, "neoforged");
     if loader_lower == "forge"
         && forge_generation == ForgeGeneration::Modern
         && !has_bootstrap
@@ -1251,7 +1260,7 @@ en ningún JAR del classpath del loader '{}'.\n{}",
         classpath_entries.len()
     ));
 
-    let default_libraries_dir = mc_root.join("libraries");
+    let default_libraries_dir = launcher_libraries_root.clone();
     let redirect_context = find_redirect_context(&mc_root);
     let is_redirect_instance = metadata
         .state
@@ -2050,15 +2059,7 @@ fn ensure_instance_embedded_java(
     metadata: &InstanceMetadata,
     logs: &mut Vec<String>,
 ) -> Result<String, String> {
-    let launcher_root = instance_path
-        .parent()
-        .and_then(Path::parent)
-        .ok_or_else(|| {
-            format!(
-                "No se pudo resolver launcher_root desde instancia {}",
-                instance_path.display()
-            )
-        })?;
+    let launcher_root = resolve_launcher_root_from_instance_path(instance_path)?;
 
     let runtime = parse_runtime_from_metadata(metadata).ok_or_else(|| {
         format!(
@@ -2079,6 +2080,18 @@ fn ensure_instance_embedded_java(
     }
 
     Ok(java_exec.display().to_string())
+}
+
+fn resolve_launcher_root_from_instance_path(instance_path: &Path) -> Result<&Path, String> {
+    instance_path
+        .parent()
+        .and_then(Path::parent)
+        .ok_or_else(|| {
+            format!(
+                "No se pudo resolver launcher_root desde instancia {}",
+                instance_path.display()
+            )
+        })
 }
 
 fn validate_official_minecraft_auth(
@@ -3407,7 +3420,7 @@ fn forge_inject_system_properties(
     }
 }
 
-fn build_maven_library_path(mc_root: &Path, library: &Value) -> Option<String> {
+fn build_maven_library_path(libraries_root: &Path, library: &Value) -> Option<String> {
     let name = library.get("name")?.as_str()?;
     let mut parts = name.split(':');
     let group = parts.next()?;
@@ -3433,8 +3446,7 @@ fn build_maven_library_path(mc_root: &Path, library: &Value) -> Option<String> {
     };
 
     Some(
-        mc_root
-            .join("libraries")
+        libraries_root
             .join(group_path)
             .join(artifact)
             .join(version)
@@ -3445,7 +3457,7 @@ fn build_maven_library_path(mc_root: &Path, library: &Value) -> Option<String> {
 }
 
 fn resolve_libraries(
-    mc_root: &Path,
+    libraries_root: &Path,
     version_json: &Value,
     rule_context: &RuleContext,
 ) -> ResolvedLibraries {
@@ -3482,8 +3494,8 @@ fn resolve_libraries(
             .and_then(|v| v.get("artifact"))
             .and_then(|v| v.get("path"))
             .and_then(Value::as_str)
-            .map(|p| mc_root.join("libraries").join(p).display().to_string())
-            .or_else(|| build_maven_library_path(mc_root, &lib));
+            .map(|p| libraries_root.join(p).display().to_string())
+            .or_else(|| build_maven_library_path(libraries_root, &lib));
 
         if let Some(path) = artifact_path {
             if Path::new(&path).exists() {
@@ -3538,7 +3550,7 @@ fn resolve_libraries(
                 .and_then(|v| v.get(&native_key))
                 .and_then(|v| v.get("path"))
                 .and_then(Value::as_str)
-                .map(|p| mc_root.join("libraries").join(p).display().to_string());
+                .map(|p| libraries_root.join(p).display().to_string());
 
             match native_path {
                 Some(path) if Path::new(&path).exists() => {
@@ -4120,7 +4132,7 @@ mod tests {
     fn maven_fallback_supports_classifier_and_extension() {
         let lib = json!({"name": "org.lwjgl:lwjgl:3.3.1:natives-linux@zip"});
 
-        let path = build_maven_library_path(Path::new("/tmp/mc"), &lib).unwrap();
+        let path = build_maven_library_path(Path::new("/tmp/mc/libraries"), &lib).unwrap();
 
         assert_eq!(
             path,

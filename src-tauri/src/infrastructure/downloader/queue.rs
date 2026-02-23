@@ -139,6 +139,12 @@ pub fn download_with_retry(
         match perform_download(client, url, target_path, expected_sha1) {
             Ok(()) => return Ok(true),
             Err(err) => {
+                log::warn!(
+                    "[DOWNLOAD] intento {attempt}/{max_attempts} falló url={} destino={} error={}",
+                    url,
+                    target_path.display(),
+                    err
+                );
                 last_error = err;
                 let temp = temp_path_for(target_path);
                 let _ = fs::remove_file(temp);
@@ -152,13 +158,16 @@ pub fn download_with_retry(
     }
 
     Err(format!(
-        "Fallo al descargar recurso oficial tras {} intentos: {}",
-        max_attempts, last_error
+        "Fallo al descargar recurso oficial tras {} intentos. url={} destino={} detalle={}",
+        max_attempts,
+        url,
+        target_path.display(),
+        last_error
     ))
 }
 
 fn temp_path_for(target_path: &Path) -> PathBuf {
-    target_path.with_extension("tmp")
+    target_path.with_extension("part")
 }
 
 fn perform_download(
@@ -173,7 +182,12 @@ fn perform_download(
         .map_err(|err| explain_network_error(url, &err))?;
     let status = response.status();
     if !status.is_success() {
-        return Err(format!("HTTP {} al descargar {}", status.as_u16(), url));
+        return Err(format!(
+            "HTTP {} al descargar {} hacia {}",
+            status.as_u16(),
+            url,
+            target_path.display()
+        ));
     }
 
     let temp_path = temp_path_for(target_path);
