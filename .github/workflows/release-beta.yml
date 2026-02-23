@@ -70,13 +70,15 @@ jobs:
 
           Get-ChildItem $outDir
 
-      - name: Write signing key to disk
+      - name: Write signing key to disk (decode base64)
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\tauri" | Out-Null
           $keyPath = "$env:RUNNER_TEMP\tauri\signing.key"
-          [IO.File]::WriteAllText($keyPath, "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}")
+          # TAURI_SIGNING_PRIVATE_KEY viene en Base64 -> decodificar a bytes reales
+          $bytes = [Convert]::FromBase64String("${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}")
+          [IO.File]::WriteAllBytes($keyPath, $bytes)
           echo "TAURI_KEY_PATH=$keyPath" >> $env:GITHUB_ENV
 
       - name: Sign updater-bundles zips
