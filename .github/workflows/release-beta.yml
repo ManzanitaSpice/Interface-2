@@ -78,8 +78,8 @@ jobs:
           $keyPath = "$env:RUNNER_TEMP\tauri\signing.key"
 
           @'
-${{ secrets.TAURI_SIGNING_PRIVATE_KEY_RAW }}
-'@ | Out-File -FilePath $keyPath -Encoding ascii -NoNewline
+          ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_RAW }}
+          '@ | Out-File -FilePath $keyPath -Encoding ascii -NoNewline
 
           echo "TAURI_KEY_PATH=$keyPath" >> $env:GITHUB_ENV
 
