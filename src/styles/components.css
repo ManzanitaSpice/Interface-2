@@ -2122,19 +2122,20 @@
   align-self: start;
   max-height: calc(100vh - 108px);
   min-height: calc(100vh - 108px);
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   border: 1px solid var(--border);
   border-radius: .6rem;
-  padding: .6rem;
+  padding: .45rem;
   background: color-mix(in srgb, var(--bg-surface) 95%, #0d1422);
   display: grid;
-  gap: .55rem;
+  gap: .4rem;
 }
 
 .explorer-main-content {
   min-width: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: .5rem;
   min-height: 0;
   overflow: hidden;
@@ -2164,20 +2165,20 @@
 
 .explorer-filter-actions button {
   width: 100%;
-  min-height: 32px;
-  padding: .3rem .55rem;
-  font-size: .74rem;
+  min-height: 28px;
+  padding: .2rem .45rem;
+  font-size: .7rem;
 }
 
 .explorer-sidebar-section {
   display: grid;
-  gap: .4rem;
+  gap: .3rem;
 }
 
 .explorer-sidebar-section label {
   display: grid;
-  gap: .2rem;
-  font-size: .74rem;
+  gap: .16rem;
+  font-size: .71rem;
 }
 
 .explorer-sidebar-section button {
@@ -2186,7 +2187,17 @@
 
 .explorer-sidebar-section input,
 .explorer-sidebar-section select {
-  min-height: 34px;
+  min-height: 28px;
+  height: 28px;
+  padding: .2rem .45rem;
+  font-size: .72rem;
+}
+
+.explorer-left-sidebar .instance-search-compact {
+  min-height: 30px;
+  height: 30px;
+  padding: .22rem .5rem;
+  font-size: .72rem;
 }
 .explorer-actions-compact {
   display: flex;
@@ -2288,6 +2299,9 @@
   border-radius: .6rem;
   padding: .45rem;
   background: color-mix(in srgb, var(--bg-surface) 96%, #0d1422);
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: .45rem;
 }
 
 .explorer-toolbar label {
@@ -2358,14 +2372,20 @@
   grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
   gap: .5rem;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  align-content: start;
+  padding-right: .2rem;
 }
 
 .explorer-results.list {
   display: grid;
   gap: .54rem;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  align-content: start;
+  padding-right: .2rem;
 }
 
 .explorer-results.list .explorer-card {
@@ -2409,7 +2429,10 @@
   grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
   gap: .45rem;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  align-content: start;
+  padding-right: .2rem;
 }
 
 .explorer-results.titles .explorer-card {
@@ -2502,6 +2525,13 @@
 .catalog-loader {
   color: #38bdf8;
   font-weight: 600;
+}
+
+
+.explorer-empty-state {
+  margin: .2rem 0 0;
+  font-size: .82rem;
+  color: var(--text-muted);
 }
 
 .explorer-pagination {
