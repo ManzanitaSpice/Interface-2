@@ -6,6 +6,7 @@ type SortMode = 'relevance' | 'popularity' | 'updated' | 'stable' | 'downloads' 
 type ViewMode = 'list' | 'grid' | 'titles'
 type Platform = 'all' | 'curseforge' | 'modrinth'
 type LoaderFilter = 'all' | 'fabric' | 'forge' | 'neoforge' | 'quilt'
+type TagFilter = 'all' | 'mobs' | 'worldgen' | 'server-utility' | 'technology' | 'adventure' | 'optimization'
 type DetailTab = 'description' | 'changelog' | 'gallery' | 'versions' | 'comments'
 
 type ExplorerItem = {
@@ -73,14 +74,26 @@ const categoryToClassId: Partial<Record<Category, number>> = { modpacks: 4471, m
 const officialVersions = ['1.21.4', '1.21.3', '1.21.1', '1.21', '1.20.6', '1.20.4', '1.20.1', '1.19.4', '1.18.2', '1.16.5']
 const PAGE_SIZE = 24
 const explorerViewModeKey = 'launcher_explorer_view_mode_v1'
+const explorerSidebarWidthKey = 'launcher_explorer_sidebar_width_v1'
+const minSidebarWidth = 220
+const maxSidebarWidth = 420
+const advancedTags: { value: TagFilter; label: string }[] = [
+  { value: 'all', label: 'Todos' },
+  { value: 'mobs', label: 'Mobs' },
+  { value: 'worldgen', label: 'World Gen' },
+  { value: 'server-utility', label: 'Server Utility' },
+  { value: 'technology', label: 'Technology' },
+  { value: 'adventure', label: 'Adventure' },
+  { value: 'optimization', label: 'Optimization' },
+]
 
 const mapModrinthSort = (sort: SortMode) => sort === 'popularity' ? 'follows' : sort === 'updated' ? 'updated' : sort === 'downloads' ? 'downloads' : sort === 'name' ? 'newest' : 'relevance'
 const mapCurseSortField = (sort: SortMode) => sort === 'popularity' ? 2 : sort === 'updated' ? 3 : sort === 'downloads' ? 6 : sort === 'name' ? 4 : sort === 'stable' ? 11 : 1
 
 const uiText = {
-  es: { search: 'Buscar en catálogo', categories: 'Categorías', sort: 'Orden', platform: 'Plataforma', view: 'Vista', advanced: 'Filtro avanzado', hideAdvanced: 'Ocultar filtros', mcVersion: 'Versión Minecraft', loader: 'Loader', all: 'Todas', headerTitle: 'Catálogo completo de CurseForge y Modrinth', headerSub: 'Resultados optimizados con backend, filtros robustos, caché y paginación.', loading: 'Cargando catálogo...', author: 'Autor', downloads: 'Descargas', noResults: 'No hay resultados para los filtros actuales.', page: 'Página', previous: 'Anterior', next: 'Siguiente', relevance: 'Relevancia', popularity: 'Popularidad', updated: 'Actualizado', stable: 'Estable', byDownloads: 'Descargas', byName: 'Nombre', byAuthor: 'Autor', list: 'Lista', grid: 'Cuadrícula', titles: 'Compacto', retry: 'Reintentar', backToCatalog: 'Volver al catálogo', description: 'Descripción', changelog: 'Changelog', gallery: 'Galería', versions: 'Versiones', comments: 'Comentarios', openSource: 'Abrir página original', noGallery: 'Sin imágenes de galería', noVersions: 'No hay versiones disponibles', commentsHint: 'Comentarios y soporte del proyecto en:', type: 'Type', name: 'Name', date: 'Fecha', modLoaderCol: 'ModLoader', version: 'Version', actions: 'Acciones', install: 'Instalar', lastUpdate: 'Última actualización', compatibleInstances: 'Instancias compatibles', installInInstances: 'Instalar en instancias', dependencies: 'Dependencias obligatorias', close: 'Cerrar' },
-  en: { search: 'Search catalog', categories: 'Categories', sort: 'Sort', platform: 'Platform', view: 'View', advanced: 'Advanced filter', hideAdvanced: 'Hide filters', mcVersion: 'Minecraft version', loader: 'Loader', all: 'All', headerTitle: 'Complete CurseForge and Modrinth catalog', headerSub: 'Optimized backend results with robust filters, cache and pagination.', loading: 'Loading catalog...', author: 'Author', downloads: 'Downloads', noResults: 'No results for current filters.', page: 'Page', previous: 'Previous', next: 'Next', relevance: 'Relevance', popularity: 'Popularity', updated: 'Updated', stable: 'Stable', byDownloads: 'Downloads', byName: 'Name', byAuthor: 'Author', list: 'List', grid: 'Grid', titles: 'Compact', retry: 'Retry', backToCatalog: 'Back to catalog', description: 'Description', changelog: 'Changelog', gallery: 'Gallery', versions: 'Versions', comments: 'Comments', openSource: 'Open source page', noGallery: 'No gallery images available', noVersions: 'No versions available', commentsHint: 'Project comments/support available at:', type: 'Type', name: 'Name', date: 'Date', modLoaderCol: 'ModLoader', version: 'Version', actions: 'Actions', install: 'Install', lastUpdate: 'Last update', compatibleInstances: 'Compatible instances', installInInstances: 'Install in instances', dependencies: 'Required dependencies', close: 'Close' },
-  pt: { search: 'Buscar no catálogo', categories: 'Categorias', sort: 'Ordenar', platform: 'Plataforma', view: 'Visualização', advanced: 'Filtro avançado', hideAdvanced: 'Ocultar filtros', mcVersion: 'Versão do Minecraft', loader: 'Loader', all: 'Todas', headerTitle: 'Catálogo completo de CurseForge e Modrinth', headerSub: 'Resultados otimizados com backend, filtros robustos, cache e paginação.', loading: 'Carregando catálogo...', author: 'Autor', downloads: 'Downloads', noResults: 'Nenhum resultado para os filtros atuais.', page: 'Página', previous: 'Anterior', next: 'Próxima', relevance: 'Relevância', popularity: 'Popularidade', updated: 'Atualizado', stable: 'Estável', byDownloads: 'Downloads', byName: 'Nome', byAuthor: 'Autor', list: 'Lista', grid: 'Grade', titles: 'Compacto', retry: 'Tentar novamente', backToCatalog: 'Voltar ao catálogo', description: 'Descrição', changelog: 'Changelog', gallery: 'Galeria', versions: 'Versões', comments: 'Comentários', openSource: 'Abrir página original', noGallery: 'Sem imagens na galeria', noVersions: 'Sem versões disponíveis', commentsHint: 'Comentários/suporte do projeto em:', type: 'Type', name: 'Name', date: 'Data', modLoaderCol: 'ModLoader', version: 'Version', actions: 'Ações', install: 'Instalar', lastUpdate: 'Última atualização', compatibleInstances: 'Instâncias compatíveis', installInInstances: 'Instalar em instâncias', dependencies: 'Dependências obrigatórias', close: 'Fechar' },
+  es: { search: 'Buscar en catálogo', categories: 'Categorías', sort: 'Orden', platform: 'Plataforma', view: 'Vista', advanced: 'Filtro avanzado', hideAdvanced: 'Ocultar filtros', mcVersion: 'Versión Minecraft', loader: 'Loader', tags: 'Tags', all: 'Todas', headerTitle: 'Catálogo completo de CurseForge y Modrinth', headerSub: 'Resultados optimizados con backend, filtros robustos, caché y paginación.', loading: 'Cargando catálogo...', author: 'Autor', downloads: 'Descargas', noResults: 'No hay resultados para los filtros actuales.', page: 'Página', previous: 'Anterior', next: 'Siguiente', relevance: 'Relevancia', popularity: 'Popularidad', updated: 'Actualizado', stable: 'Estable', byDownloads: 'Descargas', byName: 'Nombre', byAuthor: 'Autor', list: 'Lista', grid: 'Cuadrícula', titles: 'Compacto', backToCatalog: 'Volver al catálogo', description: 'Descripción', changelog: 'Changelog', gallery: 'Galería', versions: 'Versiones', comments: 'Comentarios', openSource: 'Abrir página original', noGallery: 'Sin imágenes de galería', noVersions: 'No hay versiones disponibles', commentsHint: 'Comentarios y soporte del proyecto en:', type: 'Type', name: 'Name', date: 'Fecha', modLoaderCol: 'ModLoader', version: 'Version', actions: 'Acciones', install: 'Instalar', lastUpdate: 'Última actualización', compatibleInstances: 'Instancias compatibles', installInInstances: 'Instalar en instancias', dependencies: 'Dependencias obligatorias', close: 'Cerrar', resetFilters: 'Reset filtros' },
+  en: { search: 'Search catalog', categories: 'Categories', sort: 'Sort', platform: 'Platform', view: 'View', advanced: 'Advanced filter', hideAdvanced: 'Hide filters', mcVersion: 'Minecraft version', loader: 'Loader', tags: 'Tags', all: 'All', headerTitle: 'Complete CurseForge and Modrinth catalog', headerSub: 'Optimized backend results with robust filters, cache and pagination.', loading: 'Loading catalog...', author: 'Author', downloads: 'Downloads', noResults: 'No results for current filters.', page: 'Page', previous: 'Previous', next: 'Next', relevance: 'Relevance', popularity: 'Popularity', updated: 'Updated', stable: 'Stable', byDownloads: 'Downloads', byName: 'Name', byAuthor: 'Author', list: 'List', grid: 'Grid', titles: 'Compact', backToCatalog: 'Back to catalog', description: 'Description', changelog: 'Changelog', gallery: 'Gallery', versions: 'Versions', comments: 'Comments', openSource: 'Open source page', noGallery: 'No gallery images available', noVersions: 'No versions available', commentsHint: 'Project comments/support available at:', type: 'Type', name: 'Name', date: 'Date', modLoaderCol: 'ModLoader', version: 'Version', actions: 'Actions', install: 'Install', lastUpdate: 'Last update', compatibleInstances: 'Compatible instances', installInInstances: 'Install in instances', dependencies: 'Required dependencies', close: 'Close', resetFilters: 'Reset filters' },
+  pt: { search: 'Buscar no catálogo', categories: 'Categorias', sort: 'Ordenar', platform: 'Plataforma', view: 'Visualização', advanced: 'Filtro avançado', hideAdvanced: 'Ocultar filtros', mcVersion: 'Versão do Minecraft', loader: 'Loader', tags: 'Tags', all: 'Todas', headerTitle: 'Catálogo completo de CurseForge e Modrinth', headerSub: 'Resultados otimizados com backend, filtros robustos, cache e paginação.', loading: 'Carregando catálogo...', author: 'Autor', downloads: 'Downloads', noResults: 'Nenhum resultado para os filtros atuais.', page: 'Página', previous: 'Anterior', next: 'Próxima', relevance: 'Relevância', popularity: 'Popularidade', updated: 'Atualizado', stable: 'Estável', byDownloads: 'Downloads', byName: 'Nome', byAuthor: 'Autor', list: 'Lista', grid: 'Grade', titles: 'Compacto', backToCatalog: 'Voltar ao catálogo', description: 'Descrição', changelog: 'Changelog', gallery: 'Galeria', versions: 'Versões', comments: 'Comentários', openSource: 'Abrir página original', noGallery: 'Sem imagens na galeria', noVersions: 'Sem versões disponíveis', commentsHint: 'Comentários/suporte do projeto em:', type: 'Type', name: 'Name', date: 'Data', modLoaderCol: 'ModLoader', version: 'Version', actions: 'Ações', install: 'Instalar', lastUpdate: 'Última atualização', compatibleInstances: 'Instâncias compatíveis', installInInstances: 'Instalar em instâncias', dependencies: 'Dependências obrigatórias', close: 'Fechar', resetFilters: 'Resetar filtros' },
 } as const
 
 const labels = {
@@ -112,12 +125,12 @@ function cleanLoaderLabel(value: string) {
 }
 
 function parseInlineMarkdown(value: string): ReactNode[] {
-  const tokens = value.split(/(!?\[[^\]]*\]\([^\)]+\)|\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_)/g).filter(Boolean)
+  const tokens = value.split(/(!?\[[^\]]*\]\([^)]+\)|\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_)/g).filter(Boolean)
   return tokens.map((token, index) => {
-    const image = token.match(/^!\[([^\]]*)\]\((https?:\/\/[^\)]+)\)$/)
+    const image = token.match(/^!\[([^\]]*)\]\((https?:\/\/[^)]+)\)$/)
     if (image) return <img key={`img-${index}`} src={image[2]} alt={image[1]} loading="lazy" referrerPolicy="no-referrer" />
 
-    const link = token.match(/^\[([^\]]+)\]\((https?:\/\/[^\)]+)\)$/)
+    const link = token.match(/^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/)
     if (link) return <a key={`link-${index}`} href={link[2]} target="_blank" rel="noreferrer">{link[1]}</a>
 
     if ((token.startsWith('**') && token.endsWith('**')) || (token.startsWith('__') && token.endsWith('__'))) {
@@ -162,7 +175,9 @@ export function ExplorerPage({ uiLanguage }: Props) {
   const [platform, setPlatform] = useState<Platform>('all')
   const [mcVersion, setMcVersion] = useState('')
   const [loader, setLoader] = useState<LoaderFilter>('all')
+  const [tag, setTag] = useState<TagFilter>('all')
   const [search, setSearch] = useState('')
+  const deferredSearch = useDeferredValue(search)
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [items, setItems] = useState<ExplorerItem[]>([])
   const [loading, setLoading] = useState(false)
@@ -170,7 +185,7 @@ export function ExplorerPage({ uiLanguage }: Props) {
   const [page, setPage] = useState(1)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [hasMore, setHasMore] = useState(false)
-  const [reloadTick, setReloadTick] = useState(0)
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => Number(localStorage.getItem(explorerSidebarWidthKey)) || 260)
   const [selectedItem, setSelectedItem] = useState<ExplorerItem | null>(null)
   const [activeTab, setActiveTab] = useState<DetailTab>('description')
   const [detailLoading, setDetailLoading] = useState(false)
@@ -196,15 +211,19 @@ export function ExplorerPage({ uiLanguage }: Props) {
   }, [view])
 
   useEffect(() => {
-    const timer = window.setTimeout(() => { setDebouncedSearch(search.trim()); setPage(1) }, 320)
-    return () => window.clearTimeout(timer)
-  }, [search])
+    localStorage.setItem(explorerSidebarWidthKey, String(sidebarWidth))
+  }, [sidebarWidth])
 
   useEffect(() => {
-    const queryKey = JSON.stringify({ debouncedSearch, category, sort, platform, mcVersion, loader, page })
+    const timer = window.setTimeout(() => { setDebouncedSearch(deferredSearch.trim()); setPage(1) }, 220)
+    return () => window.clearTimeout(timer)
+  }, [deferredSearch])
+
+  useEffect(() => {
+    const queryKey = JSON.stringify({ debouncedSearch, category, sort, platform, mcVersion, loader, tag, page })
     const cached = cacheRef.current[queryKey]
     if (cached) {
-      setItems(sortItems(cached.items, sort, uiLanguage))
+      setItems(cached.items)
       setHasMore(cached.hasMore)
       setError('')
       return
@@ -223,6 +242,7 @@ export function ExplorerPage({ uiLanguage }: Props) {
         platform: platform === 'all' ? 'Todas' : platform === 'curseforge' ? 'Curseforge' : 'Modrinth',
         mcVersion: mcVersion || null,
         loader: loader === 'all' ? null : loader.toLowerCase(),
+        tag: tag === 'all' ? null : tag,
         modrinthSort: mapModrinthSort(sort),
         curseforgeSortField: mapCurseSortField(sort),
         limit: PAGE_SIZE,
@@ -231,15 +251,53 @@ export function ExplorerPage({ uiLanguage }: Props) {
     }).then((payload) => {
       if (requestSeq.current !== currentRequest) return
       cacheRef.current[queryKey] = payload
-      setItems(sortItems(payload.items, sort, uiLanguage))
+      setItems(payload.items)
       setHasMore(payload.hasMore)
+      if (payload.hasMore) {
+        const nextPageKey = JSON.stringify({ debouncedSearch, category, sort, platform, mcVersion, loader, tag, page: page + 1 })
+        if (!cacheRef.current[nextPageKey]) {
+          void invoke<CatalogSearchResponse>('search_catalogs', {
+            request: {
+              search: debouncedSearch,
+              category: categoryToProjectType[category],
+              curseforgeClassId: categoryToClassId[category] ?? null,
+              platform: platform === 'all' ? 'Todas' : platform === 'curseforge' ? 'Curseforge' : 'Modrinth',
+              mcVersion: mcVersion || null,
+              loader: loader === 'all' ? null : loader.toLowerCase(),
+              tag: tag === 'all' ? null : tag,
+              modrinthSort: mapModrinthSort(sort),
+              curseforgeSortField: mapCurseSortField(sort),
+              limit: PAGE_SIZE,
+              page: page + 1,
+            },
+          }).then((nextPayload) => {
+            cacheRef.current[nextPageKey] = nextPayload
+          }).catch(() => undefined)
+        }
+      }
     }).catch((err) => {
       if (requestSeq.current !== currentRequest) return
       setError(err instanceof Error ? err.message : String(err))
     }).finally(() => {
       if (requestSeq.current === currentRequest) setLoading(false)
     })
-  }, [debouncedSearch, category, sort, platform, mcVersion, loader, page, uiLanguage, reloadTick])
+  }, [debouncedSearch, category, sort, platform, mcVersion, loader, tag, page])
+
+  const handleSidebarResizeStart = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    const startX = event.clientX
+    const startWidth = sidebarWidth
+    const onMove = (moveEvent: MouseEvent) => {
+      const next = Math.min(maxSidebarWidth, Math.max(minSidebarWidth, startWidth + (moveEvent.clientX - startX)))
+      setSidebarWidth(next)
+    }
+    const onStop = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onStop)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onStop)
+  }
 
   useEffect(() => {
     if (!selectedItem) return
@@ -298,7 +356,7 @@ export function ExplorerPage({ uiLanguage }: Props) {
       <section className="instances-panel huge-panel explorer-page">
         {!selectedItem && (
           <>
-            <div className="explorer-workspace">
+            <div className="explorer-workspace" style={{ gridTemplateColumns: `minmax(${minSidebarWidth}px, ${sidebarWidth}px) 8px minmax(0, 1fr)` }}>
               <aside className="explorer-left-sidebar">
                 <div className="explorer-sidebar-section">
                   <input className="instance-search-compact" placeholder={t.search} value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -319,8 +377,7 @@ export function ExplorerPage({ uiLanguage }: Props) {
                 </div>
                 <div className="explorer-sidebar-section">
                   <button className="secondary square" onClick={() => setShowAdvanced((v) => !v)}>{showAdvanced ? t.hideAdvanced : t.advanced}</button>
-                  <button className="secondary square" onClick={() => { setSearch(''); setCategory('all'); setSort('relevance'); setPlatform('all'); setMcVersion(''); setLoader('all'); setPage(1) }}>Reset filtros</button>
-                  <button className="secondary square" onClick={() => setReloadTick((v) => v + 1)}>{t.retry}</button>
+                  <button className="secondary square explorer-reset-btn" onClick={() => { setSearch(''); setCategory('all'); setSort('relevance'); setPlatform('all'); setMcVersion(''); setLoader('all'); setTag('all'); setPage(1) }}>{t.resetFilters} 🧻</button>
                 </div>
                 {showAdvanced && (
                   <div className="explorer-sidebar-section">
@@ -333,9 +390,15 @@ export function ExplorerPage({ uiLanguage }: Props) {
                       <select value={loader} onChange={(e) => { setLoader(e.target.value as LoaderFilter); setPage(1) }}>
                         <option value="all">{t.all}</option><option value="fabric">Fabric</option><option value="forge">Forge</option><option value="neoforge">NeoForge</option><option value="quilt">Quilt</option></select>
                     </label>
+                    <label>{t.tags}
+                      <select value={tag} onChange={(e) => { setTag(e.target.value as TagFilter); setPage(1) }}>
+                        {advancedTags.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}
+                      </select>
+                    </label>
                   </div>
                 )}
               </aside>
+              <div className="explorer-sidebar-resizer" role="separator" aria-orientation="vertical" onMouseDown={handleSidebarResizeStart} />
               <div className="explorer-main-content">
 
             <div className="catalog-panel-header">
@@ -344,7 +407,7 @@ export function ExplorerPage({ uiLanguage }: Props) {
             </div>
 
             {loading && <p className="catalog-loader">{t.loading}</p>}
-            {error && <p className="error-banner">{error} <button className="secondary" onClick={() => { cacheRef.current = {}; setReloadTick((v) => v + 1) }}>{t.retry}</button></p>}
+            {error && <p className="error-banner">{error}</p>}
 
             <div className={`explorer-results ${view}`}>
               {items.map((item) => (
@@ -519,14 +582,4 @@ export function ExplorerPage({ uiLanguage }: Props) {
 
     </main>
   )
-}
-
-function sortItems(items: ExplorerItem[], sort: SortMode, uiLanguage: 'es' | 'en' | 'pt'): ExplorerItem[] {
-  const next = [...items]
-  if (sort === 'downloads' || sort === 'popularity') return next.sort((a, b) => b.downloads - a.downloads)
-  if (sort === 'updated' || sort === 'stable') return next.sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt))
-  const locale = uiLanguage === 'en' ? 'en' : uiLanguage === 'pt' ? 'pt' : 'es'
-  if (sort === 'name') return next.sort((a, b) => a.title.localeCompare(b.title, locale))
-  if (sort === 'author') return next.sort((a, b) => a.author.localeCompare(b.author, locale))
-  return next
 }

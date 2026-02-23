@@ -1,4 +1,4 @@
-use reqwest::blocking::Client;
+use reqwest::blocking::{Client, RequestBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -11,6 +11,7 @@ pub struct CatalogSearchRequest {
     pub platform: String,
     pub mc_version: Option<String>,
     pub loader: Option<String>,
+    pub tag: Option<String>,
     pub modrinth_sort: String,
     pub curseforge_sort_field: u32,
     pub limit: Option<u32>,
@@ -607,6 +608,9 @@ fn fetch_modrinth(
     if let Some(loader) = request.loader.as_ref().filter(|v| !v.is_empty()) {
         facets.push(vec![format!("categories:{}", loader.to_ascii_lowercase())]);
     }
+    if let Some(tag) = request.tag.as_ref().filter(|v| !v.is_empty()) {
+        facets.push(vec![format!("categories:{}", tag.to_ascii_lowercase())]);
+    }
 
     let mut params = vec![
         ("query", request.search.clone()),
@@ -620,16 +624,48 @@ fn fetch_modrinth(
         params.push(("facets", raw));
     }
 
-    let response = client
-        .get("https://api.modrinth.com/v2/search")
-        .query(&params)
-        .send()
-        .map_err(|err| format!("Error consultando Modrinth: {err}"))?;
+    let response = send_with_retry(
+        || {
+            client
+                .get("https://api.modrinth.com/v2/search")
+                .query(&params)
+        },
+        3,
+    )
+    .map_err(|err| format!("Error consultando Modrinth: {err}"))?;
 
     if !response.status().is_success() {
+        let fallback_sort = if request.modrinth_sort == "follows" {
+            Some("relevance")
+        } else {
+            None
+        };
+        if let Some(index) = fallback_sort {
+            let mut fallback_params = params.clone();
+            fallback_params.retain(|(key, _)| *key != "index");
+            fallback_params.push(("index", index.to_string()));
+            let fallback_response = send_with_retry(
+                || {
+                    client
+                        .get("https://api.modrinth.com/v2/search")
+                        .query(&fallback_params)
+                },
+                2,
+            )
+            .map_err(|err| format!("Error consultando Modrinth: {err}"))?;
+            if fallback_response.status().is_success() {
+                return parse_modrinth_search_payload(fallback_response, offset);
+            }
+        }
         return Err(format!("Modrinth respondió con {}", response.status()));
     }
 
+    return parse_modrinth_search_payload(response, offset);
+}
+fn parse_modrinth_search_payload(
+    response: reqwest::blocking::Response,
+    offset: u32,
+) -> Result<(Vec<CatalogItem>, bool), String> {
     let payload: Value = response
         .json()
         .map_err(|err| format!("Respuesta inválida de Modrinth: {err}"))?;
@@ -717,6 +753,32 @@ fn fetch_modrinth(
             .collect(),
         has_more,
     ))
+}
+
+fn send_with_retry(
+    build_request: impl Fn() -> RequestBuilder,
+    max_attempts: u8,
+) -> Result<reqwest::blocking::Response, reqwest::Error> {
+    let mut delay_ms = 180;
+    for attempt in 1..=max_attempts {
+        let response = build_request().send();
+        match response {
+            Ok(resp) if resp.status().as_u16() == 429 || resp.status().is_server_error() => {
+                if attempt == max_attempts {
+                    return Ok(resp);
+                }
+            }
+            Ok(resp) => return Ok(resp),
+            Err(err) => {
+                if attempt == max_attempts {
+                    return Err(err);
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+        delay_ms = (delay_ms * 2).min(1200);
+    }
+    build_request().send()
 }
 
 fn fetch_curseforge(
