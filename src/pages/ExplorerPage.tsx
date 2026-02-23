@@ -446,14 +446,14 @@ export function ExplorerPage({ uiLanguage }: Props) {
                     ))}
                   </div>
 
-                  {!loading && items.length === 0 ? <p>{t.noResults}</p> : null}
-                </section>
+                  {!loading && items.length === 0 ? <p className="explorer-empty-state">{t.noResults}</p> : null}
 
-                <footer className="explorer-pagination explorer-pagination-bar">
-                  <button className="secondary" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1 || loading}>{t.previous}</button>
-                  <span>{t.page} {page}</span>
-                  <button className="secondary" onClick={() => setPage((p) => p + 1)} disabled={loading || !hasMore}>{t.next}</button>
-                </footer>
+                  <footer className="explorer-pagination explorer-pagination-bar">
+                    <button className="secondary" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1 || loading}>{t.previous}</button>
+                    <span>{t.page} {page}</span>
+                    <button className="secondary" onClick={() => setPage((p) => p + 1)} disabled={loading || !hasMore}>{t.next}</button>
+                  </footer>
+                </section>
               </div>
             </div>
           </>
