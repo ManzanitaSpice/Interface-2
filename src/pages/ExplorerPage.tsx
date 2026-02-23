@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import { Fragment, type ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 
 type Category = 'all' | 'modpacks' | 'mods' | 'datapacks' | 'resourcepacks' | 'shaders' | 'worlds' | 'addons' | 'customization'
 type SortMode = 'relevance' | 'popularity' | 'updated' | 'stable' | 'downloads' | 'name' | 'author'
@@ -97,8 +97,8 @@ const officialVersions = [
 const PAGE_SIZE = 24
 const explorerViewModeKey = 'launcher_explorer_view_mode_v1'
 const explorerSidebarWidthKey = 'launcher_explorer_sidebar_width_v1'
-const minSidebarWidth = 240
-const maxSidebarWidth = 460
+const minSidebarWidth = 280
+const maxSidebarWidth = 540
 const advancedTags: { value: TagFilter; label: string }[] = [
   { value: 'all', label: 'Todos' },
   { value: 'mobs', label: 'Mobs' },
@@ -146,42 +146,29 @@ function cleanLoaderLabel(value: string) {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1)
 }
 
-function parseInlineMarkdown(value: string): ReactNode[] {
-  const tokens = value.split(/(!?\[[^\]]*\]\([^)]+\)|\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_)/g).filter(Boolean)
-  return tokens.map((token, index) => {
-    const image = token.match(/^!\[([^\]]*)\]\((https?:\/\/[^)]+)\)$/)
-    if (image) return <img key={`img-${index}`} src={image[2]} alt={image[1]} loading="lazy" referrerPolicy="no-referrer" />
 
-    const link = token.match(/^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/)
-    if (link) return <a key={`link-${index}`} href={link[2]} target="_blank" rel="noreferrer">{link[1]}</a>
-
-    if ((token.startsWith('**') && token.endsWith('**')) || (token.startsWith('__') && token.endsWith('__'))) {
-      return <strong key={`strong-${index}`}>{token.slice(2, -2)}</strong>
-    }
-    if ((token.startsWith('*') && token.endsWith('*')) || (token.startsWith('_') && token.endsWith('_'))) {
-      return <em key={`em-${index}`}>{token.slice(1, -1)}</em>
-    }
-    return <Fragment key={`txt-${index}`}>{token}</Fragment>
-  })
+function escapeHtml(content: string) {
+  return content
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
 }
 
-function renderMarkdown(content: string) {
-  const normalized = content.replace(/\r\n/g, '\n').trim()
-  if (!normalized) return <p>-</p>
+function renderCatalogBody(content?: string) {
+  if (!content) return ''
+  const raw = content.trim()
+  if (!raw) return ''
+  if (/<\/?[a-z][\s\S]*>/i.test(raw)) return raw
 
-  return normalized.split(/\n{2,}/).map((block, blockIndex) => {
-    const line = block.trim()
-    if (line.startsWith('### ')) return <h3 key={`h3-${blockIndex}`}>{parseInlineMarkdown(line.slice(4))}</h3>
-    if (line.startsWith('## ')) return <h2 key={`h2-${blockIndex}`}>{parseInlineMarkdown(line.slice(3))}</h2>
-    if (line.startsWith('# ')) return <h1 key={`h1-${blockIndex}`}>{parseInlineMarkdown(line.slice(2))}</h1>
-
-    const allLines = line.split('\n').map((entry) => entry.trim()).filter(Boolean)
-    if (allLines.length > 0 && allLines.every((entry) => /^[-*]\s+/.test(entry))) {
-      return <ul key={`ul-${blockIndex}`}>{allLines.map((item, itemIndex) => <li key={`li-${blockIndex}-${itemIndex}`}>{parseInlineMarkdown(item.replace(/^[-*]\s+/, ''))}</li>)}</ul>
-    }
-
-    return <p key={`p-${blockIndex}`}>{parseInlineMarkdown(line)}</p>
-  })
+  const escaped = escapeHtml(raw)
+  const withImages = escaped.replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<img src="$2" alt="$1" loading="lazy" />')
+  const withLinks = withImages.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+  return withLinks
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => `<p>${block.replace(/\n/g, '<br />')}</p>`)
+    .join('')
 }
 
 function resolveCardImage(image: string, title: string) {
@@ -426,45 +413,47 @@ export function ExplorerPage({ uiLanguage }: Props) {
             {loading && <p className="catalog-loader">{t.loading}</p>}
             {error && <p className="error-banner">{error}</p>}
 
-            <div className={`explorer-results ${view}`}>
-              {items.map((item) => (
-                <article key={`${item.source}-${item.id}`} className="instance-card explorer-card clickable" onClick={() => { setSelectedItem(item); setSelectedDetail(null); setActiveTab('description') }}>
-                  <div className="explorer-card-media-wrapper">
-                    <div className="instance-card-icon hero explorer-card-media">
-                      {resolveCardImage(item.image, item.title)}
-                    </div>
-                  </div>
-                  <div className="explorer-card-info">
-                    <strong className="instance-card-title" title={item.title}>{item.title}</strong>
-                    {view !== 'titles' && (
-                      <>
-                        <small className="explorer-description" title={item.description}>{item.description}</small>
-                        <div className="explorer-top-badges">
-                          <span className={`platform-badge ${item.source.toLowerCase()}`}>{item.source}</span>
-                          <span className="loader-badge">{cleanLoaderLabel(item.loaders[0] ?? item.projectType)}</span>
-                          {item.minecraftVersions[0] ? <span className="mc-chip">MC {item.minecraftVersions[0]}</span> : null}
+                <section className="explorer-catalog-panel">
+                  <div className={`explorer-results ${view}`}>
+                    {items.map((item) => (
+                      <article key={`${item.source}-${item.id}`} className="instance-card explorer-card clickable" onClick={() => { setSelectedItem(item); setSelectedDetail(null); setActiveTab('description') }}>
+                        <div className="explorer-card-media-wrapper">
+                          <div className="instance-card-icon hero explorer-card-media">
+                            {resolveCardImage(item.image, item.title)}
+                          </div>
                         </div>
-                        <div className="instance-card-meta explorer-meta-grid">
-                          <small>{t.author}: {item.author}</small>
-                          <small>{t.downloads}: {compactNumber(item.downloads, uiLanguage)}</small>
-                        <small>{t.lastUpdate}: {item.updatedAt ? dateFormatter.format(new Date(item.updatedAt)) : '-'}</small>
-                          {item.updatedAt ? <small>{dateFormatter.format(new Date(item.updatedAt))}</small> : null}
+                        <div className="explorer-card-info">
+                          <strong className="instance-card-title" title={item.title}>{item.title}</strong>
+                          {view !== 'titles' && (
+                            <>
+                              <small className="explorer-description" title={item.description}>{item.description}</small>
+                              <div className="explorer-top-badges">
+                                <span className={`platform-badge ${item.source.toLowerCase()}`}>{item.source}</span>
+                                <span className="loader-badge">{cleanLoaderLabel(item.loaders[0] ?? item.projectType)}</span>
+                                {item.minecraftVersions[0] ? <span className="mc-chip">MC {item.minecraftVersions[0]}</span> : null}
+                              </div>
+                              <div className="instance-card-meta explorer-meta-grid">
+                                <small>{t.author}: {item.author}</small>
+                                <small>{t.downloads}: {compactNumber(item.downloads, uiLanguage)}</small>
+                                <small>{t.lastUpdate}: {item.updatedAt ? dateFormatter.format(new Date(item.updatedAt)) : '-'}</small>
+                                {item.updatedAt ? <small>{dateFormatter.format(new Date(item.updatedAt))}</small> : null}
+                              </div>
+                              <div className="explorer-tags">{item.tags.slice(0, 3).map((tag) => <span key={tag}>{cleanLoaderLabel(tag)}</span>)}</div>
+                            </>
+                          )}
                         </div>
-                        <div className="explorer-tags">{item.tags.slice(0, 3).map((tag) => <span key={tag}>{cleanLoaderLabel(tag)}</span>)}</div>
-                      </>
-                    )}
+                      </article>
+                    ))}
                   </div>
-                </article>
-              ))}
-            </div>
 
-            {!loading && items.length === 0 ? <p>{t.noResults}</p> : null}
+                  {!loading && items.length === 0 ? <p>{t.noResults}</p> : null}
+                </section>
 
-            <footer className="explorer-pagination explorer-pagination-bar">
-              <button className="secondary" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1 || loading}>{t.previous}</button>
-              <span>{t.page} {page}</span>
-              <button className="secondary" onClick={() => setPage((p) => p + 1)} disabled={loading || !hasMore}>{t.next}</button>
-            </footer>
+                <footer className="explorer-pagination explorer-pagination-bar">
+                  <button className="secondary" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1 || loading}>{t.previous}</button>
+                  <span>{t.page} {page}</span>
+                  <button className="secondary" onClick={() => setPage((p) => p + 1)} disabled={loading || !hasMore}>{t.next}</button>
+                </footer>
               </div>
             </div>
           </>
@@ -513,12 +502,12 @@ export function ExplorerPage({ uiLanguage }: Props) {
               <div className="explorer-detail-panel">
                 {activeTab === 'description' && (
                   <div className="explorer-detail-html">
-                    {renderMarkdown(selectedDetail.bodyHtml || selectedDetail.description || selectedItem.description)}
+                    <div dangerouslySetInnerHTML={{ __html: renderCatalogBody(selectedDetail.bodyHtml || selectedDetail.description || selectedItem.description) }} />
                   </div>
                 )}
                 {activeTab === 'changelog' && (
                   <div className="explorer-detail-html">
-                    <div>{renderMarkdown(selectedDetail.changelogHtml || selectedDetail.description)}<div className="explorer-changelog-cards">{selectedDetail.versions.slice(0, 10).map((version, idx) => <article key={`${version.name}-changelog-${idx}`}><strong>{version.name}</strong><small>{version.publishedAt ? dateFormatter.format(new Date(version.publishedAt)) : '-'}</small><p>{version.versionType} · {version.modLoader || '-'} · MC {version.gameVersion || '-'}</p></article>)}</div></div>
+                    <div><div dangerouslySetInnerHTML={{ __html: renderCatalogBody(selectedDetail.changelogHtml || selectedDetail.description) }} /><div className="explorer-changelog-cards">{selectedDetail.versions.slice(0, 10).map((version, idx) => <article key={`${version.name}-changelog-${idx}`}><strong>{version.name}</strong><small>{version.publishedAt ? dateFormatter.format(new Date(version.publishedAt)) : '-'}</small><p>{version.versionType} · {version.modLoader || '-'} · MC {version.gameVersion || '-'}</p></article>)}</div></div>
                   </div>
                 )}
                 {activeTab === 'gallery' && (
