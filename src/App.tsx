@@ -1391,7 +1391,7 @@ function App() {
           changeRoot: 'Alterar pasta raiz', changeInstances: 'Alterar pasta de instâncias', current: 'Atual',
         }
       : {
-          globalTitle: 'Configuración Global', globalDesc: 'Panel central de ajustes del launcher por categorías.', folderTitle: 'Ubicaciones de carpetas',
+          globalTitle: 'Configuración Global', globalDesc: '', folderTitle: 'Ubicaciones de carpetas',
           launcherRoot: 'Carpeta raíz del launcher', instances: 'Instancias', runtime: 'Java embebido', assets: 'Skins / Assets',
           changeRoot: 'Cambiar carpeta raíz', changeInstances: 'Elegir carpeta de instancias', current: 'Actual',
         }
@@ -4008,7 +4008,6 @@ function App() {
             {selectedGlobalSettingsTab === 'Servicios' && (
               <section className="section-placeholder">
                 <h2>Servicios</h2>
-                <p>Estado backend: autenticación, metadata y sincronización listos para integración continua.</p>
                 <button className="primary" onClick={() => setUpdatesStatus('Servicios verificados correctamente desde el panel global.')}>Validar servicios</button>
               </section>
             )}
