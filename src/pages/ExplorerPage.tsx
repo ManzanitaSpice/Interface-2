@@ -562,10 +562,12 @@ export function ExplorerPage({ uiLanguage }: Props) {
                     <div className="explorer-version-cards">
                       {pagedVersions.map((version, idx) => (
                         <article key={`${version.name}-${idx}`} className="explorer-version-card">
-                          <strong>{version.name}</strong>
-                          <small>{version.versionType} · {version.publishedAt ? dateFormatter.format(new Date(version.publishedAt)) : '-'}</small>
-                          <p>Loader: {version.modLoader || '-'} · MC {version.gameVersion || '-'}</p>
-                          <button className="action-elevated" onClick={() => { setSelectedVersionForInstall(version); setInstallModalOpen(true) }}>{t.install}</button>
+                          <div className="explorer-version-main">
+                            <strong>{version.name}</strong>
+                            <small>{version.versionType} · {version.publishedAt ? dateFormatter.format(new Date(version.publishedAt)) : '-'}</small>
+                            <p>MC {version.gameVersion || '-'} · Loader {version.modLoader || '-'}</p>
+                          </div>
+                          <button className="action-elevated explorer-version-install" onClick={() => { setSelectedVersionForInstall(version); setInstallModalOpen(true) }}>{t.install}</button>
                         </article>
                       ))}
                     </div>
