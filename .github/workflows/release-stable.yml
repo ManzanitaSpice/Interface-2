@@ -37,6 +37,45 @@ jobs:
           releaseDraft: false
           prerelease: false
 
+      - name: Create Windows updater bundles (.msi.zip/.nsis.zip)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          # Busca los instaladores generados por Tauri
+          $msi = Get-ChildItem -Recurse "src-tauri\target\release\bundle" -Filter *.msi | Select-Object -First 1
+          $exe = Get-ChildItem -Recurse "src-tauri\target\release\bundle" -Filter *setup.exe | Select-Object -First 1
+
+          if (-not $msi -and -not $exe) {
+            throw "No Windows installers found (.msi or *setup.exe) in src-tauri/target/release/bundle"
+          }
+
+          # Carpeta de salida
+          $outDir = "updater-bundles"
+          New-Item -ItemType Directory -Force $outDir | Out-Null
+
+          if ($msi) {
+            $msiZip = Join-Path $outDir ($msi.BaseName + ".msi.zip")
+            if (Test-Path $msiZip) { Remove-Item $msiZip -Force }
+            Compress-Archive -Path $msi.FullName -DestinationPath $msiZip
+            Write-Host "Created: $msiZip"
+          }
+
+          if ($exe) {
+            $exeZip = Join-Path $outDir ($exe.BaseName + ".nsis.zip")
+            if (Test-Path $exeZip) { Remove-Item $exeZip -Force }
+            Compress-Archive -Path $exe.FullName -DestinationPath $exeZip
+            Write-Host "Created: $exeZip"
+          }
+
+          Get-ChildItem $outDir
+
+      - name: Upload updater bundles to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            updater-bundles/*.zip
+
       - name: Generate stable manifest
         shell: pwsh
         env:
