@@ -392,6 +392,22 @@ type LauncherUpdateItem = {
   status: 'Instalada' | 'Disponible' | 'Histórica'
 }
 
+type UpdatesChannel = 'stable' | 'beta'
+
+type RemoteUpdateManifest = {
+  version: string
+  notes: string
+  pub_date: string
+  platforms: Record<string, { url: string; signature: string }>
+}
+
+type UpdateHealthCheck = {
+  id: string
+  label: string
+  detail: string
+  level: 'ok' | 'warn' | 'error'
+}
+
 
 const creatorSections: CreatorSection[] = ['Personalizado', 'CurseForge', 'Modrinth', 'Futuro 1', 'Futuro 2', 'Futuro 3']
 
@@ -545,6 +561,8 @@ const fontOptions: FontOption[] = [
 
 const launcherUpdatesUrl = 'https://github.com/ManzanitaSpice/Interface-2/releases'
 const launcherReleasesApiUrl = 'https://api.github.com/repos/ManzanitaSpice/Interface-2/releases'
+const launcherStableManifestUrl = 'https://manzanitaspice.github.io/Interface-2/updates/stable.json'
+const launcherBetaManifestUrl = 'https://manzanitaspice.github.io/Interface-2/updates/beta.json'
 
 const instanceActions = ['Iniciar', 'Forzar Cierre', 'Editar', 'Cambiar Grupo', 'Carpeta (Interface)', 'Exportar', 'Copiar', 'Crear atajo']
 const defaultGroup = 'Sin grupo'
@@ -591,6 +609,98 @@ function buildReleaseSummary(body: string): string {
   if (!normalized) return 'Release publicada sin notas detalladas.'
   const firstLine = normalized.split('\n').find((line) => line.trim().length > 0)
   return (firstLine ?? normalized).replace(/^[-*#\s]+/, '').slice(0, 220)
+}
+
+function getManifestUrlByChannel(channel: UpdatesChannel): string {
+  return channel === 'beta' ? launcherBetaManifestUrl : launcherStableManifestUrl
+}
+
+async function fetchUpdateManifest(channel: UpdatesChannel): Promise<RemoteUpdateManifest> {
+  const response = await fetch(getManifestUrlByChannel(channel), {
+    headers: {
+      Accept: 'application/json',
+      'Cache-Control': 'no-cache',
+    },
+  })
+  if (!response.ok) {
+    throw new Error(`Manifest ${channel} no disponible (${response.status}).`)
+  }
+  const payload = await response.json() as Partial<RemoteUpdateManifest>
+  if (!payload.version || !payload.platforms) {
+    throw new Error(`Manifest ${channel} inválido (faltan campos requeridos).`)
+  }
+  return {
+    version: payload.version,
+    notes: payload.notes ?? '',
+    pub_date: payload.pub_date ?? '',
+    platforms: payload.platforms,
+  }
+}
+
+function getUpdateHealthChecks(params: {
+  currentVersion: string
+  selectedChannel: UpdatesChannel
+  updatesFeed: LauncherUpdateItem[]
+  stableManifest?: RemoteUpdateManifest | null
+  betaManifest?: RemoteUpdateManifest | null
+}): UpdateHealthCheck[] {
+  const { currentVersion, selectedChannel, updatesFeed, stableManifest, betaManifest } = params
+  const stableLatest = updatesFeed[0]
+  const chosenManifest = selectedChannel === 'beta' ? betaManifest : stableManifest
+  const stableManifestVersion = stableManifest?.version ? normalizeVersionTag(stableManifest.version) : ''
+  const latestStableVersion = stableLatest?.version ? normalizeVersionTag(stableLatest.version) : ''
+  const hasWindowsPlatform = chosenManifest
+    ? Object.keys(chosenManifest.platforms).some((platform) => platform.toLowerCase().includes('windows'))
+    : false
+
+  const workflowSyncLevel: UpdateHealthCheck['level'] = !stableManifestVersion || !latestStableVersion
+    ? 'warn'
+    : stableManifestVersion === latestStableVersion
+      ? 'ok'
+      : 'error'
+
+  const workflowSyncDetail = !stableManifestVersion || !latestStableVersion
+    ? 'No hay suficientes datos para validar sincronización entre workflow y releases.'
+    : workflowSyncLevel === 'ok'
+      ? `El manifest estable (${stableManifestVersion}) coincide con la release estable más nueva.`
+      : `El manifest estable apunta a ${stableManifestVersion}, pero la release estable más nueva es ${latestStableVersion}.`
+
+  const installedVsManifestLevel: UpdateHealthCheck['level'] = !currentVersion || !chosenManifest
+    ? 'warn'
+    : compareSemver(normalizeVersionTag(chosenManifest.version), normalizeVersionTag(currentVersion)) >= 0
+      ? 'ok'
+      : 'warn'
+
+  const installedVsManifestDetail = !currentVersion || !chosenManifest
+    ? 'No se pudo validar versión instalada contra el manifest remoto.'
+    : compareSemver(normalizeVersionTag(chosenManifest.version), normalizeVersionTag(currentVersion)) > 0
+      ? `Hay actualización remota disponible (${currentVersion} → ${chosenManifest.version}).`
+      : compareSemver(normalizeVersionTag(chosenManifest.version), normalizeVersionTag(currentVersion)) === 0
+        ? `Tu versión instalada (${currentVersion}) coincide con el manifest del canal ${selectedChannel}.`
+        : `Tu versión instalada (${currentVersion}) es más nueva que el manifest ${selectedChannel} (${chosenManifest.version}).`
+
+  return [
+    {
+      id: 'workflow-sync',
+      label: 'Sincronización workflows ↔ manifests',
+      detail: workflowSyncDetail,
+      level: workflowSyncLevel,
+    },
+    {
+      id: 'channel-manifest',
+      label: `Manifest del canal ${selectedChannel}`,
+      detail: chosenManifest
+        ? `Versión ${normalizeVersionTag(chosenManifest.version)} · Fecha ${chosenManifest.pub_date ? formatIsoDate(chosenManifest.pub_date) : 'sin fecha'} · Plataforma Windows ${hasWindowsPlatform ? 'detectada' : 'no detectada'}.`
+        : `No se pudo cargar el manifest del canal ${selectedChannel}.`,
+      level: chosenManifest ? (hasWindowsPlatform ? 'ok' : 'warn') : 'error',
+    },
+    {
+      id: 'installed-vs-manifest',
+      label: 'Versión instalada vs manifest',
+      detail: installedVsManifestDetail,
+      level: installedVsManifestLevel,
+    },
+  ]
 }
 
 function normalizeVersionTag(tag: string): string {
@@ -908,13 +1018,15 @@ function App() {
   const [updatesBadgeDismissed, setUpdatesBadgeDismissed] = useState(false)
   const [folderRoutes, setFolderRoutes] = useState<FolderRouteItem[]>(defaultFolderRoutes)
   const [updatesAutoCheck, setUpdatesAutoCheck] = useState(true)
-  const [updatesChannel] = useState<'Stable'>('Stable')
+  const [updatesChannel, setUpdatesChannel] = useState<UpdatesChannel>('stable')
   const [selectedReleaseTag, setSelectedReleaseTag] = useState('')
   const [selectedReleaseNotes, setSelectedReleaseNotes] = useState('')
   const [updatesStatus, setUpdatesStatus] = useState('Listo para buscar updates.')
   const [updatesLoading, setUpdatesLoading] = useState(false)
   const [launcherCurrentVersion, setLauncherCurrentVersion] = useState('')
   const [launcherUpdatesFeed, setLauncherUpdatesFeed] = useState<LauncherUpdateItem[]>([])
+  const [stableUpdateManifest, setStableUpdateManifest] = useState<RemoteUpdateManifest | null>(null)
+  const [betaUpdateManifest, setBetaUpdateManifest] = useState<RemoteUpdateManifest | null>(null)
   const { progress: migrationProgress, isMigrating, migrateLauncherRoot, changeInstancesFolder } = useMigration()
   const [launcherFolders, setLauncherFolders] = useState<LauncherFolders | null>(null)
   const [launcherMigrationPath, setLauncherMigrationPath] = useState<string | null>(null)
@@ -1082,15 +1194,31 @@ function App() {
 
   const refreshLauncherReleases = useCallback(async () => {
     setUpdatesLoading(true)
-    setUpdatesStatus('Sincronizando releases estables...')
+    setUpdatesStatus('Sincronizando releases estables y manifests...')
     try {
-      const response = await fetch(launcherReleasesApiUrl, {
-        headers: {
-          Accept: 'application/vnd.github+json',
-        },
-      })
-      if (!response.ok) throw new Error(`GitHub API ${response.status}`)
-      const releases = await response.json() as Array<{ id?: number; name?: string; html_url?: string; tag_name?: string; published_at?: string; prerelease?: boolean; draft?: boolean; body?: string; assets?: unknown[] }>
+      const [releasesResponse, stableManifestResult, betaManifestResult] = await Promise.allSettled([
+        fetch(launcherReleasesApiUrl, {
+          headers: {
+            Accept: 'application/vnd.github+json',
+          },
+        }),
+        fetchUpdateManifest('stable'),
+        fetchUpdateManifest('beta'),
+      ])
+
+      if (stableManifestResult.status === 'fulfilled') setStableUpdateManifest(stableManifestResult.value)
+      else setStableUpdateManifest(null)
+
+      if (betaManifestResult.status === 'fulfilled') setBetaUpdateManifest(betaManifestResult.value)
+      else setBetaUpdateManifest(null)
+
+      if (releasesResponse.status !== 'fulfilled') {
+        throw new Error('No se pudo consultar la API de releases de GitHub.')
+      }
+
+      if (!releasesResponse.value.ok) throw new Error(`GitHub API ${releasesResponse.value.status}`)
+
+      const releases = await releasesResponse.value.json() as Array<{ id?: number; name?: string; html_url?: string; tag_name?: string; published_at?: string; prerelease?: boolean; draft?: boolean; body?: string; assets?: unknown[] }>
       const mapped: LauncherUpdateItem[] = releases
         .filter((release) => !release.prerelease && !release.draft)
         .filter((release) => typeof release.tag_name === 'string' && release.tag_name.trim().length > 0)
@@ -1124,29 +1252,29 @@ function App() {
         setSelectedReleaseTag(mapped[0].tag)
         setSelectedReleaseNotes(mapped[0].notes)
       }
-      setUpdatesStatus(mapped.length > 0 ? `Se encontraron ${mapped.length} releases estables.` : 'No hay releases estables publicadas aún.')
+      setUpdatesStatus(mapped.length > 0 ? `Se encontraron ${mapped.length} releases estables y se validaron manifests remotos.` : 'No hay releases estables publicadas aún.')
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setUpdatesStatus(`No se pudieron cargar las releases estables: ${message}`)
     } finally {
       setUpdatesLoading(false)
     }
-  }, [launcherCurrentVersion])
+  }, [launcherCurrentVersion, selectedReleaseTag])
 
   const checkLauncherUpdates = async () => {
-    setUpdatesStatus('Buscando una actualización estable disponible...')
+    setUpdatesStatus(`Buscando una actualización ${updatesChannel} disponible...`)
     setUpdatesLoading(true)
     try {
       const update = await check({
         headers: {
-          'x-interface-channel': 'stable',
+          'x-interface-channel': updatesChannel,
           'x-interface-current-version': launcherCurrentVersion,
           'x-interface-selected-tag': selectedReleaseTag,
         },
         timeout: 45_000,
       })
       if (!update) {
-        setUpdatesStatus('Tu launcher ya está en la versión estable más reciente.')
+        setUpdatesStatus(`Tu launcher ya está en la versión más reciente del canal ${updatesChannel}.`)
         await refreshLauncherReleases()
         return
       }
@@ -1157,7 +1285,7 @@ function App() {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (message.includes('Could not fetch a valid release JSON from the remote')) {
-        setUpdatesStatus('El updater nativo no encontró un JSON de release válido. Usa "Recargar releases" para instalar desde la lista estable mientras se corrige el feed remoto.')
+        setUpdatesStatus('El updater nativo no encontró un JSON de release válido. Verifica la publicación de updates/stable.json o updates/beta.json en gh-pages y recarga releases.')
       } else {
         setUpdatesStatus(`Error en updater nativo: ${message}`)
       }
@@ -1187,6 +1315,22 @@ function App() {
   const selectedRelease = useMemo(
     () => launcherUpdatesFeed.find((item) => item.tag === selectedReleaseTag) ?? launcherUpdatesFeed[0],
     [launcherUpdatesFeed, selectedReleaseTag],
+  )
+
+  const selectedChannelManifest = useMemo(
+    () => (updatesChannel === 'beta' ? betaUpdateManifest : stableUpdateManifest),
+    [betaUpdateManifest, stableUpdateManifest, updatesChannel],
+  )
+
+  const updateHealthChecks = useMemo(
+    () => getUpdateHealthChecks({
+      currentVersion: launcherCurrentVersion,
+      selectedChannel: updatesChannel,
+      updatesFeed: launcherUpdatesFeed,
+      stableManifest: stableUpdateManifest,
+      betaManifest: betaUpdateManifest,
+    }),
+    [betaUpdateManifest, launcherCurrentVersion, launcherUpdatesFeed, stableUpdateManifest, updatesChannel],
   )
 
   useEffect(() => {
@@ -3697,34 +3841,53 @@ function App() {
           <section className="instances-panel updates-panel">
             <header className="news-panel-header updates-header professional">
               <div>
-                <h2>Actualizaciones</h2>
-                <p>Consulta la versión estable más reciente e instala con un solo clic.</p>
+                <h2>Centro de actualizaciones</h2>
+                <p>Panel profesional para validar el estado real del updater y ejecutar actualizaciones seguras.</p>
               </div>
               <div className="updates-actions">
-                <button className="primary" onClick={() => void checkLauncherUpdates()} disabled={updatesLoading}>Actualizar ahora</button>
-                <button onClick={() => void refreshLauncherReleases()} disabled={updatesLoading}>Recargar releases</button>
+                <label className="updates-channel-select" htmlFor="updates-channel">
+                  Canal
+                  <select id="updates-channel" value={updatesChannel} onChange={(event) => setUpdatesChannel(event.target.value as UpdatesChannel)}>
+                    <option value="stable">Stable</option>
+                    <option value="beta">Beta</option>
+                  </select>
+                </label>
+                <button className="primary" onClick={() => void checkLauncherUpdates()} disabled={updatesLoading}>Buscar e instalar update</button>
+                <button onClick={() => void refreshLauncherReleases()} disabled={updatesLoading}>Recargar diagnóstico</button>
               </div>
             </header>
 
-            <section className="updates-hero">
+            <section className="updates-hero professional-grid">
               <article className="updates-hero-card current">
                 <span className="updates-hero-label">Versión instalada</span>
                 <strong>{launcherCurrentVersion || 'No disponible'}</strong>
-                <small>Canal estable</small>
+                <small>Canal activo: {updatesChannel}</small>
               </article>
               <article className="updates-hero-card latest">
-                <span className="updates-hero-label">Última release estable</span>
-                <strong>{launcherUpdatesFeed[0]?.version ?? '-'}</strong>
-                <small>{launcherUpdatesFeed[0] ? formatIsoDate(launcherUpdatesFeed[0].publishedAt) : 'Sin datos'}</small>
+                <span className="updates-hero-label">Manifest remoto ({updatesChannel})</span>
+                <strong>{selectedChannelManifest?.version ? normalizeVersionTag(selectedChannelManifest.version) : '-'}</strong>
+                <small>{selectedChannelManifest?.pub_date ? formatIsoDate(selectedChannelManifest.pub_date) : 'Sin datos de publicación'}</small>
               </article>
               <article className="updates-hero-card status">
-                <span className="updates-hero-label">Estado</span>
+                <span className="updates-hero-label">Estado operativo</span>
                 <strong>{updatesLoading ? 'Procesando...' : 'Listo'}</strong>
                 <small>{updatesStatus}</small>
               </article>
             </section>
 
             <div className="updates-status-bar">{updatesStatus}</div>
+
+            <section className="updates-health-panel" aria-label="Diagnóstico del sistema de actualización">
+              {updateHealthChecks.map((checkItem) => (
+                <article key={checkItem.id} className={`updates-health-card ${checkItem.level}`}>
+                  <div className="updates-health-title">
+                    <span>{checkItem.label}</span>
+                    <strong>{checkItem.level === 'ok' ? 'OK' : checkItem.level === 'warn' ? 'Atención' : 'Error'}</strong>
+                  </div>
+                  <p>{checkItem.detail}</p>
+                </article>
+              ))}
+            </section>
 
             <div className="updates-release-grid">
               {launcherUpdatesFeed.length === 0 && (
@@ -3737,7 +3900,7 @@ function App() {
                     <span className="news-chip">{item.status}</span>
                   </div>
                   <p className="updates-release-version">{item.version}</p>
-                  <p className="updates-release-meta">Publicado: {formatIsoDate(item.releaseDate)} · Assets: {item.assetsCount}</p>
+                  <p className="updates-release-meta">Publicado: {formatIsoDate(item.publishedAt)} · Assets: {item.assetsCount}</p>
                   <p className="updates-release-summary">{item.summary}</p>
                 </article>
               ))}
@@ -3759,6 +3922,7 @@ function App() {
           </section>
         </main>
       )}
+
 
       {authSession && activePage === 'Novedades' && (
         <main className="content content-padded news-page">
