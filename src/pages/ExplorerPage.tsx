@@ -52,6 +52,7 @@ type CatalogDetail = {
   changelogHtml: string
   url: string
   image: string
+  links: Array<{ label: string; url: string }>
   gallery: string[]
   versions: CatalogVersion[]
   commentsUrl: string
@@ -215,6 +216,8 @@ export function ExplorerPage({ uiLanguage }: Props) {
   const detailCacheRef = useRef<Record<string, CatalogDetail>>({})
   const requestSeq = useRef(0)
   const resultsShellRef = useRef<HTMLDivElement | null>(null)
+
+  const selectedDetailLinks = selectedDetail?.links?.filter((entry) => !!entry?.url) ?? []
 
   useEffect(() => {
     localStorage.setItem(explorerViewModeKey, view)
@@ -430,7 +433,7 @@ export function ExplorerPage({ uiLanguage }: Props) {
                   <div ref={resultsShellRef} className="explorer-results-shell">
                     <div className={`explorer-results ${view}`}>
                       {items.map((item) => (
-                        <article key={`${item.source}-${item.id}`} className="instance-card explorer-card clickable" onClick={() => { setSelectedItem(item); setSelectedDetail(null); setActiveTab('description') }}>
+                        <article key={`${item.source}-${item.id}`} className="instance-card explorer-card clickable" onClick={() => { setSelectedItem(item); setSelectedDetail(null); setActiveTab('description'); setVersionSearch(''); setVersionFilterOpen(false); setVersionMcFilter('all'); setVersionLoaderFilter('all'); setVersionPage(1); setZoomedImage(null) }}>
                           <div className="explorer-card-media-wrapper">
                             <div className="instance-card-icon hero explorer-card-media">
                               {resolveCardImage(item.image, item.title)}
@@ -502,6 +505,13 @@ export function ExplorerPage({ uiLanguage }: Props) {
                   <small>{t.lastUpdate}: {selectedItem.updatedAt ? dateFormatter.format(new Date(selectedItem.updatedAt)) : '-'}</small>
                 </div>
                 {!!selectedDetail?.url && <a className="secondary explorer-link" href={selectedDetail.url} target="_blank" rel="noreferrer">{t.openSource}</a>}
+                {selectedDetailLinks.length > 0 && (
+                  <div className="explorer-top-badges">
+                    {selectedDetailLinks.map((link) => (
+                      <a key={`${link.label}-${link.url}`} className="explorer-link-chip" href={link.url} target="_blank" rel="noreferrer">{link.label}</a>
+                    ))}
+                  </div>
+                )}
               </div>
             </article>
 

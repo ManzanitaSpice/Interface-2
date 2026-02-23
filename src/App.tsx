@@ -884,6 +884,10 @@ function App() {
   const [newThemeName, setNewThemeName] = useState('')
   const [appearanceMessage, setAppearanceMessage] = useState('')
   const [launchProgressPercent, setLaunchProgressPercent] = useState(0)
+  const [bootLoading, setBootLoading] = useState(true)
+  const [bootProgress, setBootProgress] = useState(0)
+  const [hasPendingLauncherUpdate, setHasPendingLauncherUpdate] = useState(false)
+  const [updatesBadgeDismissed, setUpdatesBadgeDismissed] = useState(false)
   const [folderRoutes, setFolderRoutes] = useState<FolderRouteItem[]>(defaultFolderRoutes)
   const [updatesAutoCheck, setUpdatesAutoCheck] = useState(true)
   const [updatesChannel] = useState<'Stable'>('Stable')
@@ -1158,6 +1162,7 @@ function App() {
 
   useEffect(() => {
     if (activePage !== 'Updates') return
+    setUpdatesBadgeDismissed(true)
     void refreshLauncherReleases()
   }, [activePage, refreshLauncherReleases])
 
@@ -1173,6 +1178,75 @@ function App() {
     }
     setSelectedReleaseNotes(selectedRelease.notes)
   }, [selectedRelease])
+
+  useEffect(() => {
+    if (!launcherCurrentVersion || launcherUpdatesFeed.length === 0) {
+      setHasPendingLauncherUpdate(false)
+      return
+    }
+    const latest = launcherUpdatesFeed[0]
+    const hasUpdate = compareSemver(normalizeVersionTag(latest.version), normalizeVersionTag(launcherCurrentVersion)) > 0
+    setHasPendingLauncherUpdate(hasUpdate)
+    if (!hasUpdate) setUpdatesBadgeDismissed(false)
+  }, [launcherCurrentVersion, launcherUpdatesFeed])
+
+  useEffect(() => {
+    let cancelled = false
+    const totalSteps = 6
+    let completed = 0
+    const tick = () => {
+      completed += 1
+      const progress = Math.min(100, Math.round((completed / totalSteps) * 100))
+      setBootProgress(progress)
+    }
+
+    const run = async () => {
+      setBootProgress(5)
+      const safe = async (job: () => Promise<unknown>) => {
+        try {
+          await job()
+        } catch {
+          // continue preload sequence even if one source fails
+        } finally {
+          if (!cancelled) tick()
+        }
+      }
+
+      await safe(async () => {
+        const version = await getVersion()
+        if (!cancelled) setLauncherCurrentVersion(version)
+      })
+      await safe(async () => { await invoke('load_folder_routes') })
+      await safe(async () => { await invoke('get_launcher_folders') })
+      await safe(async () => {
+        await invoke('search_catalogs', {
+          request: {
+            search: '',
+            category: 'mod',
+            curseforgeClassId: 6,
+            platform: 'Todas',
+            mcVersion: null,
+            loader: null,
+            tag: null,
+            modrinthSort: 'downloads',
+            curseforgeSortField: 6,
+            limit: 12,
+            page: 1,
+          },
+        })
+      })
+      await safe(async () => { await refreshLauncherReleases() })
+      await safe(async () => { await new Promise((resolve) => window.setTimeout(resolve, 3000)) })
+
+      if (!cancelled) {
+        setBootProgress(100)
+        setBootLoading(false)
+      }
+    }
+
+    void run()
+    return () => { cancelled = true }
+  }, [refreshLauncherReleases])
 
   const syncManagedAccountFromSession = (session: AuthSession, email = '-') => {
     setManagedAccounts((prev) => {
@@ -2511,6 +2585,7 @@ function App() {
     if (page === activePage) return
     setBackHistory((prev) => [...prev, activePage])
     setForwardHistory([])
+    if (page === 'Updates') setUpdatesBadgeDismissed(true)
     setActivePage(page)
   }
 
@@ -3241,6 +3316,23 @@ function App() {
     setUpdatesCandidates([])
   }, [replaceSpecificModVersion, updatesCandidates])
 
+  if (bootLoading) {
+    const titleChars = ['I', 'N', 'T', 'E', 'R', 'F', 'A', 'C', 'E']
+    return (
+      <div className="launcher-boot-screen" role="status" aria-live="polite">
+        <h1 className="launcher-boot-title">
+          {titleChars.map((char, index) => (
+            <span key={`${char}-${index}`} style={{ '--char-index': index } as CSSProperties}>{char}</span>
+          ))}
+        </h1>
+        <div className="launcher-boot-progress" aria-label="Progreso de carga">
+          <div className="launcher-boot-progress-fill" style={{ width: `${bootProgress}%` }} />
+        </div>
+        <small>{bootProgress}%</small>
+      </div>
+    )
+  }
+
   return (
     <div className="app-shell">
       <PrincipalTopBar
@@ -3568,7 +3660,10 @@ function App() {
               <span className="summary-label">Instancias registradas</span>
               <strong>{cards.length}</strong>
             </div>
-            <button className="primary" onClick={() => navigateToPage('Updates')}>Updates</button>
+            <button className="primary updates-nav-button" onClick={() => navigateToPage('Updates')}>
+              Updates
+              {hasPendingLauncherUpdate && !updatesBadgeDismissed && <span className="updates-nav-bubble" aria-label="Nueva actualización disponible" />}
+            </button>
           </section>
         </main>
       )}
