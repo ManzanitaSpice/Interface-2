@@ -2120,7 +2120,8 @@
   position: sticky;
   top: .4rem;
   align-self: start;
-  max-height: calc(100vh - 170px);
+  max-height: calc(100vh - 128px);
+  min-height: calc(100vh - 128px);
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: .6rem;
@@ -2151,7 +2152,21 @@
 }
 
 .explorer-reset-btn {
-  justify-content: space-between;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.explorer-filter-actions {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .35rem;
+}
+
+.explorer-filter-actions button {
+  width: auto;
+  min-height: 30px;
+  padding: .24rem .5rem;
+  font-size: .72rem;
 }
 
 .explorer-sidebar-section {
@@ -2246,7 +2261,7 @@
   display: grid;
   grid-template-rows: 1fr;
   gap: .6rem;
-  height: calc(100vh - 220px);
+  height: calc(100vh - 185px);
   min-height: 0;
   overflow: hidden;
 }
@@ -2318,28 +2333,28 @@
 .explorer-card-info {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: .24rem;
   min-width: 0;
-  padding: 6px 8px 8px;
+  padding: 5px 7px 7px;
 }
 
 .explorer-results.grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(172px, 1fr));
-  gap: .55rem;
+  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+  gap: .5rem;
   overflow: auto;
 }
 
 .explorer-results.list {
   display: grid;
-  gap: .6rem;
+  gap: .54rem;
 }
 
 .explorer-results.list .explorer-card {
   display: grid;
-  grid-template-columns: 130px minmax(0, 1fr);
+  grid-template-columns: 118px minmax(0, 1fr);
   align-items: stretch;
-  column-gap: .7rem;
+  column-gap: .6rem;
 }
 
 .explorer-results.list .explorer-card .explorer-card-media-wrapper {
@@ -2358,7 +2373,7 @@
 }
 
 .explorer-meta-grid small {
-  font-size: .76rem;
+  font-size: .7rem;
   line-height: 1.25;
   color: color-mix(in srgb, var(--text-main) 84%, var(--text-muted));
   white-space: nowrap;
@@ -2367,14 +2382,14 @@
 }
 
 .explorer-card .instance-card-title {
-  font-size: .96rem;
+  font-size: .88rem;
   -webkit-line-clamp: 2;
 }
 
 .explorer-results.titles {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
-  gap: .5rem;
+  grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
+  gap: .45rem;
 }
 
 .explorer-results.titles .explorer-card {
@@ -2390,8 +2405,8 @@
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  line-height: 1.3;
-  font-size: .83rem;
+  line-height: 1.25;
+  font-size: .75rem;
   color: var(--text-muted);
 }
 
@@ -2474,6 +2489,26 @@
   justify-content: flex-end;
   align-items: center;
   gap: .65rem;
+}
+
+.explorer-pagination-bar {
+  justify-content: center;
+  gap: .45rem;
+  padding: .28rem .45rem;
+  border: 1px solid var(--border);
+  border-radius: .45rem;
+  background: color-mix(in srgb, var(--bg-surface) 96%, #0d1422);
+}
+
+.explorer-pagination-bar button {
+  min-height: 28px;
+  padding: .18rem .48rem;
+  font-size: .72rem;
+}
+
+.explorer-pagination-bar span {
+  font-size: .76rem;
+  color: var(--text-muted);
 }
 
 

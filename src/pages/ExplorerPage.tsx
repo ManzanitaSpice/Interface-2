@@ -71,12 +71,34 @@ const categoryToProjectType: Record<Category, string | null> = {
   customization: 'mod',
 }
 const categoryToClassId: Partial<Record<Category, number>> = { modpacks: 4471, mods: 6, resourcepacks: 12, worlds: 17, shaders: 6552, addons: 4559 }
-const officialVersions = ['1.21.4', '1.21.3', '1.21.1', '1.21', '1.20.6', '1.20.4', '1.20.1', '1.19.4', '1.18.2', '1.16.5']
+const officialVersions = [
+  '1.21.4', '1.21.3', '1.21.2', '1.21.1', '1.21',
+  '1.20.6', '1.20.5', '1.20.4', '1.20.3', '1.20.2', '1.20.1', '1.20',
+  '1.19.4', '1.19.3', '1.19.2', '1.19.1', '1.19',
+  '1.18.2', '1.18.1', '1.18',
+  '1.17.1', '1.17',
+  '1.16.5', '1.16.4', '1.16.3', '1.16.2', '1.16.1', '1.16',
+  '1.15.2', '1.15.1', '1.15',
+  '1.14.4', '1.14.3', '1.14.2', '1.14.1', '1.14',
+  '1.13.2', '1.13.1', '1.13',
+  '1.12.2', '1.12.1', '1.12',
+  '1.11.2', '1.11.1', '1.11',
+  '1.10.2',
+  '1.9.4', '1.9.3', '1.9.2', '1.9.1', '1.9',
+  '1.8.9', '1.8.8', '1.8.7', '1.8.6', '1.8.5', '1.8.4', '1.8.3', '1.8.2', '1.8.1', '1.8',
+  '1.7.10', '1.7.9', '1.7.8', '1.7.7', '1.7.6', '1.7.5', '1.7.4', '1.7.2',
+  '1.6.4', '1.6.2', '1.6.1',
+  '1.5.2', '1.5.1',
+  '1.4.7', '1.4.6', '1.4.5', '1.4.4', '1.4.2',
+  '1.3.2', '1.3.1',
+  '1.2.5', '1.2.4', '1.2.3', '1.2.2', '1.2.1',
+  '1.1', '1.0'
+]
 const PAGE_SIZE = 24
 const explorerViewModeKey = 'launcher_explorer_view_mode_v1'
 const explorerSidebarWidthKey = 'launcher_explorer_sidebar_width_v1'
-const minSidebarWidth = 220
-const maxSidebarWidth = 420
+const minSidebarWidth = 240
+const maxSidebarWidth = 460
 const advancedTags: { value: TagFilter; label: string }[] = [
   { value: 'all', label: 'Todos' },
   { value: 'mobs', label: 'Mobs' },
@@ -375,7 +397,7 @@ export function ExplorerPage({ uiLanguage }: Props) {
                     <select value={view} onChange={(e) => setView(e.target.value as ViewMode)}><option value="list">{t.list}</option><option value="grid">{t.grid}</option><option value="titles">{t.titles}</option></select>
                   </label>
                 </div>
-                <div className="explorer-sidebar-section">
+                <div className="explorer-sidebar-section explorer-filter-actions">
                   <button className="secondary square" onClick={() => setShowAdvanced((v) => !v)}>{showAdvanced ? t.hideAdvanced : t.advanced}</button>
                   <button className="secondary square explorer-reset-btn" onClick={() => { setSearch(''); setCategory('all'); setSort('relevance'); setPlatform('all'); setMcVersion(''); setLoader('all'); setTag('all'); setPage(1) }}>{t.resetFilters} 🧻</button>
                 </div>
@@ -438,7 +460,7 @@ export function ExplorerPage({ uiLanguage }: Props) {
 
             {!loading && items.length === 0 ? <p>{t.noResults}</p> : null}
 
-            <footer className="explorer-pagination">
+            <footer className="explorer-pagination explorer-pagination-bar">
               <button className="secondary" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1 || loading}>{t.previous}</button>
               <span>{t.page} {page}</span>
               <button className="secondary" onClick={() => setPage((p) => p + 1)} disabled={loading || !hasMore}>{t.next}</button>
