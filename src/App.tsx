@@ -560,7 +560,6 @@ const fontOptions: FontOption[] = [
 ]
 
 const launcherUpdatesUrl = 'https://github.com/ManzanitaSpice/Interface-2/releases'
-const launcherReleasesApiUrl = 'https://api.github.com/repos/ManzanitaSpice/Interface-2/releases'
 const launcherStableManifestUrl = 'https://manzanitaspice.github.io/Interface-2/updates/stable.json'
 const launcherBetaManifestUrl = 'https://manzanitaspice.github.io/Interface-2/updates/beta.json'
 
@@ -616,19 +615,51 @@ function getManifestUrlByChannel(channel: UpdatesChannel): string {
 }
 
 async function fetchUpdateManifest(channel: UpdatesChannel): Promise<RemoteUpdateManifest> {
-  const response = await fetch(getManifestUrlByChannel(channel), {
+  const manifestUrl = getManifestUrlByChannel(channel)
+  const response = await fetch(manifestUrl, {
     headers: {
       Accept: 'application/json',
       'Cache-Control': 'no-cache',
     },
   })
+  const rawBody = await response.text()
+
   if (!response.ok) {
-    throw new Error(`Manifest ${channel} no disponible (${response.status}).`)
+    console.error(`[Updater] Error consultando manifest ${channel}`, {
+      url: manifestUrl,
+      status: response.status,
+      body: rawBody,
+    })
+    throw new Error(`Manifest ${channel} no disponible (${response.status}). Body: ${rawBody.slice(0, 200)}`)
   }
-  const payload = await response.json() as Partial<RemoteUpdateManifest>
+
+  let payload: Partial<RemoteUpdateManifest>
+  try {
+    payload = JSON.parse(rawBody) as Partial<RemoteUpdateManifest>
+  } catch {
+    console.error(`[Updater] Manifest ${channel} no es JSON válido`, {
+      url: manifestUrl,
+      status: response.status,
+      body: rawBody,
+    })
+    throw new Error(`Manifest ${channel} inválido (JSON no parseable).`)
+  }
+
   if (!payload.version || !payload.platforms) {
+    console.error(`[Updater] Manifest ${channel} incompleto`, {
+      url: manifestUrl,
+      status: response.status,
+      body: rawBody,
+    })
     throw new Error(`Manifest ${channel} inválido (faltan campos requeridos).`)
   }
+
+  console.info(`[Updater] Manifest ${channel} cargado`, {
+    url: manifestUrl,
+    status: response.status,
+    body: rawBody,
+  })
+
   return {
     version: payload.version,
     notes: payload.notes ?? '',
@@ -1195,16 +1226,9 @@ function App() {
 
   const refreshLauncherReleases = useCallback(async () => {
     setUpdatesLoading(true)
-    setUpdatesStatus('Sincronizando releases estables y manifests...')
+    setUpdatesStatus('Sincronizando manifests remotos (stable/beta)...')
     try {
-      const [releasesResponse, stableManifestResult, betaManifestResult] = await Promise.allSettled([
-        fetch(launcherReleasesApiUrl, {
-          headers: {
-            Accept: 'application/vnd.github+json',
-            'Cache-Control': 'no-cache',
-          },
-          cache: 'no-store',
-        }),
+      const [stableManifestResult, betaManifestResult] = await Promise.allSettled([
         fetchUpdateManifest('stable'),
         fetchUpdateManifest('beta'),
       ])
@@ -1215,50 +1239,42 @@ function App() {
       if (betaManifestResult.status === 'fulfilled') setBetaUpdateManifest(betaManifestResult.value)
       else setBetaUpdateManifest(null)
 
-      if (releasesResponse.status !== 'fulfilled') {
-        throw new Error('No se pudo consultar la API de releases de GitHub.')
+      if (stableManifestResult.status !== 'fulfilled') {
+        throw new Error('No se pudo cargar el manifest stable para construir el panel de releases.')
       }
 
-      if (!releasesResponse.value.ok) throw new Error(`GitHub API ${releasesResponse.value.status}`)
+      const stableManifest = stableManifestResult.value
+      const version = stableManifest.version || '-'
+      const releaseDate = stableManifest.pub_date ? stableManifest.pub_date.slice(0, 10) : '-'
+      const current = normalizeVersionTag(launcherCurrentVersion)
+      const incoming = normalizeVersionTag(version)
+      const semverDiff = compareSemver(incoming, current)
+      const status: LauncherUpdateItem['status'] = semverDiff === 0 ? 'Instalada' : semverDiff > 0 ? 'Disponible' : 'Histórica'
 
-      const releases = await releasesResponse.value.json() as Array<{ id?: number; name?: string; html_url?: string; tag_name?: string; published_at?: string; prerelease?: boolean; draft?: boolean; body?: string; assets?: unknown[] }>
-      const mapped: LauncherUpdateItem[] = releases
-        .filter((release) => !release.prerelease && !release.draft)
-        .filter((release) => typeof release.tag_name === 'string' && release.tag_name.trim().length > 0)
-        .slice(0, 12)
-        .sort((a, b) => compareSemver(a.tag_name ?? '0.0.0', b.tag_name ?? '0.0.0') * -1)
-        .map((release) => {
-          const version = release.tag_name ?? '-'
-          const releaseDate = release.published_at ? release.published_at.slice(0, 10) : '-'
-          const channel: LauncherUpdateItem['channel'] = 'Stable'
-          const current = normalizeVersionTag(launcherCurrentVersion)
-          const incoming = normalizeVersionTag(version)
-          const semverDiff = compareSemver(incoming, current)
-          const status: LauncherUpdateItem['status'] = semverDiff === 0 ? 'Instalada' : semverDiff > 0 ? 'Disponible' : 'Histórica'
-          return {
-            id: release.id ?? Math.random(),
-            title: release.name?.trim() || version,
-            tag: version,
-            version,
-            releaseDate,
-            publishedAt: release.published_at ?? '',
-            channel,
-            summary: buildReleaseSummary(release.body ?? ''),
-            notes: (release.body ?? '').trim(),
-            releaseUrl: release.html_url ?? launcherUpdatesUrl,
-            assetsCount: release.assets?.length ?? 0,
-            status,
-          }
-        })
+      const mapped: LauncherUpdateItem[] = [{
+        id: Date.now(),
+        title: `Interface ${version}`,
+        tag: version,
+        version,
+        releaseDate,
+        publishedAt: stableManifest.pub_date,
+        channel: 'Stable',
+        summary: buildReleaseSummary(stableManifest.notes),
+        notes: stableManifest.notes.trim(),
+        releaseUrl: launcherUpdatesUrl,
+        assetsCount: Object.keys(stableManifest.platforms).length,
+        status,
+      }]
+
       setLauncherUpdatesFeed(mapped)
       if (mapped.length > 0 && !mapped.some((item) => item.tag === selectedReleaseTag)) {
         setSelectedReleaseTag(mapped[0].tag)
         setSelectedReleaseNotes(mapped[0].notes)
       }
-      setUpdatesStatus(mapped.length > 0 ? `Se encontraron ${mapped.length} releases estables y se validaron manifests remotos.` : 'No hay releases estables publicadas aún.')
+      setUpdatesStatus(`Manifest stable cargado (${version}) y manifest beta ${betaManifestResult.status === 'fulfilled' ? 'validado' : 'no disponible'}.`)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      setUpdatesStatus(`No se pudieron cargar las releases estables: ${message}`)
+      setUpdatesStatus(`No se pudieron cargar los manifests remotos: ${message}`)
     } finally {
       setUpdatesLoading(false)
     }
