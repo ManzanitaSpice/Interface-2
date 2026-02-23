@@ -152,7 +152,12 @@ jobs:
             throw "No signature asset found for $($updaterAsset.name). Expected: $sigName. Assets: $($release.assets.name -join ', ')"
           }
 
-          $signature = (Invoke-WebRequest -Headers $headers -Uri $sigAsset.browser_download_url).Content.Trim()
+          $resp = Invoke-WebRequest -Headers $headers -Uri $sigAsset.browser_download_url
+          if ($resp.Content -is [string]) {
+            $signature = $resp.Content.Trim()
+          } else {
+            $signature = [Text.Encoding]::UTF8.GetString($resp.Content).Trim()
+          }
 
           $manifest = @{
             version = $tag.TrimStart('v')
