@@ -14,7 +14,12 @@ pub struct InstanceVisualMeta {
 }
 
 #[tauri::command]
-pub fn save_instance_visual_media(instance_root: String, file_name: String, bytes: Vec<u8>) -> Result<String, String> {
+pub fn save_instance_visual_media(
+    instance_root: String,
+    file_name: String,
+    bytes: Vec<u8>,
+    previous_media_path: Option<String>,
+) -> Result<String, String> {
     if bytes.is_empty() {
         return Err("El archivo visual está vacío.".to_string());
     }
@@ -32,6 +37,17 @@ pub fn save_instance_visual_media(instance_root: String, file_name: String, byte
         .as_millis();
     let target = media_dir.join(format!("instance-media-{stamp}.{extension}"));
     fs::write(&target, bytes).map_err(|err| format!("No se pudo guardar archivo visual: {err}"))?;
+
+    if let Some(previous) = previous_media_path {
+        let previous_path = PathBuf::from(previous);
+        if previous_path.exists()
+            && previous_path.starts_with(&media_dir)
+            && previous_path != target
+        {
+            let _ = fs::remove_file(previous_path);
+        }
+    }
+
     Ok(target.display().to_string())
 }
 
