@@ -11,6 +11,8 @@ use std::{
 
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -73,6 +75,27 @@ pub struct RedirectVersionHints {
     pub minecraft_version: String,
     pub loader: String,
     pub loader_version: String,
+}
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+fn resolve_java_launch_path(java_path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let file_name = java_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        if file_name.eq_ignore_ascii_case("java.exe") {
+            let javaw_path = java_path.with_file_name("javaw.exe");
+            if javaw_path.exists() {
+                return javaw_path;
+            }
+        }
+    }
+
+    java_path.to_path_buf()
 }
 
 fn normalize_loader(loader: &str) -> String {
@@ -5129,7 +5152,8 @@ pub async fn launch_redirect_instance(
                     launch_plan.jvm_args.clone(),
                     launch_plan.game_args.clone(),
                 );
-                let mut command = Command::new(&launch_plan.java_path);
+                let java_launch_path = resolve_java_launch_path(Path::new(&launch_plan.java_path));
+                let mut command = Command::new(&java_launch_path);
                 command
                     .args(&java_args)
                     .stdout(Stdio::piped())
@@ -5139,6 +5163,10 @@ pub async fn launch_redirect_instance(
                 #[cfg(unix)]
                 {
                     command.process_group(0);
+                }
+                #[cfg(windows)]
+                {
+                    command.creation_flags(CREATE_NO_WINDOW);
                 }
                 let mut child = command
                     .spawn()
@@ -5594,7 +5622,8 @@ pub async fn launch_redirect_instance(
     }
     log::info!("[REDIRECT] ==============================");
 
-    let mut command = Command::new(&java_exec);
+    let java_launch_path = resolve_java_launch_path(&java_exec);
+    let mut command = Command::new(&java_launch_path);
     command
         .args(&jvm_args)
         .arg(resolved.main_class.clone())
@@ -5621,6 +5650,11 @@ pub async fn launch_redirect_instance(
         .stderr(Stdio::piped())
         .stdin(Stdio::null())
         .current_dir(&ctx.game_dir);
+
+    #[cfg(windows)]
+    {
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
 
     #[cfg(debug_assertions)]
     {
