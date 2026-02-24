@@ -945,7 +945,11 @@ function App() {
   const [updatesAutoCheck, setUpdatesAutoCheck] = useState(true)
   const [selectedReleaseTag, setSelectedReleaseTag] = useState('')
   const [updatesSearch, setUpdatesSearch] = useState('')
-  const [updatesTypeFilter, setUpdatesTypeFilter] = useState<'all' | 'stable' | 'beta'>('all')
+  const [updatesChannelFilter, setUpdatesChannelFilter] = useState<Record<UpdatesChannel, boolean>>({
+    stable: true,
+    beta: true,
+  })
+  const [updatesFilterMenuOpen, setUpdatesFilterMenuOpen] = useState(false)
   const [updatesPageIndex, setUpdatesPageIndex] = useState(1)
   const [updatesStatus, setUpdatesStatus] = useState('Listo para buscar updates.')
   const [updatesLoading, setUpdatesLoading] = useState(false)
@@ -1174,7 +1178,7 @@ function App() {
     }
   }, [launcherCurrentVersion, selectedReleaseTag])
 
-  const updatesActionChannel: UpdatesChannel = updatesTypeFilter === 'beta' ? 'beta' : 'stable'
+  const updatesActionChannel: UpdatesChannel = updatesChannelFilter.beta && !updatesChannelFilter.stable ? 'beta' : 'stable'
 
 
   const checkLauncherUpdates = async () => {
@@ -1236,14 +1240,14 @@ function App() {
   const filteredUpdatesFeed = useMemo(() => {
     const search = updatesSearch.trim().toLowerCase()
     return launcherUpdatesFeed.filter((item) => {
-      const matchesType = updatesTypeFilter === 'all' ? true : item.channel === updatesTypeFilter
+      const matchesType = updatesChannelFilter[item.channel]
       const matchesSearch = !search
         || item.title.toLowerCase().includes(search)
         || item.tag.toLowerCase().includes(search)
         || item.summary.toLowerCase().includes(search)
       return matchesType && matchesSearch
     })
-  }, [launcherUpdatesFeed, updatesSearch, updatesTypeFilter])
+  }, [launcherUpdatesFeed, updatesSearch, updatesChannelFilter])
 
   const updatesPerPage = 4
   const updatesTotalPages = Math.max(1, Math.ceil(filteredUpdatesFeed.length / updatesPerPage))
@@ -1254,7 +1258,7 @@ function App() {
 
   useEffect(() => {
     setUpdatesPageIndex(1)
-  }, [updatesSearch, updatesTypeFilter])
+  }, [updatesSearch, updatesChannelFilter])
 
   useEffect(() => {
     if (updatesPageIndex > updatesTotalPages) {
@@ -3832,9 +3836,46 @@ function App() {
               <button onClick={() => void refreshLauncherReleases()} disabled={updatesLoading}>Refrescar</button>
 
               <div className="updates-filter-group">
-                <button className={updatesTypeFilter === 'beta' ? 'active' : ''} onClick={() => setUpdatesTypeFilter('beta')}>Filtro beta</button>
-                <button className={updatesTypeFilter === 'stable' ? 'active' : ''} onClick={() => setUpdatesTypeFilter('stable')}>Filtro stable</button>
-                <button className={updatesTypeFilter === 'all' ? 'active' : ''} onClick={() => setUpdatesTypeFilter('all')}>Mostrar todo</button>
+                <button
+                  className={`updates-filter-trigger ${updatesFilterMenuOpen ? 'active' : ''}`}
+                  onClick={() => setUpdatesFilterMenuOpen((prev) => !prev)}
+                  aria-expanded={updatesFilterMenuOpen}
+                  aria-haspopup="menu"
+                >
+                  Filtrado
+                </button>
+                {updatesFilterMenuOpen && (
+                  <div className="updates-filter-menu" role="menu" aria-label="Filtrado de canales">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={updatesChannelFilter.stable}
+                        onChange={(event) => {
+                          const checked = event.target.checked
+                          setUpdatesChannelFilter((prev) => {
+                            if (!checked && !prev.beta) return prev
+                            return { ...prev, stable: checked }
+                          })
+                        }}
+                      />
+                      Stable
+                    </label>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={updatesChannelFilter.beta}
+                        onChange={(event) => {
+                          const checked = event.target.checked
+                          setUpdatesChannelFilter((prev) => {
+                            if (!checked && !prev.stable) return prev
+                            return { ...prev, beta: checked }
+                          })
+                        }}
+                      />
+                      Beta
+                    </label>
+                  </div>
+                )}
               </div>
 
               <article className="global-setting-item updates-release-detail compact">
@@ -3846,7 +3887,6 @@ function App() {
                     <p><strong>Tag:</strong> {selectedRelease.tag}</p>
                     <p><strong>Canal:</strong> {selectedRelease.channel}</p>
                     <p><strong>Publicado:</strong> {formatIsoDate(selectedRelease.publishedAt)}</p>
-                    <button onClick={() => void invoke('open_url_in_browser', { url: selectedRelease.releaseUrl, browserId: 'default' })}>Abrir release</button>
                   </>
                 )}
               </article>
