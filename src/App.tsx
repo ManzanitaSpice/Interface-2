@@ -616,48 +616,15 @@ function getManifestUrlByChannel(channel: UpdatesChannel): string {
 
 async function fetchUpdateManifest(channel: UpdatesChannel): Promise<RemoteUpdateManifest> {
   const manifestUrl = getManifestUrlByChannel(channel)
-  const response = await fetch(manifestUrl, {
-    headers: {
-      Accept: 'application/json',
-      'Cache-Control': 'no-cache',
-    },
-  })
-  const rawBody = await response.text()
-
-  if (!response.ok) {
-    console.error(`[Updater] Error consultando manifest ${channel}`, {
-      url: manifestUrl,
-      status: response.status,
-      body: rawBody,
-    })
-    throw new Error(`Manifest ${channel} no disponible (${response.status}). Body: ${rawBody.slice(0, 200)}`)
-  }
-
-  let payload: Partial<RemoteUpdateManifest>
-  try {
-    payload = JSON.parse(rawBody) as Partial<RemoteUpdateManifest>
-  } catch {
-    console.error(`[Updater] Manifest ${channel} no es JSON válido`, {
-      url: manifestUrl,
-      status: response.status,
-      body: rawBody,
-    })
-    throw new Error(`Manifest ${channel} inválido (JSON no parseable).`)
-  }
+  const payload = await invoke<RemoteUpdateManifest>('fetch_remote_update_manifest', { manifestUrl })
 
   if (!payload.version || !payload.platforms) {
-    console.error(`[Updater] Manifest ${channel} incompleto`, {
-      url: manifestUrl,
-      status: response.status,
-      body: rawBody,
-    })
     throw new Error(`Manifest ${channel} inválido (faltan campos requeridos).`)
   }
 
-  console.info(`[Updater] Manifest ${channel} cargado`, {
+  console.info(`[Updater] Manifest ${channel} cargado vía backend`, {
     url: manifestUrl,
-    status: response.status,
-    body: rawBody,
+    version: payload.version,
   })
 
   return {
