@@ -384,7 +384,7 @@ type LauncherUpdateItem = {
   version: string
   releaseDate: string
   publishedAt: string
-  channel: 'Stable'
+  channel: 'stable' | 'beta'
   summary: string
   notes: string
   releaseUrl: string
@@ -400,14 +400,6 @@ type RemoteUpdateManifest = {
   pub_date: string
   platforms: Record<string, { url: string; signature: string }>
 }
-
-type UpdateHealthCheck = {
-  id: string
-  label: string
-  detail: string
-  level: 'ok' | 'warn' | 'error'
-}
-
 
 const creatorSections: CreatorSection[] = ['Personalizado', 'CurseForge', 'Modrinth', 'Futuro 1', 'Futuro 2', 'Futuro 3']
 
@@ -633,72 +625,6 @@ async function fetchUpdateManifest(channel: UpdatesChannel): Promise<RemoteUpdat
     pub_date: payload.pub_date ?? '',
     platforms: payload.platforms,
   }
-}
-
-function getUpdateHealthChecks(params: {
-  currentVersion: string
-  selectedChannel: UpdatesChannel
-  updatesFeed: LauncherUpdateItem[]
-  stableManifest?: RemoteUpdateManifest | null
-  betaManifest?: RemoteUpdateManifest | null
-}): UpdateHealthCheck[] {
-  const { currentVersion, selectedChannel, updatesFeed, stableManifest, betaManifest } = params
-  const stableLatest = updatesFeed[0]
-  const chosenManifest = selectedChannel === 'beta' ? betaManifest : stableManifest
-  const stableManifestVersion = stableManifest?.version ? normalizeVersionTag(stableManifest.version) : ''
-  const latestStableVersion = stableLatest?.version ? normalizeVersionTag(stableLatest.version) : ''
-  const hasWindowsPlatform = chosenManifest
-    ? Object.keys(chosenManifest.platforms).some((platform) => platform.toLowerCase().includes('windows'))
-    : false
-
-  const workflowSyncLevel: UpdateHealthCheck['level'] = !stableManifestVersion || !latestStableVersion
-    ? 'warn'
-    : stableManifestVersion === latestStableVersion
-      ? 'ok'
-      : 'error'
-
-  const workflowSyncDetail = !stableManifestVersion || !latestStableVersion
-    ? 'No hay suficientes datos para validar sincronización entre workflow y releases.'
-    : workflowSyncLevel === 'ok'
-      ? `El manifest estable (${stableManifestVersion}) coincide con la release estable más nueva.`
-      : `El manifest estable apunta a ${stableManifestVersion}, pero la release estable más nueva es ${latestStableVersion}.`
-
-  const installedVsManifestLevel: UpdateHealthCheck['level'] = !currentVersion || !chosenManifest
-    ? 'warn'
-    : compareSemver(normalizeVersionTag(chosenManifest.version), normalizeVersionTag(currentVersion)) >= 0
-      ? 'ok'
-      : 'warn'
-
-  const installedVsManifestDetail = !currentVersion || !chosenManifest
-    ? 'No se pudo validar versión instalada contra el manifest remoto.'
-    : compareSemver(normalizeVersionTag(chosenManifest.version), normalizeVersionTag(currentVersion)) > 0
-      ? `Hay actualización remota disponible (${currentVersion} → ${chosenManifest.version}).`
-      : compareSemver(normalizeVersionTag(chosenManifest.version), normalizeVersionTag(currentVersion)) === 0
-        ? `Tu versión instalada (${currentVersion}) coincide con el manifest del canal ${selectedChannel}.`
-        : `Tu versión instalada (${currentVersion}) es más nueva que el manifest ${selectedChannel} (${chosenManifest.version}).`
-
-  return [
-    {
-      id: 'workflow-sync',
-      label: 'Sincronización workflows ↔ manifests',
-      detail: workflowSyncDetail,
-      level: workflowSyncLevel,
-    },
-    {
-      id: 'channel-manifest',
-      label: `Manifest del canal ${selectedChannel}`,
-      detail: chosenManifest
-        ? `Versión ${normalizeVersionTag(chosenManifest.version)} · Fecha ${chosenManifest.pub_date ? formatIsoDate(chosenManifest.pub_date) : 'sin fecha'} · Plataforma Windows ${hasWindowsPlatform ? 'detectada' : 'no detectada'}.`
-        : `No se pudo cargar el manifest del canal ${selectedChannel}.`,
-      level: chosenManifest ? (hasWindowsPlatform ? 'ok' : 'warn') : 'error',
-    },
-    {
-      id: 'installed-vs-manifest',
-      label: 'Versión instalada vs manifest',
-      detail: installedVsManifestDetail,
-      level: installedVsManifestLevel,
-    },
-  ]
 }
 
 function normalizeVersionTag(tag: string): string {
@@ -1017,9 +943,10 @@ function App() {
   const [updatesBadgeDismissed, setUpdatesBadgeDismissed] = useState(false)
   const [folderRoutes, setFolderRoutes] = useState<FolderRouteItem[]>(defaultFolderRoutes)
   const [updatesAutoCheck, setUpdatesAutoCheck] = useState(true)
-  const [updatesChannel, setUpdatesChannel] = useState<UpdatesChannel>('stable')
   const [selectedReleaseTag, setSelectedReleaseTag] = useState('')
-  const [selectedReleaseNotes, setSelectedReleaseNotes] = useState('')
+  const [updatesSearch, setUpdatesSearch] = useState('')
+  const [updatesTypeFilter, setUpdatesTypeFilter] = useState<'all' | 'stable' | 'beta'>('all')
+  const [updatesPageIndex, setUpdatesPageIndex] = useState(1)
   const [updatesStatus, setUpdatesStatus] = useState('Listo para buscar updates.')
   const [updatesLoading, setUpdatesLoading] = useState(false)
   const [launcherCurrentVersion, setLauncherCurrentVersion] = useState('')
@@ -1206,39 +1133,39 @@ function App() {
       if (betaManifestResult.status === 'fulfilled') setBetaUpdateManifest(betaManifestResult.value)
       else setBetaUpdateManifest(null)
 
-      if (stableManifestResult.status !== 'fulfilled') {
-        throw new Error('No se pudo cargar el manifest stable para construir el panel de releases.')
+      const current = normalizeVersionTag(launcherCurrentVersion)
+      const buildReleaseItem = (manifest: RemoteUpdateManifest, channel: UpdatesChannel): LauncherUpdateItem => {
+        const version = manifest.version || '-'
+        const incoming = normalizeVersionTag(version)
+        const semverDiff = compareSemver(incoming, current)
+        const status: LauncherUpdateItem['status'] = semverDiff === 0 ? 'Instalada' : semverDiff > 0 ? 'Disponible' : 'Histórica'
+
+        return {
+          id: Date.now() + Math.floor(Math.random() * 10_000),
+          title: `Interface ${version}`,
+          tag: version,
+          version,
+          releaseDate: manifest.pub_date ? manifest.pub_date.slice(0, 10) : '-',
+          publishedAt: manifest.pub_date,
+          channel,
+          summary: buildReleaseSummary(manifest.notes),
+          notes: manifest.notes.trim(),
+          releaseUrl: launcherUpdatesUrl,
+          assetsCount: Object.keys(manifest.platforms).length,
+          status,
+        }
       }
 
-      const stableManifest = stableManifestResult.value
-      const version = stableManifest.version || '-'
-      const releaseDate = stableManifest.pub_date ? stableManifest.pub_date.slice(0, 10) : '-'
-      const current = normalizeVersionTag(launcherCurrentVersion)
-      const incoming = normalizeVersionTag(version)
-      const semverDiff = compareSemver(incoming, current)
-      const status: LauncherUpdateItem['status'] = semverDiff === 0 ? 'Instalada' : semverDiff > 0 ? 'Disponible' : 'Histórica'
-
-      const mapped: LauncherUpdateItem[] = [{
-        id: Date.now(),
-        title: `Interface ${version}`,
-        tag: version,
-        version,
-        releaseDate,
-        publishedAt: stableManifest.pub_date,
-        channel: 'Stable',
-        summary: buildReleaseSummary(stableManifest.notes),
-        notes: stableManifest.notes.trim(),
-        releaseUrl: launcherUpdatesUrl,
-        assetsCount: Object.keys(stableManifest.platforms).length,
-        status,
-      }]
+      const mapped: LauncherUpdateItem[] = []
+      if (stableManifestResult.status === 'fulfilled') mapped.push(buildReleaseItem(stableManifestResult.value, 'stable'))
+      if (betaManifestResult.status === 'fulfilled') mapped.push(buildReleaseItem(betaManifestResult.value, 'beta'))
+      mapped.sort((a, b) => compareSemver(normalizeVersionTag(b.version), normalizeVersionTag(a.version)))
 
       setLauncherUpdatesFeed(mapped)
       if (mapped.length > 0 && !mapped.some((item) => item.tag === selectedReleaseTag)) {
         setSelectedReleaseTag(mapped[0].tag)
-        setSelectedReleaseNotes(mapped[0].notes)
       }
-      setUpdatesStatus(`Manifest stable cargado (${version}) y manifest beta ${betaManifestResult.status === 'fulfilled' ? 'validado' : 'no disponible'}.`)
+      setUpdatesStatus(`Manifest stable ${stableManifestResult.status === 'fulfilled' ? `cargado (${stableManifestResult.value.version})` : 'no disponible'} y manifest beta ${betaManifestResult.status === 'fulfilled' ? `cargado (${betaManifestResult.value.version})` : 'no disponible'}.`)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setUpdatesStatus(`No se pudieron cargar los manifests remotos: ${message}`)
@@ -1247,20 +1174,23 @@ function App() {
     }
   }, [launcherCurrentVersion, selectedReleaseTag])
 
+  const updatesActionChannel: UpdatesChannel = updatesTypeFilter === 'beta' ? 'beta' : 'stable'
+
+
   const checkLauncherUpdates = async () => {
-    setUpdatesStatus(`Buscando una actualización ${updatesChannel} disponible...`)
+    setUpdatesStatus(`Buscando una actualización ${updatesActionChannel} disponible...`)
     setUpdatesLoading(true)
     try {
       const update = await check({
         headers: {
-          'x-interface-channel': updatesChannel,
+          'x-interface-channel': updatesActionChannel,
           'x-interface-current-version': launcherCurrentVersion,
           'x-interface-selected-tag': selectedReleaseTag,
         },
         timeout: 45_000,
       })
       if (!update) {
-        setUpdatesStatus(`Tu launcher ya está en la versión más reciente del canal ${updatesChannel}.`)
+        setUpdatesStatus(`Tu launcher ya está en la versión más reciente del canal ${updatesActionChannel}.`)
         await refreshLauncherReleases()
         return
       }
@@ -1303,9 +1233,38 @@ function App() {
     [launcherUpdatesFeed, selectedReleaseTag],
   )
 
+  const filteredUpdatesFeed = useMemo(() => {
+    const search = updatesSearch.trim().toLowerCase()
+    return launcherUpdatesFeed.filter((item) => {
+      const matchesType = updatesTypeFilter === 'all' ? true : item.channel === updatesTypeFilter
+      const matchesSearch = !search
+        || item.title.toLowerCase().includes(search)
+        || item.tag.toLowerCase().includes(search)
+        || item.summary.toLowerCase().includes(search)
+      return matchesType && matchesSearch
+    })
+  }, [launcherUpdatesFeed, updatesSearch, updatesTypeFilter])
+
+  const updatesPerPage = 4
+  const updatesTotalPages = Math.max(1, Math.ceil(filteredUpdatesFeed.length / updatesPerPage))
+  const paginatedUpdatesFeed = useMemo(() => {
+    const start = (updatesPageIndex - 1) * updatesPerPage
+    return filteredUpdatesFeed.slice(start, start + updatesPerPage)
+  }, [filteredUpdatesFeed, updatesPageIndex])
+
+  useEffect(() => {
+    setUpdatesPageIndex(1)
+  }, [updatesSearch, updatesTypeFilter])
+
+  useEffect(() => {
+    if (updatesPageIndex > updatesTotalPages) {
+      setUpdatesPageIndex(updatesTotalPages)
+    }
+  }, [updatesPageIndex, updatesTotalPages])
+
   const selectedChannelManifest = useMemo(
-    () => (updatesChannel === 'beta' ? betaUpdateManifest : stableUpdateManifest),
-    [betaUpdateManifest, stableUpdateManifest, updatesChannel],
+    () => (updatesActionChannel === 'beta' ? betaUpdateManifest : stableUpdateManifest),
+    [betaUpdateManifest, stableUpdateManifest, updatesActionChannel],
   )
 
   const hasAvailableUpdate = useMemo(() => {
@@ -1318,25 +1277,6 @@ function App() {
     if (!latestStable) return false
     return compareSemver(normalizeVersionTag(latestStable), current) > 0
   }, [launcherCurrentVersion, launcherUpdatesFeed, selectedChannelManifest])
-
-  const updateHealthChecks = useMemo(
-    () => getUpdateHealthChecks({
-      currentVersion: launcherCurrentVersion,
-      selectedChannel: updatesChannel,
-      updatesFeed: launcherUpdatesFeed,
-      stableManifest: stableUpdateManifest,
-      betaManifest: betaUpdateManifest,
-    }),
-    [betaUpdateManifest, launcherCurrentVersion, launcherUpdatesFeed, stableUpdateManifest, updatesChannel],
-  )
-
-  useEffect(() => {
-    if (!selectedRelease) {
-      setSelectedReleaseNotes('')
-      return
-    }
-    setSelectedReleaseNotes(selectedRelease.notes)
-  }, [selectedRelease])
 
   useEffect(() => {
     if (!launcherCurrentVersion || launcherUpdatesFeed.length === 0) {
@@ -3846,88 +3786,73 @@ function App() {
 
       {authSession && activePage === 'Updates' && (
         <main className="content content-padded updates-page">
-          <section className="instances-panel updates-panel">
-            <header className="news-panel-header updates-header professional">
-              <div>
-                <h2>Centro de actualizaciones</h2>
-                <p>Panel profesional para validar el estado real del updater y ejecutar actualizaciones seguras.</p>
-              </div>
-              <div className="updates-actions">
-                <label className="updates-channel-select" htmlFor="updates-channel">
-                  Canal
-                  <select id="updates-channel" value={updatesChannel} onChange={(event) => setUpdatesChannel(event.target.value as UpdatesChannel)}>
-                    <option value="stable">Stable</option>
-                    <option value="beta">Beta</option>
-                  </select>
-                </label>
-                <button className="primary" onClick={() => void checkLauncherUpdates()} disabled={updatesLoading || !hasAvailableUpdate}>Actualizar</button>
-                <button onClick={() => void refreshLauncherReleases()} disabled={updatesLoading}>Recargar</button>
-              </div>
-            </header>
+          <section className="instances-panel updates-panel modern-updates-layout">
+            <section className="updates-main-panel">
+              <header className="updates-main-header">
+                <div>
+                  <h2>Updates</h2>
+                  <p>Versiones disponibles en formato tarjeta con paginado.</p>
+                </div>
+                <span className="updates-main-counter">{filteredUpdatesFeed.length} resultados</span>
+              </header>
 
-            <section className="updates-hero professional-grid">
-              <article className="updates-hero-card current">
-                <span className="updates-hero-label">Versión instalada</span>
-                <strong>{launcherCurrentVersion || 'No disponible'}</strong>
-                <small>Canal activo: {updatesChannel}</small>
-              </article>
-              <article className="updates-hero-card latest">
-                <span className="updates-hero-label">Manifest remoto ({updatesChannel})</span>
-                <strong>{selectedChannelManifest?.version ? normalizeVersionTag(selectedChannelManifest.version) : '-'}</strong>
-                <small>{selectedChannelManifest?.pub_date ? formatIsoDate(selectedChannelManifest.pub_date) : 'Sin datos de publicación'}</small>
-              </article>
-              <article className="updates-hero-card status">
-                <span className="updates-hero-label">Estado operativo</span>
-                <strong>{updatesLoading ? 'Procesando...' : 'Listo'}</strong>
-                <small>{updatesStatus}</small>
-              </article>
+              <div className="updates-release-grid list-mode">
+                {paginatedUpdatesFeed.length === 0 && (
+                  <div className="updates-empty-state">{updatesLoading ? 'Cargando releases...' : 'No hay versiones que coincidan con tu filtro.'}</div>
+                )}
+                {paginatedUpdatesFeed.map((item) => (
+                  <article key={item.id} className={`updates-release-card ${selectedRelease?.id === item.id ? 'selected' : ''}`} onClick={() => setSelectedReleaseTag(item.tag)}>
+                    <div className="updates-release-head">
+                      <h3>{item.title}</h3>
+                      <span className={`news-chip ${item.channel === 'beta' ? 'warn' : ''}`}>{item.channel === 'beta' ? 'Beta' : 'Stable'}</span>
+                    </div>
+                    <p className="updates-release-meta">Tag: {item.tag}</p>
+                    <p className="updates-release-summary">{item.summary}</p>
+                  </article>
+                ))}
+              </div>
+
+              <footer className="updates-pagination">
+                <button onClick={() => setUpdatesPageIndex((prev) => Math.max(1, prev - 1))} disabled={updatesPageIndex <= 1}>Anterior</button>
+                <span>Página {updatesPageIndex} de {updatesTotalPages}</span>
+                <button onClick={() => setUpdatesPageIndex((prev) => Math.min(updatesTotalPages, prev + 1))} disabled={updatesPageIndex >= updatesTotalPages}>Siguiente</button>
+              </footer>
             </section>
 
-            <div className="updates-status-bar">{updatesStatus}</div>
+            <aside className="updates-sidebar-panel">
+              <input
+                type="search"
+                value={updatesSearch}
+                onChange={(event) => setUpdatesSearch(event.target.value)}
+                placeholder="Buscar por título, tag o descripción"
+                aria-label="Buscar release"
+              />
 
-            <section className="updates-health-panel" aria-label="Diagnóstico del sistema de actualización">
-              {updateHealthChecks.map((checkItem) => (
-                <article key={checkItem.id} className={`updates-health-card ${checkItem.level}`}>
-                  <div className="updates-health-title">
-                    <span>{checkItem.label}</span>
-                    <strong>{checkItem.level === 'ok' ? 'OK' : checkItem.level === 'warn' ? 'Atención' : 'Error'}</strong>
-                  </div>
-                  <p>{checkItem.detail}</p>
-                </article>
-              ))}
-            </section>
+              <button className="primary" onClick={() => void checkLauncherUpdates()} disabled={updatesLoading || !hasAvailableUpdate}>Actualizar</button>
+              <button onClick={() => void refreshLauncherReleases()} disabled={updatesLoading}>Refrescar</button>
 
-            <div className="updates-release-grid">
-              {launcherUpdatesFeed.length === 0 && (
-                <div className="updates-empty-state">{updatesLoading ? 'Cargando releases estables...' : 'No hay releases estables disponibles por ahora.'}</div>
-              )}
-              {launcherUpdatesFeed.map((item) => (
-                <article key={item.id} className={`updates-release-card ${selectedRelease?.id === item.id ? 'selected' : ''}`} onClick={() => setSelectedReleaseTag(item.tag)}>
-                  <div className="updates-release-head">
-                    <h3>{item.title}</h3>
-                    <span className="news-chip">{item.status}</span>
-                  </div>
-                  <p className="updates-release-version">Versión: {item.version}</p>
-                  <p className="updates-release-meta">Tag: {item.tag}</p>
-                  <p className="updates-release-meta">Publicado: {formatIsoDate(item.publishedAt)} · Assets: {item.assetsCount}</p>
-                  <p className="updates-release-summary">{item.summary}</p>
-                </article>
-              ))}
-            </div>
+              <div className="updates-filter-group">
+                <button className={updatesTypeFilter === 'beta' ? 'active' : ''} onClick={() => setUpdatesTypeFilter('beta')}>Filtro beta</button>
+                <button className={updatesTypeFilter === 'stable' ? 'active' : ''} onClick={() => setUpdatesTypeFilter('stable')}>Filtro stable</button>
+                <button className={updatesTypeFilter === 'all' ? 'active' : ''} onClick={() => setUpdatesTypeFilter('all')}>Mostrar todo</button>
+              </div>
 
-            <article className="global-setting-item updates-release-detail">
-              <h3>Detalle de release</h3>
-              {!selectedRelease && <p>No hay release seleccionada.</p>}
-              {selectedRelease && (
-                <>
-                  <p><strong>Tag:</strong> {selectedRelease.tag} · <strong>Publicado:</strong> {formatIsoDate(selectedRelease.publishedAt)}</p>
-                  <p><strong>Estado:</strong> {selectedRelease.status} · <strong>Assets:</strong> {selectedRelease.assetsCount}</p>
-                  <p><strong>Release:</strong> <button onClick={() => void invoke('open_url_in_browser', { url: selectedRelease.releaseUrl, browserId: 'default' })}>Abrir en navegador</button></p>
-                  <label className="updates-notes-label" htmlFor="release-notes">Notas de la release</label>
-                  <textarea id="release-notes" value={selectedReleaseNotes || 'Sin notas publicadas.'} readOnly rows={10} />
-                </>
-              )}
-            </article>
+              <article className="global-setting-item updates-release-detail compact">
+                <h3>Detalle</h3>
+                {!selectedRelease && <p>No hay release seleccionada.</p>}
+                {selectedRelease && (
+                  <>
+                    <p><strong>Título:</strong> {selectedRelease.title}</p>
+                    <p><strong>Tag:</strong> {selectedRelease.tag}</p>
+                    <p><strong>Canal:</strong> {selectedRelease.channel}</p>
+                    <p><strong>Publicado:</strong> {formatIsoDate(selectedRelease.publishedAt)}</p>
+                    <button onClick={() => void invoke('open_url_in_browser', { url: selectedRelease.releaseUrl, browserId: 'default' })}>Abrir release</button>
+                  </>
+                )}
+              </article>
+
+              <div className="updates-status-bar">{updatesStatus}</div>
+            </aside>
           </section>
         </main>
       )}
@@ -4183,7 +4108,7 @@ function App() {
             {selectedGlobalSettingsTab === 'Network' && (
               <section className="section-placeholder">
                 <h2>Network</h2>
-                <p>Canal activo de updates: <strong>{updatesChannel}</strong>. Auto-check: <strong>{updatesAutoCheck ? 'Habilitado' : 'Deshabilitado'}</strong>.</p>
+                <p>Canal activo de updates: <strong>{updatesActionChannel}</strong>. Auto-check: <strong>{updatesAutoCheck ? 'Habilitado' : 'Deshabilitado'}</strong>.</p>
                 <div className="network-controls">
                                     <button onClick={() => setUpdatesAutoCheck((prev) => !prev)}>{updatesAutoCheck ? 'Desactivar' : 'Activar'} auto-check</button>
                 </div>
