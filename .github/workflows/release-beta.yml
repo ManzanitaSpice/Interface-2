@@ -37,35 +37,30 @@ jobs:
           releaseDraft: false
           prerelease: true
 
-      - name: Create Windows updater bundles (.msi.zip/.nsis.zip)
+      - name: Collect Tauri updater bundles (.msi.zip/.nsis.zip) without recompressing
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
-          # Busca los instaladores generados por Tauri
-          $msi = Get-ChildItem -Recurse "src-tauri\target\release\bundle" -Filter *.msi | Select-Object -First 1
-          $exe = Get-ChildItem -Recurse "src-tauri\target\release\bundle" -Filter *setup.exe | Select-Object -First 1
-
-          if (-not $msi -and -not $exe) {
-            throw "No Windows installers found (.msi or *setup.exe) in src-tauri/target/release/bundle"
+          $bundleRoot = "src-tauri\target\release\bundle"
+          $bundleZips = @(
+            Get-ChildItem -Path "$bundleRoot\msi" -Filter *.zip -ErrorAction SilentlyContinue
+            Get-ChildItem -Path "$bundleRoot\nsis" -Filter *.zip -ErrorAction SilentlyContinue
+          ) | Where-Object {
+            $_.Name -match '(?i)\.(msi|nsis)\.zip$'
           }
 
-          # Carpeta de salida
+          if (-not $bundleZips) {
+            throw "No Tauri updater bundles found (.msi.zip/.nsis.zip) in $bundleRoot"
+          }
+
           $outDir = "updater-bundles"
           New-Item -ItemType Directory -Force $outDir | Out-Null
 
-          if ($msi) {
-            $msiZip = Join-Path $outDir ($msi.BaseName + ".msi.zip")
-            if (Test-Path $msiZip) { Remove-Item $msiZip -Force }
-            Compress-Archive -Path $msi.FullName -DestinationPath $msiZip
-            Write-Host "Created: $msiZip"
-          }
-
-          if ($exe) {
-            $exeZip = Join-Path $outDir ($exe.BaseName + ".nsis.zip")
-            if (Test-Path $exeZip) { Remove-Item $exeZip -Force }
-            Compress-Archive -Path $exe.FullName -DestinationPath $exeZip
-            Write-Host "Created: $exeZip"
+          foreach ($bundle in $bundleZips) {
+            $dest = Join-Path $outDir $bundle.Name
+            Copy-Item $bundle.FullName $dest -Force
+            Write-Host "Collected: $dest"
           }
 
           Get-ChildItem $outDir
