@@ -1211,7 +1211,7 @@ en ningún JAR del classpath del loader '{}'.\n{}",
         .to_string();
     let launcher_assets_root = launcher_root.join("assets");
     let (resolved_assets_index_name, resolved_assets_root) =
-        ensure_assets_ready(&version_json, &launcher_assets_root, logs)?;
+        ensure_assets_ready(&version_json, &launcher_assets_root, &mut logs)?;
 
     let client_extra = mc_root
         .join("versions")
