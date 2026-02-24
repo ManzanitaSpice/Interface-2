@@ -19,6 +19,7 @@ use std::os::unix::process::CommandExt;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::Serialize;
 use serde_json::Value;
+use sha1::{Digest, Sha1};
 use tauri::{AppHandle, Emitter, Manager};
 use zip::ZipArchive;
 
@@ -118,6 +119,7 @@ struct VerifiedLaunchAuth {
 }
 
 static RUNTIME_REGISTRY: OnceLock<Mutex<HashMap<String, RuntimeState>>> = OnceLock::new();
+const OFFICIAL_ASSETS_RESOURCES_URL: &str = "https://resources.download.minecraft.net";
 
 fn runtime_registry() -> &'static Mutex<HashMap<String, RuntimeState>> {
     RUNTIME_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
@@ -932,17 +934,14 @@ pub fn validate_and_prepare_launch(
         resolve_libraries(&launcher_libraries_root, &version_json, &rule_context);
 
     if !resolved_libraries.missing_classpath_entries.is_empty() {
-        let sample = resolved_libraries
-            .missing_classpath_entries
-            .iter()
-            .take(3)
-            .map(|entry| format!("{} <= {}", entry.path, entry.url))
-            .collect::<Vec<_>>()
-            .join(" | ");
-        return Err(format!(
-            "Hay librerías faltantes en disco ({}). Ejemplo: {}. Ejecuta 'Reparar instancia' para reintentar y revisar conectividad/SSL/proxy/antivirus.",
-            resolved_libraries.missing_classpath_entries.len(),
-            sample
+        logs.push(format!(
+            "⚠ librerías faltantes detectadas ({}). Iniciando descarga automática...",
+            resolved_libraries.missing_classpath_entries.len()
+        ));
+        let downloaded = ensure_missing_libraries(&resolved_libraries.missing_classpath_entries)?;
+        logs.push(format!(
+            "✔ librerías recuperadas automáticamente: {downloaded}/{}",
+            resolved_libraries.missing_classpath_entries.len()
         ));
     }
 
@@ -1210,22 +1209,9 @@ en ningún JAR del classpath del loader '{}'.\n{}",
         .or(version_json.get("assets").and_then(Value::as_str))
         .unwrap_or("default")
         .to_string();
-    let assets_index = mc_root
-        .join("assets")
-        .join("indexes")
-        .join(format!("{assets_index_name}.json"));
-    if assets_index.exists() {
-        logs.push(format!(
-            "✔ assets index presente: {}",
-            assets_index.display()
-        ));
-    } else {
-        return Err(format!(
-            "Asset index '{}' no encontrado en {}. La instancia puede necesitar re-crearse.",
-            assets_index_name,
-            assets_index.display()
-        ));
-    }
+    let launcher_assets_root = launcher_root.join("assets");
+    let (resolved_assets_index_name, resolved_assets_root) =
+        ensure_assets_ready(&version_json, &launcher_assets_root, logs)?;
 
     let client_extra = mc_root
         .join("versions")
@@ -1299,8 +1285,8 @@ en ningún JAR del classpath del loader '{}'.\n{}",
         user_properties: "{}".to_string(),
         version_name: metadata.minecraft_version.clone(),
         game_directory: mc_root.display().to_string(),
-        assets_root: mc_root.join("assets").display().to_string(),
-        assets_index_name,
+        assets_root: resolved_assets_root.display().to_string(),
+        assets_index_name: resolved_assets_index_name,
         version_type: "release".to_string(),
         resolution_width: "854".to_string(),
         resolution_height: "480".to_string(),
@@ -3036,6 +3022,257 @@ struct ResolvedLibraries {
     missing_classpath_entries: Vec<MissingLibraryEntry>,
     native_jars: Vec<NativeJarEntry>,
     missing_native_entries: Vec<String>,
+}
+
+fn ensure_missing_libraries(entries: &[MissingLibraryEntry]) -> Result<usize, String> {
+    if entries.is_empty() {
+        return Ok(0);
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(45))
+        .build()
+        .map_err(|err| {
+            format!("No se pudo crear cliente HTTP para descargar librerías faltantes: {err}")
+        })?;
+
+    let mut downloaded = 0_usize;
+    for entry in entries {
+        let target = PathBuf::from(&entry.path);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(|err| {
+                format!(
+                    "No se pudo crear carpeta para librería faltante {}: {err}",
+                    parent.display()
+                )
+            })?;
+        }
+
+        let bytes = client
+            .get(&entry.url)
+            .send()
+            .and_then(|response| response.error_for_status())
+            .map_err(|err| {
+                format!(
+                    "No se pudo descargar librería faltante {}: {err}",
+                    entry.url
+                )
+            })?
+            .bytes()
+            .map_err(|err| {
+                format!(
+                    "No se pudo leer bytes de librería faltante {}: {err}",
+                    entry.url
+                )
+            })?;
+
+        let computed_sha1 = {
+            let mut hasher = Sha1::new();
+            hasher.update(&bytes);
+            format!("{:x}", hasher.finalize())
+        };
+
+        if !entry.sha1.trim().is_empty() && computed_sha1 != entry.sha1.to_ascii_lowercase() {
+            return Err(format!(
+                "Checksum SHA1 inválido para librería faltante {} (esperado {}, obtenido {}).",
+                target.display(),
+                entry.sha1,
+                computed_sha1
+            ));
+        }
+
+        fs::write(&target, &bytes).map_err(|err| {
+            format!(
+                "No se pudo guardar librería faltante {}: {err}",
+                target.display()
+            )
+        })?;
+        downloaded += 1;
+    }
+
+    Ok(downloaded)
+}
+
+fn ensure_assets_ready(
+    version_json: &Value,
+    launcher_assets_root: &Path,
+    logs: &mut Vec<String>,
+) -> Result<(String, PathBuf), String> {
+    fs::create_dir_all(launcher_assets_root.join("indexes")).map_err(|err| {
+        format!(
+            "No se pudo crear assets/indexes global {}: {err}",
+            launcher_assets_root.join("indexes").display()
+        )
+    })?;
+    fs::create_dir_all(launcher_assets_root.join("objects")).map_err(|err| {
+        format!(
+            "No se pudo crear assets/objects global {}: {err}",
+            launcher_assets_root.join("objects").display()
+        )
+    })?;
+
+    let (asset_index_id, asset_index_url) = extract_asset_index_source(version_json)?;
+    let index_path = launcher_assets_root
+        .join("indexes")
+        .join(format!("{asset_index_id}.json"));
+
+    logs.push(format!(
+        "Validando asset index '{}' en {}",
+        asset_index_id,
+        index_path.display()
+    ));
+
+    let index_json = if is_valid_json_file(&index_path) {
+        fs::read_to_string(&index_path).map_err(|err| {
+            format!(
+                "No se pudo leer assets index {}: {err}",
+                index_path.display()
+            )
+        })?
+    } else {
+        logs.push(format!(
+            "⚠ Falta asset index '{}' → se descargará automáticamente desde {}",
+            asset_index_id, asset_index_url
+        ));
+        let payload = download_text_from_url(&asset_index_url)?;
+        let _: Value = serde_json::from_str(&payload)
+            .map_err(|err| format!("El asset index descargado es inválido: {err}"))?;
+        fs::write(&index_path, payload.as_bytes()).map_err(|err| {
+            format!(
+                "No se pudo guardar assets index {}: {err}",
+                index_path.display()
+            )
+        })?;
+        payload
+    };
+
+    let index_json_value: Value = serde_json::from_str(&index_json).map_err(|err| {
+        format!(
+            "No se pudo parsear assets index {}: {err}",
+            index_path.display()
+        )
+    })?;
+    let downloaded_assets = ensure_assets_objects_present(&index_json_value, launcher_assets_root)?;
+    logs.push(format!(
+        "✔ assets listos: índice '{}' y {} objetos descargados/reparados.",
+        asset_index_id, downloaded_assets
+    ));
+
+    Ok((asset_index_id, launcher_assets_root.to_path_buf()))
+}
+
+fn extract_asset_index_source(version_json: &Value) -> Result<(String, String), String> {
+    if let Some(asset_index) = version_json.get("assetIndex") {
+        let id = asset_index
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let url = asset_index
+            .get("url")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if !id.is_empty() && !url.is_empty() {
+            return Ok((id, url));
+        }
+    }
+
+    if let Some(legacy_assets_name) = version_json.get("assets").and_then(Value::as_str) {
+        let id = legacy_assets_name.trim().to_string();
+        if !id.is_empty() {
+            let url = format!("https://piston-meta.mojang.com/v1/packages/{id}/{id}.json");
+            return Ok((id, url));
+        }
+    }
+
+    Err("version.json no contiene assetIndex válido (id/url).".to_string())
+}
+
+fn is_valid_json_file(path: &Path) -> bool {
+    let Ok(raw) = fs::read_to_string(path) else {
+        return false;
+    };
+    serde_json::from_str::<Value>(&raw).is_ok()
+}
+
+fn download_text_from_url(url: &str) -> Result<String, String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(45))
+        .build()
+        .map_err(|err| format!("No se pudo crear cliente HTTP para assets: {err}"))?;
+
+    client
+        .get(url)
+        .send()
+        .and_then(|response| response.error_for_status())
+        .map_err(|err| format!("No se pudo descargar {url}: {err}"))?
+        .text()
+        .map_err(|err| format!("No se pudo leer respuesta de {url}: {err}"))
+}
+
+fn ensure_assets_objects_present(
+    index_json: &Value,
+    launcher_assets_root: &Path,
+) -> Result<usize, String> {
+    let objects = index_json
+        .get("objects")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "assets index no contiene 'objects'.".to_string())?;
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(45))
+        .build()
+        .map_err(|err| format!("No se pudo crear cliente HTTP para objetos de assets: {err}"))?;
+
+    let mut downloaded = 0_usize;
+    for obj in objects.values() {
+        let hash = obj
+            .get("hash")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim();
+        if hash.len() < 2 {
+            continue;
+        }
+        let size = obj.get("size").and_then(Value::as_u64).unwrap_or(0);
+        let prefix = &hash[..2];
+        let target = launcher_assets_root.join("objects").join(prefix).join(hash);
+        if target.exists() && size > 0 {
+            let current_size = fs::metadata(&target)
+                .map(|meta| meta.len())
+                .unwrap_or_default();
+            if current_size == size {
+                continue;
+            }
+        }
+
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(|err| {
+                format!(
+                    "No se pudo crear carpeta de asset {}: {err}",
+                    parent.display()
+                )
+            })?;
+        }
+
+        let url = format!("{OFFICIAL_ASSETS_RESOURCES_URL}/{prefix}/{hash}");
+        let bytes = client
+            .get(&url)
+            .send()
+            .and_then(|response| response.error_for_status())
+            .map_err(|err| format!("No se pudo descargar asset {hash}: {err}"))?
+            .bytes()
+            .map_err(|err| format!("No se pudo leer bytes de asset {hash}: {err}"))?;
+
+        fs::write(&target, &bytes)
+            .map_err(|err| format!("No se pudo guardar asset {}: {err}", target.display()))?;
+        downloaded += 1;
+    }
+
+    Ok(downloaded)
 }
 
 fn resolve_effective_version_id(
