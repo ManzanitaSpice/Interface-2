@@ -36,6 +36,7 @@ jobs:
           releaseName: ${{ github.ref_name }}
           releaseDraft: false
           prerelease: true
+          args: --bundles msi,nsis
 
       - name: Collect Tauri updater bundles (.msi.zip/.nsis.zip) without recompressing
         shell: pwsh
@@ -43,15 +44,13 @@ jobs:
           $ErrorActionPreference = "Stop"
 
           $bundleRoot = "src-tauri\target\release\bundle"
-          $bundleZips = @(
-            Get-ChildItem -Path "$bundleRoot\msi" -Filter *.zip -ErrorAction SilentlyContinue
-            Get-ChildItem -Path "$bundleRoot\nsis" -Filter *.zip -ErrorAction SilentlyContinue
-          ) | Where-Object {
-            $_.Name -match '(?i)\.(msi|nsis)\.zip$'
-          }
+          $bundleZips = Get-ChildItem -Path $bundleRoot -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '(?i)\.(msi|nsis)\.zip$' }
 
-          if (-not $bundleZips) {
-            throw "No Tauri updater bundles found (.msi.zip/.nsis.zip) in $bundleRoot"
+          if (-not $bundleZips -or $bundleZips.Count -eq 0) {
+            Write-Host "=== Bundle tree (for debug) ==="
+            Get-ChildItem -Path $bundleRoot -Recurse -Force | Select-Object FullName
+            throw "No Tauri updater bundles found (.msi.zip/.nsis.zip) under $bundleRoot"
           }
 
           $outDir = "updater-bundles"
