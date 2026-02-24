@@ -20,6 +20,7 @@ pub fn run() {
             app::launcher_service::create_instance,
             app::launcher_service::list_instances,
             app::launcher_service::delete_instance,
+            app::launcher_service::fetch_remote_update_manifest,
             app::auth_service::list_available_browsers,
             app::auth_service::open_url_in_browser,
             app::auth_service::authorize_microsoft_in_launcher,

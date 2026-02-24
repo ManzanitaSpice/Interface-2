@@ -1,6 +1,6 @@
 use std::{
     fs,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use tauri::{AppHandle, Emitter};
@@ -89,6 +89,76 @@ fn emit_creation_progress(
             total: Some(total),
         },
     );
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct RemoteUpdateManifest {
+    pub version: String,
+    pub notes: String,
+    pub pub_date: String,
+    pub platforms: serde_json::Map<String, serde_json::Value>,
+}
+
+#[tauri::command]
+pub async fn fetch_remote_update_manifest(manifest_url: String) -> Result<RemoteUpdateManifest, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|err| format!("No se pudo construir cliente HTTP: {err}"))?;
+
+    let response = client
+        .get(&manifest_url)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .send()
+        .await
+        .map_err(|err| format!("No se pudo descargar manifest remoto: {err}"))?;
+
+    let status = response.status();
+    let raw_body = response
+        .text()
+        .await
+        .map_err(|err| format!("No se pudo leer body del manifest remoto: {err}"))?;
+
+    if !status.is_success() {
+        return Err(format!(
+            "Manifest remoto no disponible ({status}). Body: {}",
+            raw_body.chars().take(200).collect::<String>()
+        ));
+    }
+
+    let value: serde_json::Value = serde_json::from_str(&raw_body)
+        .map_err(|err| format!("Manifest remoto inválido (JSON no parseable): {err}"))?;
+
+    let version = value
+        .get("version")
+        .and_then(|node| node.as_str())
+        .ok_or_else(|| "Manifest remoto inválido: falta campo 'version'.".to_string())?
+        .to_string();
+
+    let notes = value
+        .get("notes")
+        .and_then(|node| node.as_str())
+        .unwrap_or_default()
+        .to_string();
+
+    let pub_date = value
+        .get("pub_date")
+        .and_then(|node| node.as_str())
+        .unwrap_or_default()
+        .to_string();
+
+    let platforms = value
+        .get("platforms")
+        .and_then(|node| node.as_object())
+        .ok_or_else(|| "Manifest remoto inválido: falta campo 'platforms'.".to_string())?
+        .clone();
+
+    Ok(RemoteUpdateManifest {
+        version,
+        notes,
+        pub_date,
+        platforms,
+    })
 }
 
 #[tauri::command]
