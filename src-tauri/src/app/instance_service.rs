@@ -15,6 +15,8 @@ use std::{
 
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::Serialize;
@@ -45,6 +47,27 @@ use crate::{
     },
     services::java_installer::ensure_embedded_java,
 };
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+fn resolve_java_launch_path(java_path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let file_name = java_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        if file_name.eq_ignore_ascii_case("java.exe") {
+            let javaw_path = java_path.with_file_name("javaw.exe");
+            if javaw_path.exists() {
+                return javaw_path;
+            }
+        }
+    }
+
+    java_path.to_path_buf()
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1678,7 +1701,8 @@ pub async fn start_instance(
         }
     };
 
-    let mut command = Command::new(&prepared.java_path);
+    let java_launch_path = resolve_java_launch_path(Path::new(&prepared.java_path));
+    let mut command = Command::new(&java_launch_path);
     let mut effective_jvm_args = prepared.jvm_args.clone();
 
     if cfg!(target_os = "windows") {
@@ -1701,6 +1725,11 @@ pub async fn start_instance(
     #[cfg(unix)]
     {
         command.process_group(0);
+    }
+
+    #[cfg(windows)]
+    {
+        command.creation_flags(CREATE_NO_WINDOW);
     }
 
     let mut child = match command
