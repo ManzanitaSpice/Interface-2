@@ -78,6 +78,7 @@ pub fn run() {
         ])
         .setup(|app| {
             let _ = app::redirect_launch::cleanup_redirect_cache_on_startup(app.handle());
+            services::discord_presence::initialize_discord_rpc();
             Ok(())
         })
         .run(tauri::generate_context!())

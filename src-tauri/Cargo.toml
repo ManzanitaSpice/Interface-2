@@ -44,6 +44,7 @@ regex = "1"
 
 image = { version = "0.25", default-features = false, features = ["png"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+discord-rich-presence = "0.2"
 
 [profile.release]
 strip = true

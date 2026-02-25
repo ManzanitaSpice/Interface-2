@@ -34,6 +34,8 @@ use crate::domain::auth::{
     },
 };
 
+use crate::services::discord_presence;
+
 use crate::{
     domain::{
         minecraft::{
@@ -1679,6 +1681,7 @@ pub async fn start_instance(
     auth_session: LaunchAuthSession,
 ) -> Result<StartInstanceResult, String> {
     let metadata = get_instance_metadata(instance_root.clone())?;
+    discord_presence::set_instance_presence(&metadata);
     let _ = touch_instance_last_used(&instance_root);
     if metadata.state.eq_ignore_ascii_case("redirect") {
         register_runtime_start(instance_root.clone())?;
@@ -1697,6 +1700,7 @@ pub async fn start_instance(
                 if let Ok(mut registry) = runtime_registry().lock() {
                     registry.remove(&instance_root);
                 }
+                discord_presence::set_launcher_presence();
                 return Err(err);
             }
         }
@@ -1710,6 +1714,7 @@ pub async fn start_instance(
             if let Ok(mut registry) = runtime_registry().lock() {
                 registry.remove(&instance_root);
             }
+            discord_presence::set_launcher_presence();
             return Err(err);
         }
     };
@@ -1726,6 +1731,7 @@ pub async fn start_instance(
             if let Ok(mut registry) = runtime_registry().lock() {
                 registry.remove(&instance_root);
             }
+            discord_presence::set_launcher_presence();
             return Err(err);
         }
     };
@@ -1770,6 +1776,7 @@ pub async fn start_instance(
             if let Ok(mut registry) = runtime_registry().lock() {
                 registry.remove(&instance_root);
             }
+            discord_presence::set_launcher_presence();
             return Err(err);
         }
     };
@@ -1923,6 +1930,8 @@ pub async fn start_instance(
                 },
             );
         }
+
+        discord_presence::set_launcher_presence();
     });
 
     let java_path = prepared.java_path.clone();
