@@ -130,7 +130,7 @@ INTERFACE está orientado a evolución continua. Se recomienda mantener dependen
 - Se incluyen dos workflows de release:
   - `release-stable.yml`: tags `vX.Y.Z` publican release estable y actualizan `updates/stable.json`.
   - `release-beta.yml`: tags `vX.Y.Z-beta.N` publican prerelease y actualizan `updates/beta.json`.
-- Los manifiestos de updater deben apuntar a **un solo tipo de bundle firmado**. En este repo se estandarizó `*.msi.zip` + su firma `*.msi.zip.sig`.
+- Los manifiestos de updater deben apuntar a **un solo tipo de bundle firmado**. En este repo se prioriza `*.nsis.zip` + su firma `*.nsis.zip.sig` (con fallback a `*.msi.zip` si NSIS no está disponible).
   - **No** mezclar NSIS y MSI en el feed del mismo canal.
   - **No** usar el instalador crudo (`*.exe` / `*.msi`) en `platforms.windows-x86_64.url`.
 - Secrets requeridos en GitHub Actions:
@@ -139,7 +139,7 @@ INTERFACE está orientado a evolución continua. Se recomienda mantener dependen
 
 Checklist rápido si no detecta updates:
 1. `src-tauri/tauri.conf.json` tiene `plugins.updater.pubkey` y endpoint correctos.
-2. La release tiene artefacto `*.msi.zip` **y** su archivo `.sig`.
+2. La release tiene artefacto `*.nsis.zip` (o `*.msi.zip` como fallback) **y** su archivo `.sig`.
 3. `updates/stable.json` o `updates/beta.json` en `gh-pages` apunta a ese `.zip` y firma real.
 4. El `version` del manifiesto es mayor que la versión actual (`getVersion()`) y respeta semver.
 

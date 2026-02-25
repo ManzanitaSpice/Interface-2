@@ -49,9 +49,9 @@ jobs:
           releaseName: ${{ github.ref_name }}
           releaseDraft: false
           prerelease: false
-          args: --bundles msi
+          args: --bundles nsis
 
-      - name: Collect Tauri updater bundles (.msi.zip + optional .nsis.zip)
+      - name: Collect Tauri updater bundles (NSIS preferred, MSI optional)
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -63,18 +63,23 @@ jobs:
           Write-Host "=== Bundle tree (for debug) ==="
           Get-ChildItem -Recurse $bundleRoot | Select-Object FullName | Format-Table -AutoSize
 
-          $msiZip = Get-ChildItem -Recurse $bundleRoot -Filter "*.msi.zip" | Select-Object -First 1
-          if (-not $msiZip) { throw "No MSI updater bundle (*.msi.zip) found under $bundleRoot" }
+          $msiZip = Get-ChildItem -Recurse $bundleRoot -Filter "*.msi.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $nsisZip = Get-ChildItem -Recurse $bundleRoot -Filter "*.nsis.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
 
-          $msiDest = Join-Path $outDir $msiZip.Name
-          Copy-Item $msiZip.FullName $msiDest -Force
-          Write-Host "MSI updater zip: $msiDest"
+          if (-not $msiZip -and -not $nsisZip) {
+            throw "No updater bundle found (*.msi.zip or *.nsis.zip) under $bundleRoot"
+          }
 
-          $nsisZip = Get-ChildItem -Recurse $bundleRoot -Filter "*.nsis.zip" | Select-Object -First 1
-          if ($nsisZip) {
-            $nsisDest = Join-Path $outDir $nsisZip.Name
-            Copy-Item $nsisZip.FullName $nsisDest -Force
-            Write-Host "NSIS updater zip: $nsisDest"
+          $chosen = if ($nsisZip) { $nsisZip } else { $msiZip }
+
+          $chosenDest = Join-Path $outDir $chosen.Name
+          Copy-Item $chosen.FullName $chosenDest -Force
+          Write-Host "Using updater bundle: $chosenDest"
+
+          if ($msiZip -and $msiZip.Name -ne $chosen.Name) {
+            $msiDest = Join-Path $outDir $msiZip.Name
+            Copy-Item $msiZip.FullName $msiDest -Force
+            Write-Host "Also collected MSI updater zip: $msiDest"
           }
 
           $finalZips = Get-ChildItem $outDir -Filter *.zip
@@ -140,20 +145,34 @@ jobs:
           $release = Invoke-RestMethod -Headers $headers -Uri $api
 
           $windowsUpdaterAssets = $release.assets | Where-Object {
-            $_.name -match '(?i)\.msi\.zip$' -and
+            $_.name -match '(?i)\.(nsis|msi)\.zip$' -and
             ($_.name -match '(?i)x64|x86_64|amd64' -or $_.name -notmatch '(?i)arm64|aarch64')
           }
 
           $updaterAsset = $windowsUpdaterAssets | Where-Object {
-            $_.name -match '(?i)x64|x86_64|amd64'
+            $_.name -match '(?i)\.nsis\.zip$' -and $_.name -match '(?i)x64|x86_64|amd64'
           } | Select-Object -First 1
 
           if (-not $updaterAsset) {
-            $updaterAsset = $windowsUpdaterAssets | Select-Object -First 1
+            $updaterAsset = $windowsUpdaterAssets | Where-Object {
+              $_.name -match '(?i)\.nsis\.zip$'
+            } | Select-Object -First 1
           }
 
           if (-not $updaterAsset) {
-            throw "No Windows MSI updater bundle (.msi.zip) found in release $tag. Assets: $($release.assets.name -join ', ')"
+            $updaterAsset = $windowsUpdaterAssets | Where-Object {
+              $_.name -match '(?i)\.msi\.zip$' -and $_.name -match '(?i)x64|x86_64|amd64'
+            } | Select-Object -First 1
+          }
+
+          if (-not $updaterAsset) {
+            $updaterAsset = $windowsUpdaterAssets | Where-Object {
+              $_.name -match '(?i)\.msi\.zip$'
+            } | Select-Object -First 1
+          }
+
+          if (-not $updaterAsset) {
+            throw "No Windows updater bundle (.nsis.zip or .msi.zip) found in release $tag. Assets: $($release.assets.name -join ', ')"
           }
 
           # Retry: wait for GitHub to index the .sig asset in the release
