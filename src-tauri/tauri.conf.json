@@ -39,8 +39,13 @@
     "active": true,
     "targets": "all",
     "icon": [
-      "../public/icons/logo.png"
-    ]
+      "icons/logo.png"
+    ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/logo.png"
+      }
+    }
   },
   "plugins": {
     "updater": {
