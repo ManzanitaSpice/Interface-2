@@ -73,8 +73,33 @@ jobs:
             $nsisExe = Get-ChildItem -Recurse $bundleRoot -Filter "*-setup.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
             if (-not $nsisExe) { throw "No NSIS installer (*-setup.exe) found under $bundleRoot" }
 
+            # Fallback: crear zip con Deflate estándar (método 8) via .NET explícito.
+            # NUNCA usar Compress-Archive: puede producir métodos de compresión no soportados
+            # por el crate zip de Tauri (Deflate64, SmallestSize, etc.).
             $zipPath = Join-Path $nsisExe.Directory.FullName ($nsisExe.BaseName + ".nsis.zip")
-            Compress-Archive -Path $nsisExe.FullName -DestinationPath $zipPath -CompressionLevel Optimal
+            Add-Type -AssemblyName System.IO.Compression
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $stream = [System.IO.File]::Open($zipPath, [System.IO.FileMode]::Create)
+            try {
+              $archive = [System.IO.Compression.ZipArchive]::new($stream, [System.IO.Compression.ZipArchiveMode]::Create, $false)
+              try {
+                $entry = $archive.CreateEntry($nsisExe.Name, [System.IO.Compression.CompressionLevel]::Optimal)
+                $entryStream = $entry.Open()
+                $fileStream = [System.IO.File]::OpenRead($nsisExe.FullName)
+                $fileStream.CopyTo($entryStream)
+                $fileStream.Dispose()
+                $entryStream.Dispose()
+              } finally { $archive.Dispose() }
+            } finally { $stream.Dispose() }
+
+            # Verificar que el ZIP producido usa Deflate (método 8), no Deflate64 ni otro.
+            $rawBytes = [System.IO.File]::ReadAllBytes($zipPath)
+            $method = [System.BitConverter]::ToUInt16($rawBytes, 8)
+            if ($method -ne 8 -and $method -ne 0) {
+              throw "Fallback ZIP usa método de compresión $method (esperado: 8=Deflate o 0=Store). El updater nativo de Tauri lo rechazaría."
+            }
+            Write-Host "Fallback ZIP creado con método $method (Deflate). OK."
+
             $nsisZip = Get-Item $zipPath
             Write-Host "Created fallback updater zip: $($nsisZip.FullName)"
           }
@@ -95,6 +120,25 @@ jobs:
 
           Write-Host "Collected updater artifacts:"
           Get-ChildItem $outDir
+
+      - name: Verify ZIP compression method (must be Deflate=8 or Store=0)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zips = Get-ChildItem 'updater-bundles' -Filter *.zip
+          if (-not $zips) { throw 'No zips found in updater-bundles' }
+          foreach ($z in $zips) {
+            $raw = [System.IO.File]::ReadAllBytes($z.FullName)
+            if ($raw[0] -ne 0x50 -or $raw[1] -ne 0x4B -or $raw[2] -ne 0x03 -or $raw[3] -ne 0x04) {
+              throw "$($z.Name): not a valid ZIP (missing PK\x03\x04 header). El archivo no es un ZIP real."
+            }
+            $method = [System.BitConverter]::ToUInt16($raw, 8)
+            Write-Host "$($z.Name): compression method = $method"
+            if ($method -ne 8 -and $method -ne 0) {
+              throw "$($z.Name): metodo de compresion $method no soportado por tauri-plugin-updater. Solo se aceptan 0=Store o 8=Deflate."
+            }
+            Write-Host "  -> OK (Deflate/Store)"
+          }
 
       - name: Write signing key to disk (raw minisign)
         shell: pwsh
