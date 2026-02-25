@@ -3795,7 +3795,7 @@ function App() {
               <header className="updates-main-header">
                 <div>
                   <h2>Updates</h2>
-                  <p>Versiones disponibles en formato tarjeta con paginado.</p>
+                  <p>Versión actual instalada: {launcherCurrentVersion || 'Desconocida'}</p>
                 </div>
                 <span className="updates-main-counter">{filteredUpdatesFeed.length} resultados</span>
               </header>
