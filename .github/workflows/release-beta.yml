@@ -51,7 +51,7 @@ jobs:
           prerelease: true
           args: --bundles msi
 
-      - name: Collect Tauri MSI updater bundles (.zip)
+      - name: Collect Tauri updater bundles (.msi.zip + optional .nsis.zip)
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -60,29 +60,27 @@ jobs:
           $outDir = "updater-bundles"
           New-Item -ItemType Directory -Force $outDir | Out-Null
 
-          $existingUpdaterZips = Get-ChildItem -Path $bundleRoot -Recurse -File -ErrorAction SilentlyContinue |
-            Where-Object {
-              $_.Extension -ieq ".zip" -and
-              $_.Name -match '(?i)\.msi\.zip$'
-            }
+          Write-Host "=== Bundle tree (for debug) ==="
+          Get-ChildItem -Recurse $bundleRoot | Select-Object FullName | Format-Table -AutoSize
 
-          if (-not $existingUpdaterZips -or $existingUpdaterZips.Count -eq 0) {
-            Write-Host "=== Bundle tree (for debug) ==="
-            Get-ChildItem -Path $bundleRoot -Recurse -Force | Select-Object FullName
-            throw "No prebuilt MSI updater bundle (*.msi.zip) found under $bundleRoot"
-          }
+          $msiZip = Get-ChildItem -Recurse $bundleRoot -Filter "*.msi.zip" | Select-Object -First 1
+          if (-not $msiZip) { throw "No MSI updater bundle (*.msi.zip) found under $bundleRoot" }
 
-          foreach ($bundle in $existingUpdaterZips) {
-            $dest = Join-Path $outDir $bundle.Name
-            Copy-Item $bundle.FullName $dest -Force
-            Write-Host "Collected MSI updater zip: $dest"
+          $msiDest = Join-Path $outDir $msiZip.Name
+          Copy-Item $msiZip.FullName $msiDest -Force
+          Write-Host "MSI updater zip: $msiDest"
+
+          $nsisZip = Get-ChildItem -Recurse $bundleRoot -Filter "*.nsis.zip" | Select-Object -First 1
+          if ($nsisZip) {
+            $nsisDest = Join-Path $outDir $nsisZip.Name
+            Copy-Item $nsisZip.FullName $nsisDest -Force
+            Write-Host "NSIS updater zip: $nsisDest"
           }
 
           $finalZips = Get-ChildItem $outDir -Filter *.zip
-          if (-not $finalZips -or $finalZips.Count -eq 0) {
-            throw "No updater zip bundles were produced in $outDir"
-          }
+          if (-not $finalZips -or $finalZips.Count -eq 0) { throw "No updater zip bundles were produced in $outDir" }
 
+          Write-Host "Collected updater artifacts:"
           Get-ChildItem $outDir
 
       - name: Write signing key to disk (raw minisign)
@@ -122,8 +120,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            updater-bundles/*.zip
-            updater-bundles/*.zip.sig
+            updater-bundles/*.msi.zip
+            updater-bundles/*.msi.zip.sig
+            updater-bundles/*.nsis.zip
+            updater-bundles/*.nsis.zip.sig
 
       - name: Generate beta manifest
         shell: pwsh
