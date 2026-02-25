@@ -2148,6 +2148,17 @@
 
 .import-instance-card .instance-card-icon.hero {
   aspect-ratio: 16 / 9;
+  background: radial-gradient(circle at 50% 28%, color-mix(in srgb, var(--bg-surface-muted) 82%, rgba(255, 255, 255, 0.06)), color-mix(in srgb, var(--bg-surface) 90%, transparent));
+}
+
+.import-instance-card .instance-card-icon.hero img,
+.import-instance-card .instance-card-icon.hero video {
+  object-fit: contain;
+  object-position: center;
+  transform: scale(1.08);
+  transform-origin: center;
+  image-rendering: -webkit-optimize-contrast;
+  filter: contrast(1.06) saturate(1.05);
 }
 .import-selection-panel .import-action {
   border-radius: 12px;
