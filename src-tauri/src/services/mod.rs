@@ -1,3 +1,4 @@
+pub mod discord_presence;
 pub mod game_launcher;
 pub mod instance_builder;
 pub mod java_installer;
