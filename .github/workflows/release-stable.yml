@@ -61,22 +61,25 @@ jobs:
           New-Item -ItemType Directory -Force $outDir | Out-Null
 
           Write-Host "=== Bundle tree (for debug) ==="
-          Get-ChildItem -Recurse $bundleRoot | Select-Object FullName | Format-Table -AutoSize
+          Get-ChildItem -Recurse $bundleRoot | Select-Object FullName | Sort-Object FullName
 
-          $msiZip = Get-ChildItem -Recurse $bundleRoot -Filter "*.msi.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
           $nsisZip = Get-ChildItem -Recurse $bundleRoot -Filter "*.nsis.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $nsisZip) {
+            $nsisExe = Get-ChildItem -Recurse $bundleRoot -Filter "*-setup.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $nsisExe) { throw "No NSIS installer (*-setup.exe) found under $bundleRoot" }
 
-          if (-not $msiZip -and -not $nsisZip) {
-            throw "No updater bundle found (*.msi.zip or *.nsis.zip) under $bundleRoot"
+            $zipPath = Join-Path $nsisExe.Directory.FullName ($nsisExe.BaseName + ".nsis.zip")
+            Compress-Archive -Path $nsisExe.FullName -DestinationPath $zipPath -CompressionLevel Optimal
+            $nsisZip = Get-Item $zipPath
+            Write-Host "Created fallback updater zip: $($nsisZip.FullName)"
           }
 
-          $chosen = if ($nsisZip) { $nsisZip } else { $msiZip }
+          $nsisDest = Join-Path $outDir $nsisZip.Name
+          Copy-Item $nsisZip.FullName $nsisDest -Force
+          Write-Host "Using updater bundle: $nsisDest"
 
-          $chosenDest = Join-Path $outDir $chosen.Name
-          Copy-Item $chosen.FullName $chosenDest -Force
-          Write-Host "Using updater bundle: $chosenDest"
-
-          if ($msiZip -and $msiZip.Name -ne $chosen.Name) {
+          $msiZip = Get-ChildItem -Recurse $bundleRoot -Filter "*.msi.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($msiZip) {
             $msiDest = Join-Path $outDir $msiZip.Name
             Copy-Item $msiZip.FullName $msiDest -Force
             Write-Host "Also collected MSI updater zip: $msiDest"
