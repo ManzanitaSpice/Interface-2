@@ -19,6 +19,7 @@ use std::os::unix::process::CommandExt;
 use std::os::windows::process::CommandExt;
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use regex::Regex;
 use serde::Serialize;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
@@ -97,6 +98,17 @@ struct RuntimeOutputEvent {
     instance_root: String,
     stream: String,
     line: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parsed: Option<RuntimeLogLine>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeLogLine {
+    time: String,
+    source: String,
+    level: String,
+    message: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -143,6 +155,22 @@ struct VerifiedLaunchAuth {
 
 static RUNTIME_REGISTRY: OnceLock<Mutex<HashMap<String, RuntimeState>>> = OnceLock::new();
 const OFFICIAL_ASSETS_RESOURCES_URL: &str = "https://resources.download.minecraft.net";
+static STRUCTURED_LOG_REGEX: OnceLock<Regex> = OnceLock::new();
+
+fn parse_log_line(raw: &str) -> Option<RuntimeLogLine> {
+    let regex = STRUCTURED_LOG_REGEX.get_or_init(|| {
+        Regex::new(r"\[(\d{2}:\d{2}:\d{2})\]\s+\[(.*?)\]\s+\[(.*?)\]\s+(.*)")
+            .expect("Regex de logs de runtime inválida")
+    });
+    let caps = regex.captures(raw)?;
+
+    Some(RuntimeLogLine {
+        time: caps.get(1)?.as_str().to_string(),
+        source: caps.get(2)?.as_str().to_string(),
+        level: caps.get(3)?.as_str().to_string(),
+        message: caps.get(4)?.as_str().to_string(),
+    })
+}
 
 fn runtime_registry() -> &'static Mutex<HashMap<String, RuntimeState>> {
     RUNTIME_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
@@ -446,6 +474,7 @@ fn prepare_runtime_instance_root(app: &AppHandle, instance_root: &str) -> Result
                 },
                 cache_root.display()
             ),
+            parsed: None,
         },
     );
 
@@ -1790,6 +1819,7 @@ pub async fn start_instance(
                             instance_root: instance_for_stdout.clone(),
                             stream: "stdout".to_string(),
                             line: line.clone(),
+                            parsed: parse_log_line(&line),
                         },
                     );
                     if let Ok(mut tail) = tail_for_stdout.lock() {
@@ -1819,6 +1849,7 @@ pub async fn start_instance(
                             instance_root: instance_for_stderr.clone(),
                             stream: "stderr".to_string(),
                             line: line.clone(),
+                            parsed: parse_log_line(&line),
                         },
                     );
                     if let Ok(mut tail) = tail_for_stderr.lock() {
@@ -1848,12 +1879,17 @@ pub async fn start_instance(
             RuntimeOutputEvent {
                 instance_root: instance_root_for_thread.clone(),
                 stream: "system".to_string(),
-                line: format!(
-                    "Proceso finalizado (pid={pid}) con exit_code={}",
-                    exit_code
-                        .map(|value| value.to_string())
-                        .unwrap_or_else(|| "desconocido".to_string())
-                ),
+                line: if exit_code == Some(0) {
+                    "Instance closed normally".to_string()
+                } else {
+                    format!(
+                        "Instance crashed (exit_code={})",
+                        exit_code
+                            .map(|value| value.to_string())
+                            .unwrap_or_else(|| "desconocido".to_string())
+                    )
+                },
+                parsed: None,
             },
         );
 
@@ -2044,6 +2080,7 @@ fn monitor_latest_log_for_auth(
                         instance_root: instance_root.clone(),
                         stream: "system".to_string(),
                         line: "ERROR AUTH: latest.log reportó 'Setting user: Demo'. Se aborta el proceso por autenticación inválida.".to_string(),
+                        parsed: None,
                     },
                 );
                 terminate_process(pid);
@@ -2059,6 +2096,7 @@ fn monitor_latest_log_for_auth(
                         line: format!(
                             "OK AUTH: latest.log contiene el username oficial validado ({expected_username})."
                         ),
+                        parsed: None,
                     },
                 );
                 break;

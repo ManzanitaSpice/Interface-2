@@ -161,6 +161,7 @@ type RuntimeOutputEvent = {
   instanceRoot: string
   stream: 'stdout' | 'stderr' | 'system'
   line: string
+  parsed?: ParsedRuntimeLog | null
 }
 
 type InstanceModEntry = {
@@ -215,6 +216,13 @@ type ConsoleEntry = {
   timestamp: string
   level: ConsoleLevel
   source: ConsoleSource
+  message: string
+}
+
+type ParsedRuntimeLog = {
+  time: string
+  source: string
+  level: string
   message: string
 }
 
@@ -662,6 +670,36 @@ function nowTimestamp() {
 
 function makeConsoleEntry(level: ConsoleLevel, source: ConsoleSource, message: string): ConsoleEntry {
   return { timestamp: nowTimestamp(), level, source, message }
+}
+
+function normalizeLevel(value: string | undefined, fallback: ConsoleLevel): ConsoleLevel {
+  const level = (value ?? '').trim().toUpperCase()
+  if (level === 'INFO' || level === 'WARN' || level === 'ERROR' || level === 'FATAL') return level
+  if (level === 'DEBUG' || level === 'TRACE') return 'INFO'
+  return fallback
+}
+
+function normalizeSource(value: string | undefined, fallback: ConsoleSource): ConsoleSource {
+  const source = (value ?? '').trim().toLowerCase()
+  if (source === 'launcher') return 'launcher'
+  if (source === 'game' || source === 'minecraft') return 'game'
+  return fallback
+}
+
+function toConsoleEntryFromRuntimeEvent(payload: RuntimeOutputEvent): ConsoleEntry {
+  const fallbackLevel: ConsoleLevel = payload.stream === 'stderr' ? 'WARN' : 'INFO'
+  const fallbackSource: ConsoleSource = payload.stream === 'system' ? 'launcher' : 'game'
+
+  if (payload.parsed) {
+    return {
+      timestamp: payload.parsed.time || nowTimestamp(),
+      source: normalizeSource(payload.parsed.source, fallbackSource),
+      level: normalizeLevel(payload.parsed.level, fallbackLevel),
+      message: payload.parsed.message || payload.line,
+    }
+  }
+
+  return makeConsoleEntry(fallbackLevel, fallbackSource, payload.line)
 }
 
 function formatIsoDate(iso: string, locale = 'es-ES'): string {
@@ -1724,8 +1762,11 @@ function App() {
         if (!status.running && status.exitCode !== null) {
           const exitKey = `${selectedCard.instanceRoot}:${status.exitCode}:${status.pid ?? 'none'}`
           if (exitKey !== lastRuntimeExitKey) {
-            appendRuntimeForRoot(selectedCard.instanceRoot, makeConsoleEntry(status.exitCode === 0 ? 'INFO' : 'ERROR', 'launcher', `Proceso finalizado con exit_code=${status.exitCode}.`))
-            if (status.stderrTail.length > 0) {
+            appendRuntimeForRoot(
+              selectedCard.instanceRoot,
+              makeConsoleEntry(status.exitCode === 0 ? 'INFO' : 'ERROR', 'launcher', status.exitCode === 0 ? '🟢 Cierre normal' : `🔴 Crash detectado (exit_code=${status.exitCode})`),
+            )
+            if (status.stderrTail.length > 0 && status.exitCode !== 0) {
               appendRuntimeForRoot(selectedCard.instanceRoot, makeConsoleEntry('WARN', 'game', `stderr (últimas ${status.stderrTail.length} líneas): ${status.stderrTail.join(' | ')}`))
             }
             setLastRuntimeExitKey(exitKey)
@@ -1770,10 +1811,7 @@ function App() {
 
     const wireRuntimeOutput = async () => {
       const unlisten = await listen<RuntimeOutputEvent>('instance_runtime_output', (event) => {
-        const level = event.payload.stream === 'stderr' ? 'WARN' : 'INFO'
-        const source = event.payload.stream === 'system' ? 'launcher' : 'game'
-        const prefix = event.payload.stream === 'system' ? '' : `[${event.payload.stream.toUpperCase()}] `
-        appendRuntimeForRoot(event.payload.instanceRoot, makeConsoleEntry(level, source, `${prefix}${event.payload.line}`))
+        appendRuntimeForRoot(event.payload.instanceRoot, toConsoleEntryFromRuntimeEvent(event.payload))
         if (isStartingInstance && !isInstanceRunning) {
           setLaunchProgressPercent((prev) => Math.min(92, Math.max(prev + 4, 16)))
         }
@@ -4436,11 +4474,21 @@ function App() {
                     </div>
                   )}
                   {filteredRuntimeConsole.map((entry, index) => (
-                      <p key={`${entry.timestamp}-${index}`} className={`log-level-${entry.level.toLowerCase()}`}>
-                        [{entry.timestamp}] [{entry.source}] [{entry.level}] {entry.message}
-                      </p>
-                    ))}
-                  {runtimeConsole.length === 0 && <p>[{nowTimestamp()}] [launcher] [INFO] Consola lista para iniciar.</p>}
+                    <div key={`${entry.timestamp}-${index}`} className={`execution-log-entry log-level-${entry.level.toLowerCase()}`}>
+                      <span className="execution-log-time">[{entry.timestamp}]</span>
+                      <span className="execution-log-source">{entry.source}</span>
+                      <span className="execution-log-level">{entry.level}</span>
+                      <span className="execution-log-message">{entry.message}</span>
+                    </div>
+                  ))}
+                  {runtimeConsole.length === 0 && (
+                    <div className="execution-log-entry log-level-info">
+                      <span className="execution-log-time">[{nowTimestamp()}]</span>
+                      <span className="execution-log-source">launcher</span>
+                      <span className="execution-log-level">INFO</span>
+                      <span className="execution-log-message">Consola lista para iniciar.</span>
+                    </div>
+                  )}
                 </div>
               </section>
             ) : selectedEditSection === 'Configuración' ? (
