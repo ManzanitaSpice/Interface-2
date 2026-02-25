@@ -38,6 +38,11 @@ jobs:
           NODE_AUTH_TOKEN: ""
         run: npm ci
 
+      - name: Verify Windows bundle icon
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "src-tauri/icons/icon.ico")) { throw "Missing required NSIS icon: src-tauri/icons/icon.ico" }
+
       - name: Build + Release
         uses: tauri-apps/tauri-action@v0
         env:

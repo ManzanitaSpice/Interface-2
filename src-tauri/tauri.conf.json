@@ -39,11 +39,13 @@
     "active": true,
     "targets": "all",
     "icon": [
-      "icons/logo.png"
+      "icons/icon.ico",
+      "icons/icon.png",
+      "icons/128x128@2x.png"
     ],
     "windows": {
       "nsis": {
-        "installerIcon": "icons/logo.png"
+        "installerIcon": "icons/icon.ico"
       }
     }
   },
