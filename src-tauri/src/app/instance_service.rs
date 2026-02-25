@@ -1256,13 +1256,6 @@ en ningún JAR del classpath del loader '{}'.\n{}",
         natives_dir.display()
     ));
 
-    let assets_index_name = version_json
-        .get("assetIndex")
-        .and_then(|v| v.get("id"))
-        .and_then(Value::as_str)
-        .or(version_json.get("assets").and_then(Value::as_str))
-        .unwrap_or("default")
-        .to_string();
     let launcher_assets_root = launcher_root.join("assets");
     let (resolved_assets_index_name, resolved_assets_root) =
         ensure_assets_ready(&version_json, &launcher_assets_root, &mut logs)?;

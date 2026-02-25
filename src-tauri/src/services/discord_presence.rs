@@ -47,7 +47,7 @@ pub fn set_instance_presence(metadata: &InstanceMetadata) {
     set_activity(activity);
 }
 
-fn set_activity(activity: activity::Activity) {
+fn set_activity(activity: activity::Activity<'_>) {
     let mut guard = match rpc_client().lock() {
         Ok(guard) => guard,
         Err(_) => {
@@ -92,7 +92,7 @@ fn ensure_connected(guard: &mut Option<DiscordIpcClient>) -> Result<(), ()> {
     Ok(())
 }
 
-fn launcher_activity() -> activity::Activity {
+fn launcher_activity() -> activity::Activity<'static> {
     activity::Activity::new()
         .details("En el launcher")
         .state("Seleccionando instancia")
