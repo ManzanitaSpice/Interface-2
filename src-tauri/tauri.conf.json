@@ -19,7 +19,6 @@
         "fullscreen": false,
         "maximized": true,
         "devtools": false,
-        "icon": "icons/icon.ico"
       }
     ],
     "security": {
