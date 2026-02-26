@@ -897,6 +897,8 @@ function App() {
   const [downloaderServerOnly, setDownloaderServerOnly] = useState(false)
   const [modsCatalogLoading, setModsCatalogLoading] = useState(false)
   const [modsCatalogError, setModsCatalogError] = useState('')
+  const [modsCatalogPage, setModsCatalogPage] = useState(1)
+  const [modsCatalogHasMore, setModsCatalogHasMore] = useState(false)
   const [downloaderCatalogMods, setDownloaderCatalogMods] = useState<ModsCatalogItem[]>([])
   const [catalogDetailByModId, setCatalogDetailByModId] = useState<Record<string, ModCatalogDetail>>({})
   const [catalogDetailLoading, setCatalogDetailLoading] = useState(false)
@@ -932,10 +934,11 @@ function App() {
   const selectedCurseforgeClassId = selectedContentSection === 'resourcepacks'
     ? 12
     : selectedContentSection === 'shaderpacks'
-      ? 6552
+      ? 12
       : selectedContentSection === 'worlds'
         ? 17
         : 6
+  const selectedCurseforgeCategoryId = selectedContentSection === 'shaderpacks' ? 6552 : null
   const selectedCatalogCategory = selectedContentSection === 'resourcepacks' ? 'resourcepack' : selectedContentSection === 'shaderpacks' ? 'shader' : selectedContentSection === 'worlds' ? 'world' : 'mod'
 
 
@@ -951,6 +954,8 @@ function App() {
     setStagedDownloads({})
     setSelectedCatalogModId('')
     setSelectedCatalogVersionId('')
+    setModsCatalogPage(1)
+    setModsCatalogHasMore(false)
   }, [selectedContentSection])
   const [selectedLanguage, setSelectedLanguage] = useState(languageCatalog[0].name)
   const [installedLanguages, setInstalledLanguages] = useState<string[]>(languageCatalog.filter((item) => item.installedByDefault).map((item) => item.name))
@@ -3027,7 +3032,7 @@ function App() {
         let icon = installedIconsCacheRef.current[cacheKey]
         if (icon === undefined) {
           try {
-            const payload = await invoke<{ items: Array<{ image?: string }> }>('search_catalogs', { request: { search: mod.name, curseforgeClassId: selectedCurseforgeClassId, platform: 'Todas', mcVersion: selectedInstanceMetadata?.minecraftVersion ?? null, loader: (selectedInstanceMetadata?.loader ?? '').toLowerCase() || null, category: selectedCatalogCategory, modrinthSort: 'relevance', curseforgeSortField: 1, limit: 1, page: 1 } })
+            const payload = await invoke<{ items: Array<{ image?: string }> }>('search_catalogs', { request: { search: mod.name, curseforgeClassId: selectedCurseforgeClassId, curseforgeCategoryId: selectedCurseforgeCategoryId, platform: 'Todas', mcVersion: selectedInstanceMetadata?.minecraftVersion ?? null, loader: (selectedInstanceMetadata?.loader ?? '').toLowerCase() || null, category: selectedCatalogCategory, modrinthSort: 'relevance', curseforgeSortField: 1, limit: 1, page: 1 } })
             icon = payload.items[0]?.image ?? ''
           } catch {
             icon = ''
@@ -3041,7 +3046,7 @@ function App() {
     }
     void fetchInstalledModIcons()
     return () => { cancelled = true }
-  }, [instanceMods, selectedCatalogCategory, selectedCurseforgeClassId, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion])
+  }, [instanceMods, selectedCatalogCategory, selectedCurseforgeCategoryId, selectedCurseforgeClassId, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion])
 
   const selectedMod = useMemo(() => instanceMods.find((item) => item.id === selectedModId) ?? null, [instanceMods, selectedModId])
   const isCatalogSource = modsDownloaderSource === 'Modrinth' || modsDownloaderSource === 'CurseForge'
@@ -3102,6 +3107,10 @@ function App() {
     return () => window.clearTimeout(timeout)
   }, [downloaderSearch])
 
+  useEffect(() => {
+    setModsCatalogPage(1)
+  }, [debouncedDownloaderSearch, modsDownloaderSource, modsDownloaderSort, downloaderShowAllVersions, downloaderVersionFilter, downloaderLoaderFilter, downloaderClientOnly, downloaderServerOnly, selectedContentSection])
+
   const fetchDownloaderCatalog = useCallback(async () => {
     if (!modsDownloaderOpen || !isCatalogSource) return
     const queryKey = JSON.stringify({
@@ -3112,17 +3121,19 @@ function App() {
       loader: (downloaderLoaderFilter || selectedInstanceMetadata?.loader || '').toLowerCase() || null,
       category: selectedContentSection === 'mods' ? (downloaderClientOnly ? 'client' : downloaderServerOnly ? 'server' : 'mod') : selectedCatalogCategory,
       sort: modsDownloaderSort,
+      page: modsCatalogPage,
     })
     const cachedRows = downloaderCatalogCacheRef.current[queryKey]
     if (cachedRows) {
       setDownloaderCatalogMods(cachedRows)
-      setSelectedCatalogModId((prev) => (prev && cachedRows.some((item) => item.id === prev) ? prev : cachedRows[0]?.id ?? ''))
+      setModsCatalogHasMore(cachedRows.length >= 30)
+      setSelectedCatalogModId((prev) => (prev && cachedRows.some((item) => item.id === prev) ? prev : ''))
       return
     }
     setModsCatalogLoading(true)
     setModsCatalogError('')
     try {
-      const payload = await invoke<{ items: Array<{ id: string; source: ModsCatalogSource; title: string; description: string; image?: string; downloads: number; updatedAt: string }> }>('search_catalogs', {
+      const payload = await invoke<{ items: Array<{ id: string; source: ModsCatalogSource; title: string; description: string; image?: string; downloads: number; updatedAt: string }>; hasMore: boolean }>('search_catalogs', {
         request: {
           search: debouncedDownloaderSearch,
           curseforgeClassId: selectedCurseforgeClassId,
@@ -3132,8 +3143,9 @@ function App() {
           category: selectedContentSection === 'mods' ? (downloaderClientOnly ? 'client' : downloaderServerOnly ? 'server' : 'mod') : selectedCatalogCategory,
           modrinthSort: modsDownloaderSort,
           curseforgeSortField: modsDownloaderSort === 'downloads' ? 6 : modsDownloaderSort === 'updated' ? 3 : modsDownloaderSort === 'followers' ? 2 : modsDownloaderSort === 'newest' ? 4 : 1,
+          curseforgeCategoryId: selectedCurseforgeCategoryId,
           limit: 30,
-          page: 1,
+          page: modsCatalogPage,
         },
       })
       const rows: ModsCatalogItem[] = payload.items.map((item) => ({
@@ -3149,15 +3161,17 @@ function App() {
       }))
       downloaderCatalogCacheRef.current[queryKey] = rows
       setDownloaderCatalogMods(rows)
-      setSelectedCatalogModId((prev) => (prev && rows.some((item) => item.id === prev) ? prev : rows[0]?.id ?? ''))
+      setModsCatalogHasMore(payload.hasMore)
+      setSelectedCatalogModId((prev) => (prev && rows.some((item) => item.id === prev) ? prev : ''))
     } catch (error) {
       setModsCatalogError(error instanceof Error ? error.message : String(error))
       setDownloaderCatalogMods([])
+      setModsCatalogHasMore(false)
       setSelectedCatalogModId('')
     } finally {
       setModsCatalogLoading(false)
     }
-  }, [debouncedDownloaderSearch, downloaderClientOnly, downloaderLoaderFilter, downloaderServerOnly, downloaderShowAllVersions, downloaderVersionFilter, isCatalogSource, modsDownloaderOpen, modsDownloaderSort, modsDownloaderSource, selectedCatalogCategory, selectedContentSection, selectedCurseforgeClassId, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion])
+  }, [debouncedDownloaderSearch, downloaderClientOnly, downloaderLoaderFilter, downloaderServerOnly, downloaderShowAllVersions, downloaderVersionFilter, isCatalogSource, modsCatalogPage, modsDownloaderOpen, modsDownloaderSort, modsDownloaderSource, selectedCatalogCategory, selectedContentSection, selectedCurseforgeCategoryId, selectedCurseforgeClassId, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion])
 
   useEffect(() => { void fetchDownloaderCatalog() }, [fetchDownloaderCatalog])
 
@@ -3182,6 +3196,8 @@ function App() {
     setDownloaderVersionFilter(selectedInstanceMetadata?.minecraftVersion ?? '')
     setDownloaderLoaderFilter(selectedInstanceMetadata?.loader ?? '')
     setDownloaderShowAllVersions(false)
+    setModsCatalogPage(1)
+    setSelectedCatalogModId('')
   }
 
   const closeDownloader = useCallback(() => {
@@ -3417,7 +3433,7 @@ function App() {
     } finally {
       setModVersionLoading(false)
     }
-  }, [downloaderClientOnly, downloaderServerOnly, downloaderShowAllVersions, downloaderVersionFilter, selectedCard?.instanceRoot, selectedCatalogCategory, selectedContentSection, selectedCurseforgeClassId, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion, selectedMod])
+  }, [downloaderClientOnly, downloaderServerOnly, downloaderShowAllVersions, downloaderVersionFilter, selectedCard?.instanceRoot, selectedCatalogCategory, selectedContentSection, selectedCurseforgeCategoryId, selectedCurseforgeClassId, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion, selectedMod])
 
   const replaceSpecificModVersion = useCallback(async (mod: InstanceModEntry, option: ModVersionOption) => {
     if (!selectedCard?.instanceRoot) return
@@ -3443,7 +3459,7 @@ function App() {
     try {
       const results: InstalledModUpdateCandidate[] = []
       for (const mod of instanceMods) {
-        const payload = await invoke<{ items: Array<{ id: string; source: 'CurseForge' | 'Modrinth'; title: string }> }>('search_catalogs', { request: { search: mod.name, curseforgeClassId: selectedCurseforgeClassId, platform: 'Todas', mcVersion: selectedInstanceMetadata?.minecraftVersion ?? null, loader: (selectedInstanceMetadata?.loader ?? '').toLowerCase() || null, category: selectedCatalogCategory, modrinthSort: 'relevance', curseforgeSortField: 1, limit: 1, page: 1 } })
+        const payload = await invoke<{ items: Array<{ id: string; source: 'CurseForge' | 'Modrinth'; title: string }> }>('search_catalogs', { request: { search: mod.name, curseforgeClassId: selectedCurseforgeClassId, curseforgeCategoryId: selectedCurseforgeCategoryId, platform: 'Todas', mcVersion: selectedInstanceMetadata?.minecraftVersion ?? null, loader: (selectedInstanceMetadata?.loader ?? '').toLowerCase() || null, category: selectedCatalogCategory, modrinthSort: 'relevance', curseforgeSortField: 1, limit: 1, page: 1 } })
         const first = payload.items[0]
         if (!first) continue
         const detail = await invoke<ModCatalogDetail>('get_catalog_detail', { request: { id: first.id, source: first.source } })
@@ -3460,7 +3476,7 @@ function App() {
     } finally {
       setUpdatesReviewLoading(false)
     }
-  }, [instanceMods, mapDetailToCatalogVersions, selectedCard?.instanceRoot, selectedCatalogCategory, selectedCurseforgeClassId, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion])
+  }, [instanceMods, mapDetailToCatalogVersions, selectedCard?.instanceRoot, selectedCatalogCategory, selectedCurseforgeCategoryId, selectedCurseforgeClassId, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion])
 
   const applyAllUpdates = useCallback(async () => {
     for (const candidate of updatesCandidates) {
@@ -4769,6 +4785,13 @@ function App() {
                                 </article>
                               )
                             }) : <p className="mods-empty">Esta fuente está reservada para integración manual/local.</p>}
+                            {isCatalogSource && (
+                              <div className="explorer-pagination versions-pagination-compact">
+                                <button className="square" onClick={() => setModsCatalogPage((prev) => Math.max(1, prev - 1))} disabled={modsCatalogPage <= 1 || modsCatalogLoading}>↑</button>
+                                <span>Página {modsCatalogPage}</span>
+                                <button className="square" onClick={() => setModsCatalogPage((prev) => prev + 1)} disabled={!modsCatalogHasMore || modsCatalogLoading}>↓</button>
+                              </div>
+                            )}
                           </section>
                           <section className="mods-preview-panel compact-info">
                             {selectedCatalogMod ? (
