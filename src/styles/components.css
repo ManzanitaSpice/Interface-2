@@ -3046,7 +3046,7 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
 }
 
 .mods-downloader-page { min-height: 0; display: grid; padding: .5rem; }
-.mods-downloader-layout { border: 1px solid var(--border); border-radius: 0; min-height: 0; display: grid; grid-template-columns: 150px 1fr; overflow: hidden; }
+.mods-downloader-layout { border: 1px solid var(--border); border-radius: 0; min-height: 0; display: grid; grid-template-columns: 130px 1fr; overflow: hidden; }
 .mods-downloader-sidebar { border-right: 1px solid var(--border); padding: .45rem; display: grid; gap: .4rem; align-content: start; }
 .mods-downloader-sidebar button,
 .mods-downloader-topbar button,
@@ -3062,16 +3062,16 @@ button, input, select, textarea { transform: scale(var(--ui-element-scale, 1)); 
 .mods-downloader-center { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; }
 .mods-downloader-topbar { border-bottom: 1px solid var(--border); padding: .45rem .6rem; display: grid; grid-template-columns: 1fr auto; gap: .45rem; }
 .mods-downloader-topbar input { width: 100%; min-width: 0; }
-.mods-downloader-panels { display: grid; grid-template-columns: 1fr 1fr; min-height: 340px; gap: .55rem; padding: .55rem; }
-.mods-catalog-panel, .mods-preview-panel, .mods-downloader-advanced-sidebar { border: 1px solid var(--border); border-radius: 0; padding: .5rem; overflow: auto; display: grid; align-content: start; gap: .4rem; }
+.mods-downloader-panels { display: grid; grid-template-columns: 1fr 1fr; min-height: 320px; gap: .4rem; padding: .4rem; }
+.mods-catalog-panel, .mods-preview-panel, .mods-downloader-advanced-sidebar { border: 1px solid var(--border); border-radius: 0; padding: .4rem; overflow: auto; display: grid; align-content: start; gap: .3rem; }
 .mods-downloader-advanced-sidebar { width: 240px; }
 .mods-downloader-advanced-sidebar section { border: 1px solid var(--border); padding: .4rem; display: grid; gap: .32rem; }
 .mods-downloader-advanced-sidebar h4 { margin: 0; font-size: .82rem; }
-.mods-catalog-item { border: 1px solid var(--border); border-radius: 0; display: grid; grid-template-columns: 36px 1fr; gap: .35rem; padding: .35rem; }
+.mods-catalog-item { border: 1px solid var(--border); border-radius: 0; display: grid; grid-template-columns: 32px 1fr; gap: .3rem; padding: .3rem; }
 .mods-catalog-item.active { border-color: var(--accent); }
-.mods-catalog-toggle { height: 100%; min-height: 64px; }
-.mods-catalog-main { text-align: left; display: grid; grid-template-columns: 54px 1fr; gap: .42rem; align-items: center; }
-.mods-catalog-main img { width: 54px; height: 54px; object-fit: cover; border: 1px solid var(--border); }
+.mods-catalog-toggle { height: 100%; min-height: 56px; }
+.mods-catalog-main { text-align: left; display: grid; grid-template-columns: 44px 1fr; gap: .35rem; align-items: center; }
+.mods-catalog-main img { width: 44px; height: 44px; object-fit: cover; border: 1px solid var(--border); }
 .mods-catalog-main small { color: var(--text-muted); display: block; font-size: .75rem; }
 .mods-preview-image { width: 72px; height: 72px; object-fit: cover; border: 1px solid var(--border); }
 .mods-preview-description { border: 1px solid var(--border); padding: .45rem; max-height: 300px; overflow: auto; }
