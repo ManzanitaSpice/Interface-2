@@ -18,7 +18,8 @@
         "resizable": true,
         "fullscreen": false,
         "maximized": true,
-        "devtools": false
+        "devtools": false,
+        "icon": "icons/icon.ico"
       }
     ],
     "security": {
