@@ -4,7 +4,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getVersion } from '@tauri-apps/api/app'
 import { check } from '@tauri-apps/plugin-updater'
 import { AnimatePresence, motion } from 'framer-motion'
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type UIEvent } from 'react'
 import './App.css'
 import { SkinStudio } from './skin/SkinStudio'
 import { FolderRow } from './components/FolderRow'
@@ -1027,7 +1027,7 @@ function App() {
   const playtimeStartRef = useRef<number | null>(null)
   const dependencyDetailCacheRef = useRef<Record<string, ModCatalogDetail>>({})
   const installedIconsCacheRef = useRef<Record<string, string>>({})
-  const downloaderCatalogCacheRef = useRef<Record<string, ModsCatalogItem[]>>({})
+  const downloaderCatalogCacheRef = useRef<Record<string, Record<number, { rows: ModsCatalogItem[]; hasMore: boolean }>>>({})
 
 
 
@@ -3109,11 +3109,13 @@ function App() {
 
   useEffect(() => {
     setModsCatalogPage(1)
+    setDownloaderCatalogMods([])
+    setModsCatalogHasMore(false)
   }, [debouncedDownloaderSearch, modsDownloaderSource, modsDownloaderSort, downloaderShowAllVersions, downloaderVersionFilter, downloaderLoaderFilter, downloaderClientOnly, downloaderServerOnly, selectedContentSection])
 
   const fetchDownloaderCatalog = useCallback(async () => {
     if (!modsDownloaderOpen || !isCatalogSource) return
-    const queryKey = JSON.stringify({
+    const queryBaseKey = JSON.stringify({
       search: debouncedDownloaderSearch,
       classId: selectedCurseforgeClassId,
       source: modsDownloaderSource,
@@ -3121,13 +3123,12 @@ function App() {
       loader: (downloaderLoaderFilter || selectedInstanceMetadata?.loader || '').toLowerCase() || null,
       category: selectedContentSection === 'mods' ? (downloaderClientOnly ? 'client' : downloaderServerOnly ? 'server' : 'mod') : selectedCatalogCategory,
       sort: modsDownloaderSort,
-      page: modsCatalogPage,
     })
-    const cachedRows = downloaderCatalogCacheRef.current[queryKey]
-    if (cachedRows) {
-      setDownloaderCatalogMods(cachedRows)
-      setModsCatalogHasMore(cachedRows.length >= 30)
-      setSelectedCatalogModId((prev) => (prev && cachedRows.some((item) => item.id === prev) ? prev : ''))
+    const cachedPage = downloaderCatalogCacheRef.current[queryBaseKey]?.[modsCatalogPage]
+    if (cachedPage) {
+      setDownloaderCatalogMods((prev) => (modsCatalogPage === 1 ? cachedPage.rows : [...prev, ...cachedPage.rows]))
+      setModsCatalogHasMore(cachedPage.hasMore)
+      setSelectedCatalogModId((prev) => (modsCatalogPage === 1 && prev && !cachedPage.rows.some((item) => item.id === prev) ? '' : prev))
       return
     }
     setModsCatalogLoading(true)
@@ -3159,10 +3160,14 @@ function App() {
         publishedAt: item.updatedAt,
         updatedAt: item.updatedAt,
       }))
-      downloaderCatalogCacheRef.current[queryKey] = rows
-      setDownloaderCatalogMods(rows)
+      if (!downloaderCatalogCacheRef.current[queryBaseKey]) downloaderCatalogCacheRef.current[queryBaseKey] = {}
+      downloaderCatalogCacheRef.current[queryBaseKey][modsCatalogPage] = { rows, hasMore: payload.hasMore }
+      setDownloaderCatalogMods((prev) => (modsCatalogPage === 1 ? rows : [...prev, ...rows]))
       setModsCatalogHasMore(payload.hasMore)
-      setSelectedCatalogModId((prev) => (prev && rows.some((item) => item.id === prev) ? prev : ''))
+      setSelectedCatalogModId((prev) => {
+        if (prev && (modsCatalogPage !== 1 || rows.some((item) => item.id === prev))) return prev
+        return ''
+      })
     } catch (error) {
       setModsCatalogError(error instanceof Error ? error.message : String(error))
       setDownloaderCatalogMods([])
@@ -3172,6 +3177,13 @@ function App() {
       setModsCatalogLoading(false)
     }
   }, [debouncedDownloaderSearch, downloaderClientOnly, downloaderLoaderFilter, downloaderServerOnly, downloaderShowAllVersions, downloaderVersionFilter, isCatalogSource, modsCatalogPage, modsDownloaderOpen, modsDownloaderSort, modsDownloaderSource, selectedCatalogCategory, selectedContentSection, selectedCurseforgeCategoryId, selectedCurseforgeClassId, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion])
+
+  const handleCatalogPanelScroll = useCallback((event: UIEvent<HTMLElement>) => {
+    if (!isCatalogSource || modsCatalogLoading || !modsCatalogHasMore) return
+    const panel = event.currentTarget
+    const remaining = panel.scrollHeight - panel.scrollTop - panel.clientHeight
+    if (remaining < 260) setModsCatalogPage((prev) => prev + 1)
+  }, [isCatalogSource, modsCatalogHasMore, modsCatalogLoading])
 
   useEffect(() => { void fetchDownloaderCatalog() }, [fetchDownloaderCatalog])
 
@@ -4766,7 +4778,7 @@ function App() {
                           <button className={`ghost-btn mods-filter-btn ${modsAdvancedOpen ? 'active' : ''}`} onClick={() => setModsAdvancedOpen((prev) => !prev)}>Filtro avanzado</button>
                         </header>
                         <div className="mods-downloader-panels">
-                          <section className="mods-catalog-panel">
+                          <section className="mods-catalog-panel" onScroll={handleCatalogPanelScroll}>
                             {modsCatalogLoading && <p className="mods-empty">Cargando catálogo...</p>}
                             {modsCatalogError && <p className="error-banner">{modsCatalogError}</p>}
                             {isCatalogSource ? downloaderCatalogMods.map((mod) => {
@@ -4785,13 +4797,8 @@ function App() {
                                 </article>
                               )
                             }) : <p className="mods-empty">Esta fuente está reservada para integración manual/local.</p>}
-                            {isCatalogSource && (
-                              <div className="explorer-pagination versions-pagination-compact">
-                                <button className="square" onClick={() => setModsCatalogPage((prev) => Math.max(1, prev - 1))} disabled={modsCatalogPage <= 1 || modsCatalogLoading}>↑</button>
-                                <span>Página {modsCatalogPage}</span>
-                                <button className="square" onClick={() => setModsCatalogPage((prev) => prev + 1)} disabled={!modsCatalogHasMore || modsCatalogLoading}>↓</button>
-                              </div>
-                            )}
+                            {isCatalogSource && modsCatalogLoading && modsCatalogPage > 1 && <p className="mods-empty">Cargando más resultados...</p>}
+                            {isCatalogSource && !modsCatalogHasMore && downloaderCatalogMods.length > 0 && <p className="mods-empty">No hay más resultados para cargar.</p>}
                           </section>
                           <section className="mods-preview-panel compact-info">
                             {selectedCatalogMod ? (
