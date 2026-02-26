@@ -8,6 +8,7 @@ pub struct CatalogSearchRequest {
     pub search: String,
     pub category: Option<String>,
     pub curseforge_class_id: Option<u32>,
+    pub curseforge_category_id: Option<u32>,
     pub platform: String,
     pub mc_version: Option<String>,
     pub loader: Option<String>,
@@ -807,6 +808,9 @@ fn fetch_curseforge(
     }
     if let Some(class_id) = request.curseforge_class_id {
         params.push(("classId", class_id.to_string()));
+    }
+    if let Some(category_id) = request.curseforge_category_id {
+        params.push(("categoryId", category_id.to_string()));
     }
     if let Some(loader) = request.loader.as_ref().filter(|v| !v.is_empty()) {
         if let Some(mod_loader_type) = map_curseforge_loader_type(loader) {
