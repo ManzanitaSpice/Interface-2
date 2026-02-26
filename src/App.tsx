@@ -4,7 +4,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getVersion } from '@tauri-apps/api/app'
 import { check } from '@tauri-apps/plugin-updater'
 import { AnimatePresence, motion } from 'framer-motion'
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type UIEvent } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import './App.css'
 import { SkinStudio } from './skin/SkinStudio'
 import { FolderRow } from './components/FolderRow'
@@ -272,12 +272,6 @@ type StagedDownloadEntry = {
   reinstall: boolean
   selected: boolean
   dependencies: Array<{ mod: ModsCatalogItem; version: CatalogVersionItem | null; installed: boolean; selected: boolean }>
-}
-
-type VisibleCatalogSlice = {
-  rows: CatalogVersionItem[]
-  canScrollUp: boolean
-  canScrollDown: boolean
 }
 
 type MicrosoftAuthStart = {
@@ -1028,7 +1022,8 @@ function App() {
   const dependencyDetailCacheRef = useRef<Record<string, ModCatalogDetail>>({})
   const installedIconsCacheRef = useRef<Record<string, string>>({})
   const downloaderCatalogCacheRef = useRef<Record<string, Record<number, { rows: ModsCatalogItem[]; hasMore: boolean }>>>({})
-
+  const catalogPanelRef = useRef<HTMLElement | null>(null)
+  const catalogLoadPendingRef = useRef(false)
 
 
 
@@ -3046,7 +3041,7 @@ function App() {
     }
     void fetchInstalledModIcons()
     return () => { cancelled = true }
-  }, [instanceMods, selectedCatalogCategory, selectedCurseforgeCategoryId, selectedCurseforgeClassId, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion])
+  }, [instanceMods, selectedCatalogCategory, selectedCurseforgeCategoryId, selectedCurseforgeClassId, selectedInstanceMetadata?.minecraftVersion])
 
   const selectedMod = useMemo(() => instanceMods.find((item) => item.id === selectedModId) ?? null, [instanceMods, selectedModId])
   const isCatalogSource = modsDownloaderSource === 'Modrinth' || modsDownloaderSource === 'CurseForge'
@@ -3086,21 +3081,11 @@ function App() {
     [selectedCatalogVersionId, selectedCatalogVersions],
   )
 
-  const visibleCatalogVersionSlice = useMemo<VisibleCatalogSlice>(() => {
-    const maxVisible = 4
-    if (selectedCatalogVersions.length <= maxVisible) {
-      return { rows: selectedCatalogVersions, canScrollUp: false, canScrollDown: false }
-    }
-    const selectedIndex = Math.max(0, selectedCatalogVersions.findIndex((item) => item.id === selectedCatalogVersionId))
-    const start = Math.min(Math.max(0, selectedIndex - 1), selectedCatalogVersions.length - maxVisible)
-    return {
-      rows: selectedCatalogVersions.slice(start, start + maxVisible),
-      canScrollUp: start > 0,
-      canScrollDown: start + maxVisible < selectedCatalogVersions.length,
-    }
-  }, [selectedCatalogVersionId, selectedCatalogVersions])
-
   const releaseMinecraftVersions = useMemo(() => manifestVersions.filter((entry) => entry.type === 'release').map((entry) => entry.id), [manifestVersions])
+
+  const effectiveDownloaderLoaderFilter = selectedContentSection === 'mods'
+    ? ((downloaderLoaderFilter || selectedInstanceMetadata?.loader || '').toLowerCase() || null)
+    : null
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setDebouncedDownloaderSearch(downloaderSearch.trim()), 260)
@@ -3120,7 +3105,7 @@ function App() {
       classId: selectedCurseforgeClassId,
       source: modsDownloaderSource,
       mc: downloaderShowAllVersions ? null : (downloaderVersionFilter || selectedInstanceMetadata?.minecraftVersion || null),
-      loader: (downloaderLoaderFilter || selectedInstanceMetadata?.loader || '').toLowerCase() || null,
+      loader: effectiveDownloaderLoaderFilter,
       category: selectedContentSection === 'mods' ? (downloaderClientOnly ? 'client' : downloaderServerOnly ? 'server' : 'mod') : selectedCatalogCategory,
       sort: modsDownloaderSort,
     })
@@ -3140,7 +3125,7 @@ function App() {
           curseforgeClassId: selectedCurseforgeClassId,
           platform: modsDownloaderSource,
           mcVersion: downloaderShowAllVersions ? null : (downloaderVersionFilter || selectedInstanceMetadata?.minecraftVersion || null),
-          loader: (downloaderLoaderFilter || selectedInstanceMetadata?.loader || '').toLowerCase() || null,
+          loader: effectiveDownloaderLoaderFilter,
           category: selectedContentSection === 'mods' ? (downloaderClientOnly ? 'client' : downloaderServerOnly ? 'server' : 'mod') : selectedCatalogCategory,
           modrinthSort: modsDownloaderSort,
           curseforgeSortField: modsDownloaderSort === 'downloads' ? 6 : modsDownloaderSort === 'updated' ? 3 : modsDownloaderSort === 'followers' ? 2 : modsDownloaderSort === 'newest' ? 4 : 1,
@@ -3176,14 +3161,42 @@ function App() {
     } finally {
       setModsCatalogLoading(false)
     }
-  }, [debouncedDownloaderSearch, downloaderClientOnly, downloaderLoaderFilter, downloaderServerOnly, downloaderShowAllVersions, downloaderVersionFilter, isCatalogSource, modsCatalogPage, modsDownloaderOpen, modsDownloaderSort, modsDownloaderSource, selectedCatalogCategory, selectedContentSection, selectedCurseforgeCategoryId, selectedCurseforgeClassId, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion])
+  }, [debouncedDownloaderSearch, downloaderClientOnly, downloaderLoaderFilter, downloaderServerOnly, downloaderShowAllVersions, downloaderVersionFilter, isCatalogSource, modsCatalogPage, modsDownloaderOpen, modsDownloaderSort, modsDownloaderSource, selectedCatalogCategory, selectedContentSection, selectedCurseforgeCategoryId, selectedCurseforgeClassId, selectedInstanceMetadata?.minecraftVersion])
 
-  const handleCatalogPanelScroll = useCallback((event: UIEvent<HTMLElement>) => {
-    if (!isCatalogSource || modsCatalogLoading || !modsCatalogHasMore) return
-    const panel = event.currentTarget
-    const remaining = panel.scrollHeight - panel.scrollTop - panel.clientHeight
-    if (remaining < 260) setModsCatalogPage((prev) => prev + 1)
+  const loadMoreCatalogEntries = useCallback(() => {
+    if (!isCatalogSource || modsCatalogLoading || !modsCatalogHasMore || catalogLoadPendingRef.current) return
+    catalogLoadPendingRef.current = true
+    setModsCatalogPage((prev) => prev + 1)
   }, [isCatalogSource, modsCatalogHasMore, modsCatalogLoading])
+
+  useEffect(() => {
+    if (!modsCatalogLoading) {
+      catalogLoadPendingRef.current = false
+    }
+  }, [modsCatalogLoading])
+
+  useEffect(() => {
+    const panel = catalogPanelRef.current
+    if (!panel || !isCatalogSource) return
+
+    const sentinel = document.createElement('div')
+    sentinel.className = 'catalog-infinite-sentinel'
+    panel.appendChild(sentinel)
+
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) loadMoreCatalogEntries()
+    }, {
+      root: panel,
+      rootMargin: '260px 0px',
+      threshold: 0,
+    })
+
+    observer.observe(sentinel)
+    return () => {
+      observer.disconnect()
+      sentinel.remove()
+    }
+  }, [isCatalogSource, loadMoreCatalogEntries, modsDownloaderOpen, modsDownloaderSource, selectedContentSection])
 
   useEffect(() => { void fetchDownloaderCatalog() }, [fetchDownloaderCatalog])
 
@@ -3488,7 +3501,7 @@ function App() {
     } finally {
       setUpdatesReviewLoading(false)
     }
-  }, [instanceMods, mapDetailToCatalogVersions, selectedCard?.instanceRoot, selectedCatalogCategory, selectedCurseforgeCategoryId, selectedCurseforgeClassId, selectedInstanceMetadata?.loader, selectedInstanceMetadata?.minecraftVersion])
+  }, [instanceMods, mapDetailToCatalogVersions, selectedCard?.instanceRoot, selectedCatalogCategory, selectedCurseforgeCategoryId, selectedCurseforgeClassId, selectedInstanceMetadata?.minecraftVersion])
 
   const applyAllUpdates = useCallback(async () => {
     for (const candidate of updatesCandidates) {
@@ -4778,7 +4791,7 @@ function App() {
                           <button className={`ghost-btn mods-filter-btn ${modsAdvancedOpen ? 'active' : ''}`} onClick={() => setModsAdvancedOpen((prev) => !prev)}>Filtro avanzado</button>
                         </header>
                         <div className="mods-downloader-panels">
-                          <section className="mods-catalog-panel" onScroll={handleCatalogPanelScroll}>
+                          <section className="mods-catalog-panel" ref={catalogPanelRef}>
                             {modsCatalogLoading && <p className="mods-empty">Cargando catálogo...</p>}
                             {modsCatalogError && <p className="error-banner">{modsCatalogError}</p>}
                             {isCatalogSource ? downloaderCatalogMods.map((mod) => {
@@ -4835,37 +4848,15 @@ function App() {
                             </label>
                           </div>
                           <div className="mods-compact-bar versions-block">
-                            <label>Versiones del contenido</label>
-                            <div className="versions-scroll-wrap">
-                              <select size={4} value={selectedCatalogVersion?.id ?? ''} disabled={!selectedCatalogMod} onChange={(event) => setSelectedCatalogVersionId(event.target.value)}>
-                                {visibleCatalogVersionSlice.rows.map((version) => (
+                            <label htmlFor="catalog-version-select">Versiones del contenido</label>
+                            <div className="versions-scroll-wrap compact-dropdown-wrap">
+                              <select id="catalog-version-select" className="compact-single-select" value={selectedCatalogVersion?.id ?? ''} disabled={!selectedCatalogMod} onChange={(event) => setSelectedCatalogVersionId(event.target.value)}>
+                                {selectedCatalogVersions.map((version) => (
                                   <option key={version.id} value={version.id}>{selectedCatalogMod?.name ?? 'Mod'} · {version.gameVersion} · {version.name} · {(version.versionType ?? 'release').toUpperCase()} {((selectedCatalogMod && instanceMods.some((item) => item.name.toLowerCase() === selectedCatalogMod.name.toLowerCase())) ? '· INSTALADO' : '')}</option>
                                 ))}
                               </select>
                             </div>
-                            <div className="versions-pagination-compact">
-                              <button
-                                className="square"
-                                onClick={() => {
-                                  const index = selectedCatalogVersions.findIndex((item) => item.id === selectedCatalogVersionId)
-                                  const previous = selectedCatalogVersions[Math.max(0, index - 1)]
-                                  if (previous) setSelectedCatalogVersionId(previous.id)
-                                }}
-                                disabled={!visibleCatalogVersionSlice.canScrollUp}
-                                aria-label="Versión anterior"
-                              >↑</button>
-                              <span className="mods-channel-chip">{(selectedCatalogVersion?.versionType ?? 'release').toUpperCase()}</span>
-                              <button
-                                className="square"
-                                onClick={() => {
-                                  const index = selectedCatalogVersions.findIndex((item) => item.id === selectedCatalogVersionId)
-                                  const next = selectedCatalogVersions[Math.min(selectedCatalogVersions.length - 1, Math.max(0, index) + 1)]
-                                  if (next) setSelectedCatalogVersionId(next.id)
-                                }}
-                                disabled={!visibleCatalogVersionSlice.canScrollDown}
-                                aria-label="Versión siguiente"
-                              >↓</button>
-                            </div>
+                            <span className="mods-channel-chip">{(selectedCatalogVersion?.versionType ?? 'release').toUpperCase()}</span>
                           </div>
                           <div className="mods-compact-bar actions-row">
                             <button className="secondary" onClick={() => { void stageSelectedMod() }} disabled={!selectedCatalogVersion}>{stagedDownloads[selectedCatalogModId] ? 'Deseleccionar' : 'Seleccionar para descargar'}</button>
