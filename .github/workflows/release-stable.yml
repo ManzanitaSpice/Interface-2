@@ -63,6 +63,9 @@ jobs:
 
           $bundleRoot = "src-tauri\target\release\bundle"
           $outDir = "updater-bundles"
+          $tag = "${{ github.ref_name }}"
+          $fixedNsisName = "INTERFACE_${tag}_windows-x86_64.nsis.zip"
+          $fixedMsiName = "INTERFACE_${tag}_windows-x86_64.msi.zip"
           New-Item -ItemType Directory -Force $outDir | Out-Null
 
           Write-Host "=== Bundle tree (for debug) ==="
@@ -105,15 +108,15 @@ jobs:
             Write-Host "Created fallback updater zip: $($nsisZip.FullName)"
           }
 
-          $nsisDest = Join-Path $outDir $nsisZip.Name
+          $nsisDest = Join-Path $outDir $fixedNsisName
           Copy-Item $nsisZip.FullName $nsisDest -Force
-          Write-Host "Using updater bundle: $nsisDest"
+          Write-Host "Using updater bundle (fixed name): $nsisDest"
 
           $msiZip = Get-ChildItem -Recurse $bundleRoot -Filter "*.msi.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($msiZip) {
-            $msiDest = Join-Path $outDir $msiZip.Name
+            $msiDest = Join-Path $outDir $fixedMsiName
             Copy-Item $msiZip.FullName $msiDest -Force
-            Write-Host "Also collected MSI updater zip: $msiDest"
+            Write-Host "Also collected MSI updater zip (fixed name): $msiDest"
           }
 
           $finalZips = Get-ChildItem $outDir -Filter *.zip
@@ -179,10 +182,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            updater-bundles/*.msi.zip
-            updater-bundles/*.msi.zip.sig
-            updater-bundles/*.nsis.zip
-            updater-bundles/*.nsis.zip.sig
+            updater-bundles/INTERFACE_${{ github.ref_name }}_windows-x86_64.msi.zip
+            updater-bundles/INTERFACE_${{ github.ref_name }}_windows-x86_64.msi.zip.sig
+            updater-bundles/INTERFACE_${{ github.ref_name }}_windows-x86_64.nsis.zip
+            updater-bundles/INTERFACE_${{ github.ref_name }}_windows-x86_64.nsis.zip.sig
 
       - name: Generate stable manifest
         shell: pwsh
@@ -198,35 +201,10 @@ jobs:
 
           $release = Invoke-RestMethod -Headers $headers -Uri $api
 
-          $windowsUpdaterAssets = $release.assets | Where-Object {
-            $_.name -match '(?i)\.(nsis|msi)\.zip$' -and
-            ($_.name -match '(?i)x64|x86_64|amd64' -or $_.name -notmatch '(?i)arm64|aarch64')
-          }
-
-          $updaterAsset = $windowsUpdaterAssets | Where-Object {
-            $_.name -match '(?i)\.nsis\.zip$' -and $_.name -match '(?i)x64|x86_64|amd64'
-          } | Select-Object -First 1
-
+          $fixedName = "INTERFACE_${tag}_windows-x86_64.nsis.zip"
+          $updaterAsset = $release.assets | Where-Object { $_.name -eq $fixedName } | Select-Object -First 1
           if (-not $updaterAsset) {
-            $updaterAsset = $windowsUpdaterAssets | Where-Object {
-              $_.name -match '(?i)\.nsis\.zip$'
-            } | Select-Object -First 1
-          }
-
-          if (-not $updaterAsset) {
-            $updaterAsset = $windowsUpdaterAssets | Where-Object {
-              $_.name -match '(?i)\.msi\.zip$' -and $_.name -match '(?i)x64|x86_64|amd64'
-            } | Select-Object -First 1
-          }
-
-          if (-not $updaterAsset) {
-            $updaterAsset = $windowsUpdaterAssets | Where-Object {
-              $_.name -match '(?i)\.msi\.zip$'
-            } | Select-Object -First 1
-          }
-
-          if (-not $updaterAsset) {
-            throw "No Windows updater bundle (.nsis.zip or .msi.zip) found in release $tag. Assets: $($release.assets.name -join ', ')"
+            throw "Expected updater asset not found: $fixedName. Assets: $($release.assets.name -join ', ')"
           }
 
           # Retry: wait for GitHub to index the .sig asset in the release
