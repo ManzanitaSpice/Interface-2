@@ -1,11 +1,11 @@
 {
+  "version": "0.1.59",
+  "notes": "Stable update v0.1.59",
+  "pub_date": "2026-04-05T19:16:32Z",
   "platforms": {
     "windows-x86_64": {
       "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVRzZFFvUm0vZk9maFFwN05maytrUmVnZDk2UmtmUUpVRlA4aEFGb3hyQjZuN0dDUTJheWE0Vm96c2FFcnJNaExtNmxDZ2Q3cFlkZTdzSXZTRWlEZFFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1NDE2NjE1CWZpbGU6SU5URVJGQUNFX3YwLjEuNTlfd2luZG93cy14ODZfNjQubnNpcy56aXAKS0hjOVlUYnVFdTN2bjNHMXlpOGNEcDRrSWdVRm4wS1hPVEYwQXFBNzA0cHBXWGFaM1lOeEJGell2cTI3aXM0RCt1eHdCczZEMDVXZkJUUVdVNldxQXc9PQo=",
       "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v0.1.59/INTERFACE_v0.1.59_windows-x86_64.nsis.zip"
     }
-  },
-  "pub_date": "2026-04-05T19:16:32Z",
-  "notes": "Stable update v0.1.59",
-  "version": "0.1.59"
+  }
 }
