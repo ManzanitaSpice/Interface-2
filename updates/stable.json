@@ -1,11 +1,11 @@
 {
-  "version": "0.1.60",
-  "notes": "Stable update v0.1.60",
-  "pub_date": "2026-04-06T18:15:57Z",
+  "version": "0.1.61",
+  "notes": "Stable update v0.1.61",
+  "pub_date": "2026-04-07T03:16:20Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVhvS0F6SGlxWXM4L2NPKzdKN24wM1AyWlNCTndZaEJBU3RHYVQ1V2JaWUxlMWJLK0EwRHRGRDNpM1hXMlo3L2tnWEk5SGhPTEs4QkNwcjZYOUZCNVFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1NDk5MzYyCWZpbGU6SU5URVJGQUNFX3YwLjEuNjBfd2luZG93cy14ODZfNjQubnNpcy56aXAKcGprOFpNeHcwYmRVUHpRSXlQeWZuclpvaXZScmxyU09oUGhHRkl4NDBtbzdOczFaTFVJUkxXS2JqNkNiYXJ5VC90SkQyamNYOVNDdVRUWGRuVTlXQ2c9PQo=",
-      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v0.1.60/INTERFACE_v0.1.60_windows-x86_64.nsis.zip"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVdCZFJZT24wc3Yyb0lkbzQ3emxNcVA5L2ZGQ1FBaEV4UExkMjlvL2FrTXlLdFhsUXEzYWsyR3RKa0xOZjhoREpEUk5BUkV3S0EyZ1pIbWFDWkp1S2d3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1NTMxNzg2CWZpbGU6SU5URVJGQUNFX3YwLjEuNjFfd2luZG93cy14ODZfNjQubnNpcy56aXAKNG9qZzBFUUJzMkVjRTNzTmV2SG5QNDJRMjRSWXRlV2J2RTArQ3hCOVRvTk1iYk9QQVh5V2xyMHpvbkJWSjlnZnBGZjQ4ZU83cFpxMmJkVWU5azQxQ0E9PQo=",
+      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v0.1.61/INTERFACE_v0.1.61_windows-x86_64.nsis.zip"
     }
   }
 }
