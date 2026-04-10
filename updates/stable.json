@@ -5,12 +5,12 @@
   "platforms": {
     "windows-x86_64": {
       "content_type": "application/zip",
-      "kind": "nsis-exe",
-      "name": "INTERFACE_0.1.62_x64-setup.exe",
-      "sha256": "0e5062eba023693e82dee215161432f0b15ee1f47a920d556a6b47aa6233eb1e",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVFJTnlhQlNSY3dxOUR4UldtK3BQVlNCYVpteTFjOFZJU3RMMld3TWlPam82TUZwajlRWi94cHNSODNDMmliSmNvUFp3OHNHc01EZWpWL3ZPSkRoUHdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1Nzk0NzAyCWZpbGU6SU5URVJGQUNFXzAuMS42Ml94NjQtc2V0dXAuZXhlCmhmS3JNZ0J3Y3l0MlZ5V2xoZ3NVMzg5SVd0Ly8yS2tMWHpSSWRDV3FEbFE3aGgvVEtUSmVCc2xDc2FtQnhkUXZiM29VU0EvaDVXR0Myd29jOEg0UUFBPT0K",
-      "signature_name": "INTERFACE_0.1.62_x64-setup.exe.sig",
-      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v0.1.62/INTERFACE_0.1.62_x64-setup.exe"
+      "kind": "nsis-zip",
+      "name": "INTERFACE_v0.1.62_windows-x86_64.nsis.zip",
+      "sha256": "2640cbbda2395d2e527beb484bccf93be5cd3082c7bfb5b248685dd011b1d3a4",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVM3RVNuUUg3Tm4rTUN3ZzR6QkRKVUN4WG1kMFVUSmh5TzZIVTd1OXNtaFFnM2oyaEM3bGhDT3BVMTNzbkZmWWVnL1lBaDMrMFZCck9ub3pFZ04vVGdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1Nzk0NzAzCWZpbGU6SU5URVJGQUNFX3YwLjEuNjJfd2luZG93cy14ODZfNjQubnNpcy56aXAKK1BZWkdxZURTeXNjaEJpRVlLR253NVZxbFp6SkhVakU0WmZybnU4Y3cvcTdEdjhSckJxQ05uSHVJTnd6dHBpR3Z2QmFmOTFpaGU5L013QXh4cUg5QlE9PQo=",
+      "signature_name": "INTERFACE_v0.1.62_windows-x86_64.nsis.zip.sig",
+      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v0.1.62/INTERFACE_v0.1.62_windows-x86_64.nsis.zip"
     }
   }
 }

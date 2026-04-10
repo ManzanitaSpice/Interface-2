@@ -1,16 +1,32 @@
 {
-  "generated_at": "2026-04-10T04:18:26.534Z",
+  "generated_at": "2026-04-10T18:35:17.963Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
-    "stable": "0.1.62",
+    "stable": "0.1.63",
     "beta": "0.0.4"
   },
   "releases": [
     {
+      "tag": "v0.1.63",
+      "version": "0.1.63",
+      "title": "v0.1.63",
+      "notes": "v0.1.63",
+      "pub_date": "2026-04-10T12:36:21-06:00",
+      "channel": "stable",
+      "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v0.1.63",
+      "draft": false,
+      "prerelease": false,
+      "assets_count": 0,
+      "updater_available": false,
+      "updater_asset_name": "",
+      "updater_asset_kind": "",
+      "updater_asset_sha256": ""
+    },
+    {
       "tag": "v0.1.62",
       "version": "0.1.62",
       "title": "v0.1.62",
-      "notes": "v0.3",
+      "notes": "v0.1.62",
       "pub_date": "2026-04-10T04:18:18Z",
       "channel": "stable",
       "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v0.1.62",
@@ -18,9 +34,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_0.1.62_x64-setup.exe",
-      "updater_asset_kind": "nsis-exe",
-      "updater_asset_sha256": "0e5062eba023693e82dee215161432f0b15ee1f47a920d556a6b47aa6233eb1e"
+      "updater_asset_name": "INTERFACE_v0.1.62_windows-x86_64.nsis.zip",
+      "updater_asset_kind": "nsis-zip",
+      "updater_asset_sha256": "2640cbbda2395d2e527beb484bccf93be5cd3082c7bfb5b248685dd011b1d3a4"
     },
     {
       "tag": "v0.1.61",
@@ -514,9 +530,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": false,
-      "updater_asset_name": "INTERFACE_0.1.24_x64-setup.exe",
-      "updater_asset_kind": "nsis-exe",
-      "updater_asset_sha256": "d00152f0c8db1606173d7a3b070afa9f9adabaa05ee17ecd3b5b2ff3346139e1"
+      "updater_asset_name": "INTERFACE_0.1.24_x64-setup.nsis.zip",
+      "updater_asset_kind": "nsis-zip",
+      "updater_asset_sha256": "5f1dd05ad2851815175f645af7edded8f578f9287771ef9233994bb76e02b54d"
     },
     {
       "tag": "v0.1.24",
