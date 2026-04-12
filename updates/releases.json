@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-12T00:32:59.241Z",
+  "generated_at": "2026-04-12T00:46:20.436Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
     "stable": "0.1.67",
@@ -10,17 +10,17 @@
       "tag": "v0.1.67",
       "version": "0.1.67",
       "title": "v0.1.67",
-      "notes": "v0.1.67",
-      "pub_date": "2026-04-11T18:34:02-06:00",
+      "notes": "v0.8",
+      "pub_date": "2026-04-12T00:46:07Z",
       "channel": "stable",
       "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v0.1.67",
       "draft": false,
       "prerelease": false,
-      "assets_count": 0,
-      "updater_available": false,
-      "updater_asset_name": "",
-      "updater_asset_kind": "",
-      "updater_asset_sha256": ""
+      "assets_count": 4,
+      "updater_available": true,
+      "updater_asset_name": "INTERFACE_v0.1.67_windows-x86_64.nsis.zip",
+      "updater_asset_kind": "nsis-zip",
+      "updater_asset_sha256": "19087595b2cabc9bd0bae384e1ccf570b95817c49edce8fab7adab585387c8e9"
     },
     {
       "tag": "v0.1.66",
