@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-20T07:28:43.992Z",
+  "generated_at": "2026-04-20T07:41:24.566Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
     "stable": "0.12.8",
@@ -10,17 +10,17 @@
       "tag": "v0.12.8",
       "version": "0.12.8",
       "title": "v0.12.8",
-      "notes": "v0.12.8",
-      "pub_date": "2026-04-20T01:30:05-06:00",
+      "notes": "fix: align linked instances with source data and reduce launcher media/scroll jank",
+      "pub_date": "2026-04-20T07:41:15Z",
       "channel": "stable",
       "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v0.12.8",
       "draft": false,
       "prerelease": false,
-      "assets_count": 0,
-      "updater_available": false,
-      "updater_asset_name": "",
-      "updater_asset_kind": "",
-      "updater_asset_sha256": ""
+      "assets_count": 4,
+      "updater_available": true,
+      "updater_asset_name": "INTERFACE_v0.12.8_windows-x86_64.nsis.zip",
+      "updater_asset_kind": "nsis-zip",
+      "updater_asset_sha256": "a733953bf5f5651a5a1c3078c843abbab1c6ef9bc55ccdce6b31a8541c2cabd0"
     },
     {
       "tag": "v0.12.7",
