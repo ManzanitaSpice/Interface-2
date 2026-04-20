@@ -1,16 +1,32 @@
 {
-  "generated_at": "2026-04-20T05:11:33.643Z",
+  "generated_at": "2026-04-20T05:36:48.241Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
-    "stable": "0.12.5",
+    "stable": "0.12.6",
     "beta": "0.0.4"
   },
   "releases": [
     {
+      "tag": "v0.12.6",
+      "version": "0.12.6",
+      "title": "v0.12.6",
+      "notes": "v0.12.6",
+      "pub_date": "2026-04-19T23:38:11-06:00",
+      "channel": "stable",
+      "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v0.12.6",
+      "draft": false,
+      "prerelease": false,
+      "assets_count": 0,
+      "updater_available": false,
+      "updater_asset_name": "",
+      "updater_asset_kind": "",
+      "updater_asset_sha256": ""
+    },
+    {
       "tag": "v0.12.5",
       "version": "0.12.5",
       "title": "v0.12.5",
-      "notes": "fix: invalidate updater webview cache and restore release parity",
+      "notes": "v0.12.5",
       "pub_date": "2026-04-20T05:11:25Z",
       "channel": "stable",
       "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v0.12.5",
