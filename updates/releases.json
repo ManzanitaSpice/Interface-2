@@ -1,16 +1,32 @@
 {
-  "generated_at": "2026-04-20T06:56:24.570Z",
+  "generated_at": "2026-04-20T07:28:43.992Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
-    "stable": "0.12.7",
+    "stable": "0.12.8",
     "beta": "0.0.4"
   },
   "releases": [
     {
+      "tag": "v0.12.8",
+      "version": "0.12.8",
+      "title": "v0.12.8",
+      "notes": "v0.12.8",
+      "pub_date": "2026-04-20T01:30:05-06:00",
+      "channel": "stable",
+      "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v0.12.8",
+      "draft": false,
+      "prerelease": false,
+      "assets_count": 0,
+      "updater_available": false,
+      "updater_asset_name": "",
+      "updater_asset_kind": "",
+      "updater_asset_sha256": ""
+    },
+    {
       "tag": "v0.12.7",
       "version": "0.12.7",
       "title": "v0.12.7",
-      "notes": "fix: speed up virtual lists and harden cross-machine instance inventory refresh",
+      "notes": "v0.12.7",
       "pub_date": "2026-04-20T06:56:15Z",
       "channel": "stable",
       "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v0.12.7",
