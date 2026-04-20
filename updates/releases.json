@@ -1,16 +1,32 @@
 {
-  "generated_at": "2026-04-20T08:23:15.772Z",
+  "generated_at": "2026-04-20T20:07:04.856Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
-    "stable": "0.12.9",
+    "stable": "1.0.2",
     "beta": "0.0.4"
   },
   "releases": [
     {
+      "tag": "v1.0.2",
+      "version": "1.0.2",
+      "title": "v1.0.2",
+      "notes": "v1.0.2",
+      "pub_date": "2026-04-20T14:08:28-06:00",
+      "channel": "stable",
+      "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.0.2",
+      "draft": false,
+      "prerelease": false,
+      "assets_count": 0,
+      "updater_available": false,
+      "updater_asset_name": "",
+      "updater_asset_kind": "",
+      "updater_asset_sha256": ""
+    },
+    {
       "tag": "v0.12.9",
       "version": "0.12.9",
       "title": "v0.12.9",
-      "notes": "fix linked instances and smooth catalog scroll",
+      "notes": "v0.12.9",
       "pub_date": "2026-04-20T08:23:06Z",
       "channel": "stable",
       "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v0.12.9",
