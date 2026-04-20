@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-20T03:26:06.583Z",
+  "generated_at": "2026-04-20T03:39:17.287Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
     "stable": "0.12.4",
@@ -10,17 +10,17 @@
       "tag": "v0.12.4",
       "version": "0.12.4",
       "title": "v0.12.4",
-      "notes": "v0.12.4",
-      "pub_date": "2026-04-19T21:27:27-06:00",
+      "notes": "fix: align release build parity for media and inventory",
+      "pub_date": "2026-04-20T03:39:08Z",
       "channel": "stable",
       "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v0.12.4",
       "draft": false,
       "prerelease": false,
-      "assets_count": 0,
-      "updater_available": false,
-      "updater_asset_name": "",
-      "updater_asset_kind": "",
-      "updater_asset_sha256": ""
+      "assets_count": 4,
+      "updater_available": true,
+      "updater_asset_name": "INTERFACE_v0.12.4_windows-x86_64.nsis.zip",
+      "updater_asset_kind": "nsis-zip",
+      "updater_asset_sha256": "794e7bf04c81aae94fc30495f56eb4de9bdb2df8ea0769d4792b06543bc10f27"
     },
     {
       "tag": "v0.12.3",
