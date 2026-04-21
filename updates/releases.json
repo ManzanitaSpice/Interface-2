@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-21T04:22:00.031Z",
+  "generated_at": "2026-04-21T04:52:00.679Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
     "stable": "1.0.9",
@@ -10,7 +10,7 @@
       "tag": "v1.0.9",
       "version": "1.0.9",
       "title": "v1.0.9",
-      "notes": "fix: corrige customcapes en release",
+      "notes": "v1.0.9",
       "pub_date": "2026-04-21T04:21:51Z",
       "channel": "stable",
       "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.0.9",
