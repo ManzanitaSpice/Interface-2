@@ -1,16 +1,32 @@
 {
-  "generated_at": "2026-04-21T08:53:24.500Z",
+  "generated_at": "2026-04-21T20:31:12.445Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
-    "stable": "1.0.12",
+    "stable": "1.0.13",
     "beta": "0.0.4"
   },
   "releases": [
     {
+      "tag": "v1.0.13",
+      "version": "1.0.13",
+      "title": "v1.0.13",
+      "notes": "v1.0.13",
+      "pub_date": "2026-04-21T14:32:37-06:00",
+      "channel": "stable",
+      "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.0.13",
+      "draft": false,
+      "prerelease": false,
+      "assets_count": 0,
+      "updater_available": false,
+      "updater_asset_name": "",
+      "updater_asset_kind": "",
+      "updater_asset_sha256": ""
+    },
+    {
       "tag": "v1.0.12",
       "version": "1.0.12",
       "title": "v1.0.12",
-      "notes": "v1.0.9",
+      "notes": "v1.0.12",
       "pub_date": "2026-04-21T08:53:14Z",
       "channel": "stable",
       "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.0.12",
