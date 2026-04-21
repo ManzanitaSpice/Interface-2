@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-21T04:08:55.697Z",
+  "generated_at": "2026-04-21T04:22:00.031Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
     "stable": "1.0.9",
@@ -10,17 +10,17 @@
       "tag": "v1.0.9",
       "version": "1.0.9",
       "title": "v1.0.9",
-      "notes": "v1.0.9",
-      "pub_date": "2026-04-20T22:10:20-06:00",
+      "notes": "fix: corrige customcapes en release",
+      "pub_date": "2026-04-21T04:21:51Z",
       "channel": "stable",
       "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.0.9",
       "draft": false,
       "prerelease": false,
-      "assets_count": 0,
-      "updater_available": false,
-      "updater_asset_name": "",
-      "updater_asset_kind": "",
-      "updater_asset_sha256": ""
+      "assets_count": 4,
+      "updater_available": true,
+      "updater_asset_name": "INTERFACE_1.0.9_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "23908ae426be710be4569a6db6f2e3f9b1f891a89e7ab56787ef049519ccfafc"
     },
     {
       "tag": "v1.0.8",
