@@ -1,16 +1,32 @@
 {
-  "generated_at": "2026-04-21T02:15:56.548Z",
+  "generated_at": "2026-04-21T02:49:52.927Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
-    "stable": "1.0.7",
+    "stable": "1.0.8",
     "beta": "0.0.4"
   },
   "releases": [
     {
+      "tag": "v1.0.8",
+      "version": "1.0.8",
+      "title": "v1.0.8",
+      "notes": "v1.0.8",
+      "pub_date": "2026-04-20T20:51:15-06:00",
+      "channel": "stable",
+      "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.0.8",
+      "draft": false,
+      "prerelease": false,
+      "assets_count": 0,
+      "updater_available": false,
+      "updater_asset_name": "",
+      "updater_asset_kind": "",
+      "updater_asset_sha256": ""
+    },
+    {
       "tag": "v1.0.7",
       "version": "1.0.7",
       "title": "v1.0.7",
-      "notes": "v1.0.4",
+      "notes": "v1.0.7",
       "pub_date": "2026-04-21T02:15:46Z",
       "channel": "stable",
       "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.0.7",
@@ -18,9 +34,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_v1.0.7_windows-x86_64.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "65936a09d2af8ad02e41548dbf4ac9a9a2a4d00c02a7384714e298265a97d562"
+      "updater_asset_name": "INTERFACE_1.0.7_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "6fb1e6d050f81f089b7bb31e390b012d2c9ee545fdfcb3d5d62863e5b5793637"
     },
     {
       "tag": "v1.0.6",
@@ -34,9 +50,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_v1.0.6_windows-x86_64.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "3fc8b87ee3ebd4c121a99e1534dcba214cfb7c415f44e75b3faab66f51e47dbd"
+      "updater_asset_name": "INTERFACE_1.0.6_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "12e47d8cc6efc5fda804ce80748fc7f988135df6c0b99ab3fe715a21031182ed"
     },
     {
       "tag": "v1.0.5",
@@ -50,9 +66,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_v1.0.5_windows-x86_64.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "27b5ae2b13e9e0bb4a2ddfd7869c8c90b647bfd386b93c0f02edc8c79550fe8f"
+      "updater_asset_name": "INTERFACE_1.0.5_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "a828c7a8b28c2f00ea23e0d2687c2b8a4119648a920d64918fbd433a82301186"
     },
     {
       "tag": "v1.0.3",
@@ -66,9 +82,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_v1.0.3_windows-x86_64.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "1da0331c19e1f8af4d560424ef34c808451ef2a61fc16b2057c1ee5f8350081b"
+      "updater_asset_name": "INTERFACE_1.0.3_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "0062910759089bf259e81373352cb11a0980b8dfd88fbaa4eb8dbd47b43d0f4f"
     },
     {
       "tag": "v1.0.2",
@@ -98,9 +114,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_v0.12.9_windows-x86_64.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "5f93372f807f8214dcf215fd9295ce4c76212a541379b6303d26ce764cabe0d2"
+      "updater_asset_name": "INTERFACE_0.12.9_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "c04c12d3892578fa366ea79442cccb93842f26048c69cb0527c162b57736dc37"
     },
     {
       "tag": "v0.12.8",
@@ -114,9 +130,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_v0.12.8_windows-x86_64.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "a733953bf5f5651a5a1c3078c843abbab1c6ef9bc55ccdce6b31a8541c2cabd0"
+      "updater_asset_name": "INTERFACE_0.12.8_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "844940374a72a8c0378bb1bd4e787f4c08fb17e604e9de393684711ce93b1479"
     },
     {
       "tag": "v0.12.7",
@@ -130,9 +146,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_v0.12.7_windows-x86_64.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "14cdf0902f0b888fece2d5d11637dd364ccc6640af0bbfbf6416106c8ad97b3b"
+      "updater_asset_name": "INTERFACE_0.12.7_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "e56440f9e5de5c54d08f25602b5df9c7bac8463ba94cb0f19694812e6b7e04ec"
     },
     {
       "tag": "v0.12.6",
@@ -146,9 +162,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_v0.12.6_windows-x86_64.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "18e562ba1c812b503f1a3f7095bdc13cfcd73614dcebec553da1565c090fb759"
+      "updater_asset_name": "INTERFACE_0.12.6_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "aec248337171a1b21d1a4fffeeadeffe64ecba1a9e52954c0a4bbb39132a181f"
     },
     {
       "tag": "v0.12.5",
@@ -162,9 +178,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_v0.12.5_windows-x86_64.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "2be48b729d0e7ac18ea5e90fca704b5ea0eef3a7feee87349fc5eff034616f17"
+      "updater_asset_name": "INTERFACE_0.12.5_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "41fe5be6fd0cd217f677335ea3c936cbe0741e17c55bd0b53256276a0c1e867d"
     },
     {
       "tag": "v0.12.4",
@@ -178,9 +194,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_v0.12.4_windows-x86_64.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "794e7bf04c81aae94fc30495f56eb4de9bdb2df8ea0769d4792b06543bc10f27"
+      "updater_asset_name": "INTERFACE_0.12.4_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "663264c15bb39c2b3fae97374d4c8b03db474eb2f528e3214bae930e9014e8b2"
     },
     {
       "tag": "v0.12.3",
@@ -194,9 +210,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_v0.12.3_windows-x86_64.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "ab439d822c27fba01aceebb4d1dc99104d17f1332d222d27677a0ab50651e959"
+      "updater_asset_name": "INTERFACE_0.12.3_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "dcdc5fbdf261295546a9c5706601c883394a5d7257ef037d800739157987e116"
     },
     {
       "tag": "v0.12.2",
@@ -210,9 +226,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_v0.12.2_windows-x86_64.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "57d33d61490144a49eca418e0c1e2317fa4812266401f8b7623f6e4ee90c68a9"
+      "updater_asset_name": "INTERFACE_0.12.2_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "d279d23319a14a79b06971277f9d0f778cefc48f57697cf0215cb56061fffab7"
     },
     {
       "tag": "v0.12.1",
@@ -226,9 +242,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_v0.12.1_windows-x86_64.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "ce9439190577af6ba33d887d1682497475a09e41a8183ba116259e290495c240"
+      "updater_asset_name": "INTERFACE_0.12.1_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "01333f1ef17626f67884aaf66fb3999df1a1515d19239e3e6670d7c904aff88e"
     },
     {
       "tag": "v0.1.71",
@@ -242,9 +258,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_v0.1.71_windows-x86_64.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "e5ebae63075305aa0ca10f5a94f968adde1913cabcda2dfee5e27e19ad84c611"
+      "updater_asset_name": "INTERFACE_0.1.71_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "d351a770f2883d8fbe7b0d1593604609753a7c255abee47ec4a74cd257dcd0a6"
     },
     {
       "tag": "v0.1.70",
@@ -274,9 +290,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_v0.1.69_windows-x86_64.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "4507483e71df0fd927e119912715256a2c85b04d1aa7941658a016d1dbf286ad"
+      "updater_asset_name": "INTERFACE_0.1.69_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "ce750ac613c23dbda717329ee4b23e50ca63f4c91b31c7feb2a27a20cf6c7f88"
     },
     {
       "tag": "v0.1.68",
@@ -290,9 +306,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_v0.1.68_windows-x86_64.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "81e2b3a7a5c51bb801011e6f3c48a74277c6e3073cf53a0d2147fe9f53c01c66"
+      "updater_asset_name": "INTERFACE_0.1.68_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "9f19a6e9b6d36a52e977fe14e03e0a4ed5aaecad6aa506220cfda6145d6f7132"
     },
     {
       "tag": "v0.1.67",
@@ -306,9 +322,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_v0.1.67_windows-x86_64.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "19087595b2cabc9bd0bae384e1ccf570b95817c49edce8fab7adab585387c8e9"
+      "updater_asset_name": "INTERFACE_0.1.67_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "a9b86a7792b840d53efdf36e0cd06741a50a4e8eb4855d3e2a6c51084dfdcc6f"
     },
     {
       "tag": "v0.1.66",
@@ -322,9 +338,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_v0.1.66_windows-x86_64.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "a056df0bde51841d5a2ea2847ff0cdfea9a23baf9faf4b3db1d917610741dae0"
+      "updater_asset_name": "INTERFACE_0.1.66_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "d63a1e67f8a834de0430c23408c080d28bafe16d615c612004778124d91ce47b"
     },
     {
       "tag": "v0.1.65",
@@ -338,9 +354,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_v0.1.65_windows-x86_64.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "04b1ea4e52413be8c63201b762f4993a74d549a4b3925c1793203c793fdeebb2"
+      "updater_asset_name": "INTERFACE_0.1.65_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "b45ee4bcd9bf0e11102d06867ea5dd7348c57856cb6fb9414f30a2aaa8e9eadc"
     },
     {
       "tag": "v0.1.64",
@@ -354,9 +370,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_v0.1.64_windows-x86_64.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "97e8f483dd41ef3f34f8c2ade59988af53d107e4f1b87badd3cc5c4afc95048a"
+      "updater_asset_name": "INTERFACE_0.1.64_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "6658c1792ef6996eebb75a60037767c24e7e99bf3186485b9cdece5fbf516c56"
     },
     {
       "tag": "v0.1.63",
@@ -370,9 +386,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_v0.1.63_windows-x86_64.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "d97613919677d3ad3df89701bb4ee1c2ae5e7ea16ec9c760e62a57a414f643af"
+      "updater_asset_name": "INTERFACE_0.1.63_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "4bf6f30b7cddbce2ca59d0c7a14dc717d28419dee8a4c90f72ade0d58b35989b"
     },
     {
       "tag": "v0.1.62",
@@ -386,9 +402,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": true,
-      "updater_asset_name": "INTERFACE_v0.1.62_windows-x86_64.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "2640cbbda2395d2e527beb484bccf93be5cd3082c7bfb5b248685dd011b1d3a4"
+      "updater_asset_name": "INTERFACE_0.1.62_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "0e5062eba023693e82dee215161432f0b15ee1f47a920d556a6b47aa6233eb1e"
     },
     {
       "tag": "v0.1.61",
@@ -882,9 +898,9 @@
       "prerelease": false,
       "assets_count": 4,
       "updater_available": false,
-      "updater_asset_name": "INTERFACE_0.1.24_x64-setup.nsis.zip",
-      "updater_asset_kind": "nsis-zip",
-      "updater_asset_sha256": "5f1dd05ad2851815175f645af7edded8f578f9287771ef9233994bb76e02b54d"
+      "updater_asset_name": "INTERFACE_0.1.24_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "d00152f0c8db1606173d7a3b070afa9f9adabaa05ee17ecd3b5b2ff3346139e1"
     },
     {
       "tag": "v0.1.24",
