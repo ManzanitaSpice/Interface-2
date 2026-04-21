@@ -1,16 +1,16 @@
 {
-  "version": "1.0.5",
-  "notes": "Stable update v1.0.5",
-  "pub_date": "2026-04-21T00:43:04Z",
+  "version": "1.0.6",
+  "notes": "Stable update v1.0.6",
+  "pub_date": "2026-04-21T01:29:44Z",
   "platforms": {
     "windows-x86_64": {
       "content_type": "application/zip",
       "kind": "nsis-zip",
-      "name": "INTERFACE_v1.0.5_windows-x86_64.nsis.zip",
-      "sha256": "27b5ae2b13e9e0bb4a2ddfd7869c8c90b647bfd386b93c0f02edc8c79550fe8f",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTWZEME5XQlpqaFZEaXJ5a0JwbzNqc3pIblFiMmRaODh0NndDa3RJU2QySUlHQ1BNRXdORWhaM01TVlFpd2lVSkZJMGttdW9xTFdVb08zcjFKSEkwNVFnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2NzMyMTg5CWZpbGU6SU5URVJGQUNFX3YxLjAuNV93aW5kb3dzLXg4Nl82NC5uc2lzLnppcApQQ3N4bnVqWklvVVA1eGcwOW9KcnFHb0dtN3hMOXh3M1hUUGhyVUlEaGNnTjRKbXkvcXg2cHJYdzhDNHprVUlTei9NOEhDV2JCdU54ZEtsYkZMR25Cdz09Cg==",
-      "signature_name": "INTERFACE_v1.0.5_windows-x86_64.nsis.zip.sig",
-      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.0.5/INTERFACE_v1.0.5_windows-x86_64.nsis.zip"
+      "name": "INTERFACE_v1.0.6_windows-x86_64.nsis.zip",
+      "sha256": "3fc8b87ee3ebd4c121a99e1534dcba214cfb7c415f44e75b3faab66f51e47dbd",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTWU1RkVyWVNNY3JZdGRhWGhaRDZwQStQckpkR01XaFdaajhGTWFxUHYySlhaWFRsUUhMalE0K1dQeE4yUFhEbjhKR2prRjZ3enczV01JcUt2Y3FyZUE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2NzM0OTkxCWZpbGU6SU5URVJGQUNFX3YxLjAuNl93aW5kb3dzLXg4Nl82NC5uc2lzLnppcApTUUlCaVVMQzNEai9jcWZZSjdWb1M4NW9NUk01Z1ZvNnNNZTdjYWF2SldIblVqSDBTUk94WWpKV2dWQy9xQVJVT0xUYSt2SFk0R1FOK0tmU0tDUkNEdz09Cg==",
+      "signature_name": "INTERFACE_v1.0.6_windows-x86_64.nsis.zip.sig",
+      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.0.6/INTERFACE_v1.0.6_windows-x86_64.nsis.zip"
     }
   }
 }
