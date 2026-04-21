@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-21T20:31:12.445Z",
+  "generated_at": "2026-04-21T20:45:50.963Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
     "stable": "1.0.13",
@@ -10,17 +10,17 @@
       "tag": "v1.0.13",
       "version": "1.0.13",
       "title": "v1.0.13",
-      "notes": "v1.0.13",
-      "pub_date": "2026-04-21T14:32:37-06:00",
+      "notes": "release: parity dev-release, startup phases, repair pipeline",
+      "pub_date": "2026-04-21T20:45:30Z",
       "channel": "stable",
       "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.0.13",
       "draft": false,
       "prerelease": false,
-      "assets_count": 0,
-      "updater_available": false,
-      "updater_asset_name": "",
-      "updater_asset_kind": "",
-      "updater_asset_sha256": ""
+      "assets_count": 4,
+      "updater_available": true,
+      "updater_asset_name": "INTERFACE_1.0.13_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "d575625869de357c510562c4aff78de17364264188eb1273ae02c8aa660a011c"
     },
     {
       "tag": "v1.0.12",
