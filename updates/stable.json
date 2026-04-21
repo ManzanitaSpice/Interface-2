@@ -1,16 +1,16 @@
 {
-  "version": "1.0.7",
-  "notes": "Stable update v1.0.7",
-  "pub_date": "2026-04-21T02:15:46Z",
+  "version": "1.0.8",
+  "notes": "Stable update v1.0.8",
+  "pub_date": "2026-04-21T03:03:10Z",
   "platforms": {
     "windows-x86_64": {
       "content_type": "application/zip",
       "kind": "nsis-exe",
-      "name": "INTERFACE_1.0.7_x64-setup.exe",
-      "sha256": "6fb1e6d050f81f089b7bb31e390b012d2c9ee545fdfcb3d5d62863e5b5793637",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTWFKckt6cUZmM0t3eVlzYkJqMW1xMjF2Ylpmc3MycVRnNTR1a3FaeWxLeWZqZVNxWmxNTncvTE1PQU53MTM3MjhJbHF4VlZXZVBIWTY3bFdhbVFyaXd3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2NzM3NzUxCWZpbGU6SU5URVJGQUNFXzEuMC43X3g2NC1zZXR1cC5leGUKZ0xnR3BHUFc2YzdoNE9kMkFtTG1DYk04WFlKcm9uckxsZ0ZDZjdBRlJSM3hNSmV3MkFDZ2VaUmxvdkh3MmlnTTdOamUxaEhXazRXbms4Vk9BZHpyQ1E9PQo=",
-      "signature_name": "INTERFACE_1.0.7_x64-setup.exe.sig",
-      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.0.7/INTERFACE_1.0.7_x64-setup.exe"
+      "name": "INTERFACE_1.0.8_x64-setup.exe",
+      "sha256": "5459fac0af1b0d352826bd72139c40537f820c3f2f77696a5df0330f1877664c",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTWRFY3Z2K3RSVGlUNTNUT1pNK05iaUppZzhPYWRoRGRneXBiVlA1ck1vdnhTL3MxaWVFNDRWRHJrREpEM3hydENBRVF3UVhmaHRYSDZGUG5lMUN3WFFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2NzQwNTk1CWZpbGU6SU5URVJGQUNFXzEuMC44X3g2NC1zZXR1cC5leGUKMHFVdkFyUTBFQ0p6V3g0bC9LK1RhVnBpTXo4TlFuall4Vmx3TVR1N3U1WUlGeWI4Y1JVTHA5MGpMcDZ2T1lVenh0WXd0bmZVVXNaVytzcU94QkFYQUE9PQo=",
+      "signature_name": "INTERFACE_1.0.8_x64-setup.exe.sig",
+      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.0.8/INTERFACE_1.0.8_x64-setup.exe"
     }
   }
 }
