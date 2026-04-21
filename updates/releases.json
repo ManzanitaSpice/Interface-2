@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-20T20:39:01.323Z",
+  "generated_at": "2026-04-21T00:29:07.269Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
     "stable": "1.0.3",
@@ -10,7 +10,7 @@
       "tag": "v1.0.3",
       "version": "1.0.3",
       "title": "v1.0.3",
-      "notes": "fix: restore launcher release build",
+      "notes": "v1.0.3",
       "pub_date": "2026-04-20T20:38:52Z",
       "channel": "stable",
       "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.0.3",
