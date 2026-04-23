@@ -1,16 +1,16 @@
 {
-  "version": "1.0.14",
-  "notes": "Stable update v1.0.14",
-  "pub_date": "2026-04-23T01:19:17Z",
+  "version": "1.0.15",
+  "notes": "Stable update v1.0.15",
+  "pub_date": "2026-04-23T20:32:34Z",
   "platforms": {
     "windows-x86_64": {
       "content_type": "application/zip",
       "kind": "nsis-exe",
-      "name": "INTERFACE_1.0.14_x64-setup.exe",
-      "sha256": "4037218cd73288102938263f57fa16bfc3a99528d6232aa90223607be40358be",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTWNwZUNjVXY4Ykx1dk1TOHZlYUlFZGZVc0dWSXAyNVNEelYxYWFwdVhlOTJwU0dCRG4weHpQN0hnMmU4OEw0clUvaHpOdHdyRVZwUzVsTjlmZWpNUFFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2OTA3MTYzCWZpbGU6SU5URVJGQUNFXzEuMC4xNF94NjQtc2V0dXAuZXhlCm1rcTdpQVVQMzdRWE1CMzU4bGt0RFRQelFKdkZGblpNUS83M1lQb3ZoQXhnZWdPTjZEYzVmcEJOWGxCOEFJNnNWb0tURTE3VktpeWRYNmJiODNnTUFBPT0K",
-      "signature_name": "INTERFACE_1.0.14_x64-setup.exe.sig",
-      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.0.14/INTERFACE_1.0.14_x64-setup.exe"
+      "name": "INTERFACE_1.0.15_x64-setup.exe",
+      "sha256": "ee62eba522ffc99653efb8989693be6a2e0332e7ff4a944a0473181f07d2a2ab",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVFhUUkrekpQRmNIUHlHNU9KbG9DU0M1bmQ1OE1SNDQxaWtjZVN4RUNPemdRWThSVVZHZUpZKzZ6VGJuMk15bXd1TnoxeEVRQm42ZG5iSWJLeEpSN3drPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2OTc2MzYwCWZpbGU6SU5URVJGQUNFXzEuMC4xNV94NjQtc2V0dXAuZXhlCnBtcTVGbHZ4RlNFSGRTNkVydU1kWFlRS0tFNXVNQmVCQVpZdnN2cFRCWGxBeU5SZXE2azMxQ1pxVWdMdHFhT3AzSHJ2bmxjQVVCekpzQWlVMkUzTEJ3PT0K",
+      "signature_name": "INTERFACE_1.0.15_x64-setup.exe.sig",
+      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.0.15/INTERFACE_1.0.15_x64-setup.exe"
     }
   }
 }

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-23T20:18:59.385Z",
+  "generated_at": "2026-04-23T20:32:45.448Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
     "stable": "1.0.15",
@@ -10,17 +10,17 @@
       "tag": "v1.0.15",
       "version": "1.0.15",
       "title": "v1.0.15",
-      "notes": "v1.0.15",
-      "pub_date": "2026-04-23T14:20:29-06:00",
+      "notes": "release: refuerza descargas y repair offline, corrige logs/binarios y UI de notificaciones-updates-modpacks, unifica integridad para importacion-clonacion-migracion-enlace, y repara modpacks importados/en ejecucion con saneo de mods, dependencias, redescarga y compatibilidad completa",
+      "pub_date": "2026-04-23T20:32:34Z",
       "channel": "stable",
       "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.0.15",
       "draft": false,
       "prerelease": false,
-      "assets_count": 0,
-      "updater_available": false,
-      "updater_asset_name": "",
-      "updater_asset_kind": "",
-      "updater_asset_sha256": ""
+      "assets_count": 4,
+      "updater_available": true,
+      "updater_asset_name": "INTERFACE_1.0.15_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "ee62eba522ffc99653efb8989693be6a2e0332e7ff4a944a0473181f07d2a2ab"
     },
     {
       "tag": "v1.0.14",
