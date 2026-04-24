@@ -1,16 +1,16 @@
 {
-  "version": "1.0.16",
-  "notes": "# v1.0.16\r\n\r\nComunidad UX polish\r\n\r\n## Cambios\r\n\r\n- Corrige scroll del feed para muchos posts\r\n- Separa like y dislike en botones reales\r\n- Mejora tarjetas y bandeja de notificaciones\r\n- Ajusta Avatarsito con nick de Minecraft y menu",
-  "pub_date": "2026-04-24T00:44:44Z",
+  "version": "1.0.17",
+  "notes": "# v1.0.17\r\n\r\nintegrity pipeline update\r\n\r\n## Cambios\r\n\r\n- integrity pipeline update",
+  "pub_date": "2026-04-24T04:10:16Z",
   "platforms": {
     "windows-x86_64": {
       "content_type": "application/zip",
       "kind": "nsis-exe",
-      "name": "INTERFACE_1.0.16_x64-setup.exe",
-      "sha256": "5bfbf08cc83490a1518766ec6a1d199d459004823464b1a2042d1f36a597da59",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVNlYTAvS2IyRTVWa1RqemMrbk1mQzNCNUdsWkVLMXJCWHlxQUFtQkZ3anFKNGkwbkxkR3FydmVkWXpGZmgzZkhRdTdrRlh5bW5QaXhBb3QvQlRxRGdFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2OTkxNDg5CWZpbGU6SU5URVJGQUNFXzEuMC4xNl94NjQtc2V0dXAuZXhlCkJRUE5PRXBXZjhGSWJaN3pHdEtwV1RmaGRrVzdoZVRrTSt3ZSs0YmMzSytzbU91dmNydmxOYVNlais4SkZoeGE5SmNyeWJPNDlJdTJPVzl0NmJSV0NRPT0K",
-      "signature_name": "INTERFACE_1.0.16_x64-setup.exe.sig",
-      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.0.16/INTERFACE_1.0.16_x64-setup.exe"
+      "name": "INTERFACE_1.0.17_x64-setup.exe",
+      "sha256": "616e48a8834f648219c521b8e834564c3fb1c18128b56830f3f5e6d2862c8841",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVJIZjB2VmhXa3ZaY1RjMEhFWXdSVVZmaUo5ejV0MCtmNTJVbVJMdFJKUEdkd0tUVHI3VDFHZXRZa2h1c3lpSnJ6Y1dlVVF0bE9LTWNVZHZ2cUt1NkE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc3MDAzODIxCWZpbGU6SU5URVJGQUNFXzEuMC4xN194NjQtc2V0dXAuZXhlCnAxNjNQMnJJZTYxN2g2Y0IzWWxVVGxkeXNoazQ5VUtQV0VlNUFOOXpzbVhFTWZIa2VQZi9CK1huVklyS0diSkxHazJpanRGbFZyNTgxeG9ET3hobEJnPT0K",
+      "signature_name": "INTERFACE_1.0.17_x64-setup.exe.sig",
+      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.0.17/INTERFACE_1.0.17_x64-setup.exe"
     }
   }
 }
