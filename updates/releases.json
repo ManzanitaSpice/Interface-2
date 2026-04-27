@@ -1,11 +1,27 @@
 {
-  "generated_at": "2026-04-27T19:15:41.675Z",
+  "generated_at": "2026-04-27T21:03:30.774Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
-    "stable": "1.0.19",
+    "stable": "1.0.20",
     "beta": ""
   },
   "releases": [
+    {
+      "tag": "v1.0.20",
+      "version": "1.0.20",
+      "title": "v1.0.21 FIX Enmi pc ya anda jiji",
+      "notes": "v1.0.21 FIX Enmi pc ya anda jiji",
+      "pub_date": "2026-04-27T15:05:05-06:00",
+      "channel": "stable",
+      "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.0.20",
+      "draft": false,
+      "prerelease": false,
+      "assets_count": 0,
+      "updater_available": false,
+      "updater_asset_name": "",
+      "updater_asset_kind": "",
+      "updater_asset_sha256": ""
+    },
     {
       "tag": "v1.0.19",
       "version": "1.0.19",
