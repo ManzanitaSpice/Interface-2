@@ -1,16 +1,16 @@
 {
-  "version": "1.0.20",
-  "notes": "# v1.0.20\r\n\r\nv1.0.21 FIX Enmi pc ya anda jiji\r\n\r\n## Cambios\r\n\r\n- v1.0.21 FIX Enmi pc ya anda jiji",
-  "pub_date": "2026-04-27T21:17:30Z",
+  "version": "1.0.21",
+  "notes": "# v1.0.21\r\n\r\nfix: harden updates, release metadata, scan perf\r\n\r\n## Cambios\r\n\r\n- fix: harden updates, release metadata, scan perf",
+  "pub_date": "2026-04-27T21:45:01Z",
   "platforms": {
     "windows-x86_64": {
       "content_type": "application/zip",
       "kind": "nsis-exe",
-      "name": "INTERFACE_1.0.20_x64-setup.exe",
-      "sha256": "d9f7f8d2c8f71acc34a9afbbcffc9ae10ae99cdcf07863925e1e91b7c98bf161",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVpacHhYVVE2WW1iV2JCTzArQ2FTR0M3bE9tQTRlN2hyUjk5ZGRmQzZKT0xHSG5VWU41aUQyNWtCdVgyS3FUQk1FZzBLdXFDbDkrSVhDaXd2NlVzRXdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc3MzI0NjU1CWZpbGU6SU5URVJGQUNFXzEuMC4yMF94NjQtc2V0dXAuZXhlCjVkUzRLT0tvdEtyMWpEQkJoa1RrbmFGd1lId3RrZjV4SnJMR21qYUFuSmxUbUk4NGtJNEtLVEI3UVZrY3laRGs3dWI2aUhDTlRMWUd5RmM0clJrckRRPT0K",
-      "signature_name": "INTERFACE_1.0.20_x64-setup.exe.sig",
-      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.0.20/INTERFACE_1.0.20_x64-setup.exe"
+      "name": "INTERFACE_1.0.21_x64-setup.exe",
+      "sha256": "2e3cfe3548611d4af7e845e40bfb90299e889912368c98340a8b8d3afaabff9a",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVFOM2RsdWNOWnZPNjNjaXJsV1FUc3FhVkpMMHpJejZCYnh1V3NNY09zcjhQbnNuMy82U01UQ0ZmaUFyS0U4S2hpR1VqMVlwODk3NEQwcHo1T2dYYXcwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc3MzI2MzA2CWZpbGU6SU5URVJGQUNFXzEuMC4yMV94NjQtc2V0dXAuZXhlCkFNSzlHOHp1S3lieVFPTmM4MjJ1Z3VKdnlWSWt5RmgxTmd4eG9Jd0J3am1lRHFvT2ZEUnhOQ3I4Zm5iYXFPbVFoODlwdU9zdXhOZStBbkZtQXJkbEN3PT0K",
+      "signature_name": "INTERFACE_1.0.21_x64-setup.exe.sig",
+      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.0.21/INTERFACE_1.0.21_x64-setup.exe"
     }
   }
 }
