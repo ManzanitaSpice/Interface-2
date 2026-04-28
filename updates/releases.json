@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-28T00:20:29.375Z",
+  "generated_at": "2026-04-28T00:35:05.918Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
     "stable": "1.0.22",
@@ -10,17 +10,17 @@
       "tag": "v1.0.22",
       "version": "1.0.22",
       "title": "v1.0.22",
-      "notes": "v1.0.22",
-      "pub_date": "2026-04-27T18:22:04-06:00",
+      "notes": "# v1.0.22\r\n\r\nv1.0.22\r\n\r\n## Cambios\r\n\r\n- v1.0.22",
+      "pub_date": "2026-04-28T00:34:57Z",
       "channel": "stable",
       "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.0.22",
       "draft": false,
       "prerelease": false,
-      "assets_count": 0,
-      "updater_available": false,
-      "updater_asset_name": "",
-      "updater_asset_kind": "",
-      "updater_asset_sha256": ""
+      "assets_count": 4,
+      "updater_available": true,
+      "updater_asset_name": "INTERFACE_1.0.22_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "58e39af061f2beff43aa240a31bc09d97295379e7069ad8e8958b722ec538e22"
     },
     {
       "tag": "v1.0.21",

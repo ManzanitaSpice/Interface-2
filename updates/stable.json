@@ -1,16 +1,16 @@
 {
-  "version": "1.0.21",
-  "notes": "# v1.0.21\r\n\r\nfix: harden updates, release metadata, scan perf\r\n\r\n## Cambios\r\n\r\n- fix: harden updates, release metadata, scan perf",
-  "pub_date": "2026-04-27T21:45:01Z",
+  "version": "1.0.22",
+  "notes": "# v1.0.22\r\n\r\nv1.0.22\r\n\r\n## Cambios\r\n\r\n- v1.0.22",
+  "pub_date": "2026-04-28T00:34:57Z",
   "platforms": {
     "windows-x86_64": {
       "content_type": "application/zip",
       "kind": "nsis-exe",
-      "name": "INTERFACE_1.0.21_x64-setup.exe",
-      "sha256": "2e3cfe3548611d4af7e845e40bfb90299e889912368c98340a8b8d3afaabff9a",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVFOM2RsdWNOWnZPNjNjaXJsV1FUc3FhVkpMMHpJejZCYnh1V3NNY09zcjhQbnNuMy82U01UQ0ZmaUFyS0U4S2hpR1VqMVlwODk3NEQwcHo1T2dYYXcwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc3MzI2MzA2CWZpbGU6SU5URVJGQUNFXzEuMC4yMV94NjQtc2V0dXAuZXhlCkFNSzlHOHp1S3lieVFPTmM4MjJ1Z3VKdnlWSWt5RmgxTmd4eG9Jd0J3am1lRHFvT2ZEUnhOQ3I4Zm5iYXFPbVFoODlwdU9zdXhOZStBbkZtQXJkbEN3PT0K",
-      "signature_name": "INTERFACE_1.0.21_x64-setup.exe.sig",
-      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.0.21/INTERFACE_1.0.21_x64-setup.exe"
+      "name": "INTERFACE_1.0.22_x64-setup.exe",
+      "sha256": "58e39af061f2beff43aa240a31bc09d97295379e7069ad8e8958b722ec538e22",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVFrbzNxWUkxanQycGFLWWhSKzUxSWNwUkJ1OU5JWDJ3cFYwTDFkSDlEbEFkMVgyUnFMZk5ybTBvc0ZUbzZYMTlaTCttNDhRZmI1MWhjL3U5Y3RxTlFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc3MzM2NTAxCWZpbGU6SU5URVJGQUNFXzEuMC4yMl94NjQtc2V0dXAuZXhlCm5hVEV6MW5RbmlTbTJqZ3pVY0lTS2xldm5OM0J3VzJ0dDV0T2lQQkxxZjAzbG5IbTZmNUNmWEZ2K0NjekVLT3VFVzJTSkVvY0pSVXF3bHFVaFpENURBPT0K",
+      "signature_name": "INTERFACE_1.0.22_x64-setup.exe.sig",
+      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.0.22/INTERFACE_1.0.22_x64-setup.exe"
     }
   }
 }
