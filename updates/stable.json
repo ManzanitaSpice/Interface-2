@@ -1,16 +1,16 @@
 {
-  "version": "1.0.26",
-  "notes": "# v1.0.26\r\n\r\nOptimiza importacion, ejecucion y reparacion de instancias\r\n\r\n## Cambios\r\n\r\n- Repara rutas minecraft/mods, jars corruptos y duplicados seguros\r\n- Acelera creacion, clonacion, inventario y primer arranque\r\n- Mejora compatibilidad Forge, NeoForge, Fabric y Quilt",
-  "pub_date": "2026-04-28T06:48:35Z",
+  "version": "1.0.27",
+  "notes": "# v1.0.27\r\n\r\nv1.0.26\r\n\r\n## Cambios\r\n\r\n- v1.0.26",
+  "pub_date": "2026-04-28T07:53:49Z",
   "platforms": {
     "windows-x86_64": {
       "content_type": "application/zip",
       "kind": "nsis-exe",
-      "name": "INTERFACE_1.0.26_x64-setup.exe",
-      "sha256": "f11790550c2633fed953878c3eaf49a5c9ed64eed2e69faf1ee75f8bfe5007d6",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVluc2NYUEhMQXhwMzIwdFoyZzdQVzFpSmQyVjJiOXQ1TXJKdDJPaUoxSVZuYWl0YytiQWdYSkprWjdQZjRaU2R0cDdLajdFc1JBVjYwZjRid3NWRVFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc3MzU4OTIwCWZpbGU6SU5URVJGQUNFXzEuMC4yNl94NjQtc2V0dXAuZXhlCk8wMXp1UGgvenRBMjBIZG84WkptclZZRExUSUVBMVB0Qm5UUm43QzJDcktMK082RGlIY3FEVG5nQ0l2VlBCdXBlRnZrUFMxTVNOdDQ1bzE5T0Z1ZUJ3PT0K",
-      "signature_name": "INTERFACE_1.0.26_x64-setup.exe.sig",
-      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.0.26/INTERFACE_1.0.26_x64-setup.exe"
+      "name": "INTERFACE_1.0.27_x64-setup.exe",
+      "sha256": "4df9f86071cd6d5efaa7818d4eb7e9e488f33f373fb630be89143523e2f6fafb",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTWNuUEQ2dHhqNG5wRzRLT3h6eEtwRGE4dUVobFJzU3hjMXhYLzhLZWxLNStpWnZ0NEkwV2JEZjVPS3c1dWZ4M005WnFiWFZtVCtNSVowblN2a2VZdndZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc3MzYyODQwCWZpbGU6SU5URVJGQUNFXzEuMC4yN194NjQtc2V0dXAuZXhlClpTWnZvTEZ3MWM3SEtWa2M3SVZxVzdmalAwcUhERFZGRDhNaVIvY2JCYzYvZklVUnFwNkVOYVB5MlBBbWlPc0E0Vlh6WFI1WlMrdTRrT3p4K2xGS0NnPT0K",
+      "signature_name": "INTERFACE_1.0.27_x64-setup.exe.sig",
+      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.0.27/INTERFACE_1.0.27_x64-setup.exe"
     }
   }
 }
