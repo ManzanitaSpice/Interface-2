@@ -1,16 +1,16 @@
 {
-  "version": "1.0.24",
-  "notes": "# v1.0.24\r\n\r\nv1.0.24\r\n\r\n## Cambios\r\n\r\n- v1.0.24",
-  "pub_date": "2026-04-28T02:04:25Z",
+  "version": "1.0.25",
+  "notes": "# v1.0.25\r\n\r\nfix modded instance repair and unified launcher storage\r\n\r\n## Cambios\r\n\r\n- fix modded instance repair and unified launcher storage",
+  "pub_date": "2026-04-28T05:38:29Z",
   "platforms": {
     "windows-x86_64": {
       "content_type": "application/zip",
       "kind": "nsis-exe",
-      "name": "INTERFACE_1.0.24_x64-setup.exe",
-      "sha256": "63626e7ae842e36f2954d40d7649a209e6c7e10dedefceadbafe00577f471339",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTWM2aHhUajEzWFFwd0RSaER4eUl2ckZFcE1jSjhzazNzSVNIcGlTdFdMNVcwSkJmcGFsZUdtTUd1K3NhTi92SURyeG9mM3BKMFVqYU5QS1U3c1BtZXdVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc3MzQxODczCWZpbGU6SU5URVJGQUNFXzEuMC4yNF94NjQtc2V0dXAuZXhlCmxwSFR3aDM4ZjVyelpPbWFtMnZzeG1TODlLNVI0QVdXUG9RQnFGaG9tYlpiR09ucUtUU0NMYlg1aUt2Z0pHMk5EVHdXQjNDS2o0QTRXeXg0NnZBc0J3PT0K",
-      "signature_name": "INTERFACE_1.0.24_x64-setup.exe.sig",
-      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.0.24/INTERFACE_1.0.24_x64-setup.exe"
+      "name": "INTERFACE_1.0.25_x64-setup.exe",
+      "sha256": "0fb3492420b03a87bb76cd0c569b10328ed024884b7e1bb04118ecf99c877f07",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVNNd2hyaFg3eWYvbXJCM3BWUWF5TmpySk8wWnR0cENlY0o3RXdKT2R0eDJuY2dDZmFEMG10QzNXODMrQ2JTd0xkT01ucUI0L2RXY2swcTRNN01JaGdRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc3MzU0NzE1CWZpbGU6SU5URVJGQUNFXzEuMC4yNV94NjQtc2V0dXAuZXhlCjk2RjB3dnFkb3Q3ZkJRc2prNTFJems1dHlQT0U5d0ptOFNuUGMxYy9PTWN6UHhOcC8zUmVmdThZQzEyd3NtVzZ6MmptZjFLSzVCK0l6NGNPeU8vVEJnPT0K",
+      "signature_name": "INTERFACE_1.0.25_x64-setup.exe.sig",
+      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.0.25/INTERFACE_1.0.25_x64-setup.exe"
     }
   }
 }
