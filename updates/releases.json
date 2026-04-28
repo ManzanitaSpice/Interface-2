@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-28T06:34:59.592Z",
+  "generated_at": "2026-04-28T06:48:44.172Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
     "stable": "1.0.26",
@@ -9,18 +9,18 @@
     {
       "tag": "v1.0.26",
       "version": "1.0.26",
-      "title": "Optimiza importacion, ejecucion y reparacion de instancias",
-      "notes": "Optimiza importacion, ejecucion y reparacion de instancias",
-      "pub_date": "2026-04-28T00:36:36-06:00",
+      "title": "v1.0.26",
+      "notes": "# v1.0.26\r\n\r\nOptimiza importacion, ejecucion y reparacion de instancias\r\n\r\n## Cambios\r\n\r\n- Repara rutas minecraft/mods, jars corruptos y duplicados seguros\r\n- Acelera creacion, clonacion, inventario y primer arranque\r\n- Mejora compatibilidad Forge, NeoForge, Fabric y Quilt",
+      "pub_date": "2026-04-28T06:48:35Z",
       "channel": "stable",
       "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.0.26",
       "draft": false,
       "prerelease": false,
-      "assets_count": 0,
-      "updater_available": false,
-      "updater_asset_name": "",
-      "updater_asset_kind": "",
-      "updater_asset_sha256": ""
+      "assets_count": 4,
+      "updater_available": true,
+      "updater_asset_name": "INTERFACE_1.0.26_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "f11790550c2633fed953878c3eaf49a5c9ed64eed2e69faf1ee75f8bfe5007d6"
     },
     {
       "tag": "v1.0.25",
