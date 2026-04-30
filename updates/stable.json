@@ -1,16 +1,16 @@
 {
-  "version": "1.0.32",
-  "notes": "# v1.0.32\r\n\r\nv1.0.32\r\n\r\n## Cambios\r\n\r\n- v1.0.32",
-  "pub_date": "2026-04-28T20:47:05Z",
+  "version": "1.0.34",
+  "notes": "# v1.0.34\r\n\r\nv1.0.2 Nuevo Creador y Arranque\r\n\r\n## Cambios\r\n\r\n- v1.0.2 Nuevo Creador y Arranque",
+  "pub_date": "2026-04-30T04:39:28Z",
   "platforms": {
     "windows-x86_64": {
       "content_type": "application/zip",
       "kind": "nsis-exe",
-      "name": "INTERFACE_1.0.32_x64-setup.exe",
-      "sha256": "a0410b8d5e997830e303d854f68e1f0b81007b20e9d7d07abdd5664d47d399e3",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVNMbnhkMkFaQnMwOUpSQUQ2K2hwN0xDcFFaUUlDamEzZURLU1ZNU1loM3E2QUxlTk1YOVZGMllDSGt3R0k5MlJFN1VIWmw5YUV3OW9wZklmVnRIRHc4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc3NDA5MjMwCWZpbGU6SU5URVJGQUNFXzEuMC4zMl94NjQtc2V0dXAuZXhlClJranJYZXduOEsrclZxQjRNYUpMRy9HMzNURFg1OHBkOElGcHlIQWhkZ28wRVRoLzFOcUxIeWN6MEN3aGlSMDJrcmlFeW1OV3BKemFrZmVhMFRVdkNnPT0K",
-      "signature_name": "INTERFACE_1.0.32_x64-setup.exe.sig",
-      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.0.32/INTERFACE_1.0.32_x64-setup.exe"
+      "name": "INTERFACE_1.0.34_x64-setup.exe",
+      "sha256": "60980fe3e2f7dce5333de71f7c2cc4a61984818ba11b85a962e6067df11eb278",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTWFGM1cvUE0xQ3hWbEpoMlM2bjdBbUROdTdDWlBLbjR1R09FbktRL2NMMWdjeCtNWU9oODcyV1Z4Y3B6MXVCUkdpQ3pCNTB5MDNmaGVpRnIwMzQyVmdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc3NTIzOTc3CWZpbGU6SU5URVJGQUNFXzEuMC4zNF94NjQtc2V0dXAuZXhlCm5ud2MxdEtLNFdsdkYxVXpHVTIyUzNyS3J5ZnR4NFVldG0vSk5wU2J2bDRZWXpuSDQ4b2w1WmNQZ2JoNXpGVlBmOVRiQWZ4a2p5cGlVNlV4NFFMV0R3PT0K",
+      "signature_name": "INTERFACE_1.0.34_x64-setup.exe.sig",
+      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.0.34/INTERFACE_1.0.34_x64-setup.exe"
     }
   }
 }
