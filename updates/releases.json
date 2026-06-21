@@ -1,11 +1,27 @@
 {
-  "generated_at": "2026-06-21T05:29:44.408Z",
+  "generated_at": "2026-06-21T18:56:24.252Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
-    "stable": "1.1.1",
+    "stable": "1.1.2",
     "beta": "0.0.4"
   },
   "releases": [
+    {
+      "tag": "v1.1.2",
+      "version": "1.1.2",
+      "title": "Fixeo para targetas y paneles arrastrables.",
+      "notes": "Fixeo para targetas y paneles arrastrables.",
+      "pub_date": "2026-06-21T12:56:01-06:00",
+      "channel": "stable",
+      "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.1.2",
+      "draft": false,
+      "prerelease": false,
+      "assets_count": 0,
+      "updater_available": false,
+      "updater_asset_name": "",
+      "updater_asset_kind": "",
+      "updater_asset_sha256": ""
+    },
     {
       "tag": "v1.1.1",
       "version": "1.1.1",
