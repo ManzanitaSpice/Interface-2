@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-29T01:57:22.281Z",
+  "generated_at": "2026-06-29T02:12:15.278Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
     "stable": "1.1.4",
@@ -9,18 +9,18 @@
     {
       "tag": "v1.1.4",
       "version": "1.1.4",
-      "title": "Fixeo de upload y visuales",
-      "notes": "Fixeo de upload y visuales",
-      "pub_date": "2026-06-28T19:56:55-06:00",
+      "title": "v1.1.4",
+      "notes": "# v1.1.4\r\n\r\nFixeo de upload y visuales\r\n\r\n## Cambios\r\n\r\n- Fixeo de upload y visuales",
+      "pub_date": "2026-06-29T02:12:02Z",
       "channel": "stable",
       "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.1.4",
       "draft": false,
       "prerelease": false,
-      "assets_count": 0,
-      "updater_available": false,
-      "updater_asset_name": "",
-      "updater_asset_kind": "",
-      "updater_asset_sha256": ""
+      "assets_count": 4,
+      "updater_available": true,
+      "updater_asset_name": "INTERFACE_1.1.4_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "20aad8ac5070609a9532cce24dd3cb5f1f781d2f97a1d790456e6076f3fa3260"
     },
     {
       "tag": "v1.1.3",

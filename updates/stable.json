@@ -1,16 +1,16 @@
 {
-  "version": "1.1.2",
-  "notes": "# v1.1.2\r\n\r\nFixeo para targetas y paneles arrastrables.\r\n\r\n## Cambios\r\n\r\n- Fixeo para targetas y paneles arrastrables.",
-  "pub_date": "2026-06-21T19:11:19Z",
+  "version": "1.1.4",
+  "notes": "# v1.1.4\r\n\r\nFixeo de upload y visuales\r\n\r\n## Cambios\r\n\r\n- Fixeo de upload y visuales",
+  "pub_date": "2026-06-29T02:12:02Z",
   "platforms": {
     "windows-x86_64": {
       "content_type": "application/zip",
       "kind": "nsis-exe",
-      "name": "INTERFACE_1.1.2_x64-setup.exe",
-      "sha256": "b5ce13493f6d308684563036c3b145fc2e06087a4b65af785c8ec4cac3e82f11",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTWV6emwxc2dkdm9pNWVBeGJjRWJGclN0TGh6MFRZLzRNalZ2dE1lcEN2MVRsNkhYZ0g4STlGY2E0S2RFeTI5bFJxUTU0RUZmeDZhdUZhTzBxaXBrZXdzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyMDY5MDg2CWZpbGU6SU5URVJGQUNFXzEuMS4yX3g2NC1zZXR1cC5leGUKZUJWRmZ3R01ZOWRXOTFST0RWSFI0UkM2TjRtYXo1dHRXTnNxS1h6ZWxod2I5dDVKZ2lMeU40eEhyT2l6ekZ2WTRIT2ZQNkNvcXZwK3VrSW16TEV6QVE9PQo=",
-      "signature_name": "INTERFACE_1.1.2_x64-setup.exe.sig",
-      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.1.2/INTERFACE_1.1.2_x64-setup.exe"
+      "name": "INTERFACE_1.1.4_x64-setup.exe",
+      "sha256": "20aad8ac5070609a9532cce24dd3cb5f1f781d2f97a1d790456e6076f3fa3260",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVVRd1FXZzVyN2xWOVY2dXhwd0pHZDdGUlVpUU84ZGY0T1RHaGRUeTJIZzVmR1EzNzZpdWZuZnJDUjdzNFVjWE0wenM3cXVrRUpVcFQwbk5KMStGZVFJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNjk5MTMwCWZpbGU6SU5URVJGQUNFXzEuMS40X3g2NC1zZXR1cC5leGUKWGhTVWN0SUxibU1aNG13L3lRdi90WnI1MzJEZ1hOTnhicHg2TFF1UldSUkdkZG91SkFwejBobUJlSklJdWFkQ2dXaWFGYUFGSjh4VFZHdWJOZDhJRFE9PQo=",
+      "signature_name": "INTERFACE_1.1.4_x64-setup.exe.sig",
+      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.1.4/INTERFACE_1.1.4_x64-setup.exe"
     }
   }
 }
