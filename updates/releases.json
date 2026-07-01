@@ -1,11 +1,27 @@
 {
-  "generated_at": "2026-07-01T20:19:41.541Z",
+  "generated_at": "2026-07-01T20:26:17.115Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
-    "stable": "1.1.5",
+    "stable": "1.1.6",
     "beta": "0.0.4"
   },
   "releases": [
+    {
+      "tag": "v1.1.6",
+      "version": "1.1.6",
+      "title": "New Tutorial, Fixeo Global",
+      "notes": "New Tutorial, Fixeo Global",
+      "pub_date": "2026-07-01T14:25:51-06:00",
+      "channel": "stable",
+      "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.1.6",
+      "draft": false,
+      "prerelease": false,
+      "assets_count": 0,
+      "updater_available": false,
+      "updater_asset_name": "",
+      "updater_asset_kind": "",
+      "updater_asset_sha256": ""
+    },
     {
       "tag": "v1.1.5",
       "version": "1.1.5",
