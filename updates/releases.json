@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-02T01:14:40.364Z",
+  "generated_at": "2026-07-02T01:30:51.051Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
     "stable": "1.1.8",
@@ -9,18 +9,18 @@
     {
       "tag": "v1.1.8",
       "version": "1.1.8",
-      "title": "FixFast2",
-      "notes": "FixFast2",
-      "pub_date": "2026-07-01T19:14:16-06:00",
+      "title": "v1.1.8",
+      "notes": "# v1.1.8\r\n\r\nFixFast2\r\n\r\n## Cambios\r\n\r\n- FixFast2",
+      "pub_date": "2026-07-02T01:30:39Z",
       "channel": "stable",
       "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.1.8",
       "draft": false,
       "prerelease": false,
-      "assets_count": 0,
-      "updater_available": false,
-      "updater_asset_name": "",
-      "updater_asset_kind": "",
-      "updater_asset_sha256": ""
+      "assets_count": 4,
+      "updater_available": true,
+      "updater_asset_name": "INTERFACE_1.1.8_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "9ceb971ff7f0ec4b5a905e3115e92682899d42b7640bab21980ef76c9c3ac971"
     },
     {
       "tag": "v1.1.7",
