@@ -1,16 +1,16 @@
 {
-  "version": "1.1.6",
-  "notes": "# v1.1.6\r\n\r\nNew Tutorial, Fixeo Global\r\n\r\n## Cambios\r\n\r\n- New Tutorial, Fixeo Global",
-  "pub_date": "2026-07-01T20:41:14Z",
+  "version": "1.1.7",
+  "notes": "# v1.1.7\r\n\r\nFixFast\r\n\r\n## Cambios\r\n\r\n- FixFast",
+  "pub_date": "2026-07-02T00:16:33Z",
   "platforms": {
     "windows-x86_64": {
       "content_type": "application/zip",
       "kind": "nsis-exe",
-      "name": "INTERFACE_1.1.6_x64-setup.exe",
-      "sha256": "4c1b8b313f8103af74a25badb37e76700911aa5df11cd341a2b692595f26b942",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTWZHMzBJc0Jzd3V2ZUFCREhEK08vQWxwc01FWDg3d2FXS0FCWWFZeDBtOGdRVmFCcW1UK2IzSVd5TERkYW5PNUxZTmdmMDJkeDYxYnBXMFFtT3NrRHdFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyOTM4NDg0CWZpbGU6SU5URVJGQUNFXzEuMS42X3g2NC1zZXR1cC5leGUKMHpzTU1hUlNoVlFwdjNTYWpJV1dGNEt1SEwyM0hKUmNhVXJtbmxYUVp5Nkh2elZxaFErYkhBUmlLUlpvMGh4S2xxaHEzeHo5UEhJSk5DN2NObzc3Q3c9PQo=",
-      "signature_name": "INTERFACE_1.1.6_x64-setup.exe.sig",
-      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.1.6/INTERFACE_1.1.6_x64-setup.exe"
+      "name": "INTERFACE_1.1.7_x64-setup.exe",
+      "sha256": "830c118688cac244d90673190729b4e5877032f4540b6f6c8e08ea7ae4acdbce",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVZkUlJEaEtLa1RLVXlsR0FGdUJFR3VvMDU1c2FDSGVmWkI0QVRVbUNhS0ZnQ2t4WlJLZmQxWWZiVDhxTFZoK3NtRXJQaVBjYmcycG9rTTlTL0VDNVFBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyOTUxNDAzCWZpbGU6SU5URVJGQUNFXzEuMS43X3g2NC1zZXR1cC5leGUKc254T3NleERRWUdURWEzemgxbk9LMkRYTU11V0pJQXhsVlk2MmZCNXN6aFpzMnZmRDRWcnp6RHFjUm5iSEFrVWNydFowVTNXUEhvOVk5cm5GY2psRHc9PQo=",
+      "signature_name": "INTERFACE_1.1.7_x64-setup.exe.sig",
+      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.1.7/INTERFACE_1.1.7_x64-setup.exe"
     }
   }
 }
