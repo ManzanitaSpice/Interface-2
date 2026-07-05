@@ -1,16 +1,16 @@
 {
-  "version": "1.1.9",
-  "notes": "# v1.1.9\r\n\r\nFixFast3\r\n\r\n## Cambios\r\n\r\n- FixFast3",
-  "pub_date": "2026-07-03T23:34:10Z",
+  "version": "1.1.10",
+  "notes": "# v1.1.10\r\n\r\nFixFast4\r\n\r\n## Cambios\r\n\r\n- FixFast4",
+  "pub_date": "2026-07-05T00:53:41Z",
   "platforms": {
     "windows-x86_64": {
       "content_type": "application/zip",
       "kind": "nsis-exe",
-      "name": "INTERFACE_1.1.9_x64-setup.exe",
-      "sha256": "83d077fdccff9668987df7268c87e714781befa28571716cbae708031840299e",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVdoNUdtNzYxTS9IdlZUQkZBalZHWFVtNFJYNFVtbExpdllvVXJTVzBWalUyMTMvNXpxOWxnMkNSaWRsQ2cyRkFrOXBYWjBaM1JOd1B6RG1Fak56ZVFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgzMTIxNjU2CWZpbGU6SU5URVJGQUNFXzEuMS45X3g2NC1zZXR1cC5leGUKOVBSVWFKd3dOOVZFK3N2aWI0Q0V1V2lDSlRabkdOa2d6WndMZkJsR2RXV3ZCTTk2RVd5S3duT2QyQTR3S3JKRGRPVHB0Y1B3TXI4TVpuR1NXNzBTQ0E9PQo=",
-      "signature_name": "INTERFACE_1.1.9_x64-setup.exe.sig",
-      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.1.9/INTERFACE_1.1.9_x64-setup.exe"
+      "name": "INTERFACE_1.1.10_x64-setup.exe",
+      "sha256": "2c44aff56970c95ec9ef72a0605d39dc8d1a345fbb332b8cc35acf68692e36c6",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVlpdzk2OUthVDZUcWZtdGhHODdRTng4Ty9TV2Z4ai9HVGV3MnhjY2dyTlk0cGxXK2hxcU5jVWZ5NWdWeUJreUkyRG1jam5ZTFZHelFwTjNHUk9Ya1FBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgzMjEyODI4CWZpbGU6SU5URVJGQUNFXzEuMS4xMF94NjQtc2V0dXAuZXhlCjMrZTkrU3ZuWjdwd3dpc1o3QkcrSk9qK2g0UzZFdDQ1TXhjcVIxOFc2YTJISDNtSnNXZmMvSTF2eFRWczVxWWdBZ2dpanRQQisxOW1yRzB5Z0hoY0NRPT0K",
+      "signature_name": "INTERFACE_1.1.10_x64-setup.exe.sig",
+      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.1.10/INTERFACE_1.1.10_x64-setup.exe"
     }
   }
 }
