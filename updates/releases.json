@@ -1,11 +1,27 @@
 {
-  "generated_at": "2026-07-07T23:27:50.542Z",
+  "generated_at": "2026-07-07T23:36:40.839Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
-    "stable": "1.1.10",
+    "stable": "1.1.11",
     "beta": "0.0.4"
   },
   "releases": [
+    {
+      "tag": "v1.1.11",
+      "version": "1.1.11",
+      "title": "FixFast6",
+      "notes": "FixFast6",
+      "pub_date": "2026-07-07T17:36:16-06:00",
+      "channel": "stable",
+      "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.1.11",
+      "draft": false,
+      "prerelease": false,
+      "assets_count": 0,
+      "updater_available": false,
+      "updater_asset_name": "",
+      "updater_asset_kind": "",
+      "updater_asset_sha256": ""
+    },
     {
       "tag": "v1.1.10",
       "version": "1.1.10",
