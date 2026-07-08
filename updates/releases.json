@@ -1,11 +1,27 @@
 {
-  "generated_at": "2026-07-08T01:22:36.189Z",
+  "generated_at": "2026-07-08T03:22:39.884Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
-    "stable": "1.1.12",
+    "stable": "1.1.13",
     "beta": "0.0.4"
   },
   "releases": [
+    {
+      "tag": "v1.1.13",
+      "version": "1.1.13",
+      "title": "FixFast8",
+      "notes": "FixFast8",
+      "pub_date": "2026-07-07T21:22:15-06:00",
+      "channel": "stable",
+      "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.1.13",
+      "draft": false,
+      "prerelease": false,
+      "assets_count": 0,
+      "updater_available": false,
+      "updater_asset_name": "",
+      "updater_asset_kind": "",
+      "updater_asset_sha256": ""
+    },
     {
       "tag": "v1.1.12",
       "version": "1.1.12",
