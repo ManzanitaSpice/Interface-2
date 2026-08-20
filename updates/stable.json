@@ -1,10 +1,10 @@
 {
   "version": "1.1.29",
   "notes": "# v1.1.29\r\n\r\nfixfast23\r\n\r\n## Cambios\r\n\r\n- fixfast23",
-  "pub_date": "2026-08-04T00:23:32Z",
+  "pub_date": "2026-08-20T20:22:28Z",
   "platforms": {
     "windows-x86_64": {
-      "content_type": "application/zip",
+      "content_type": "application/octet-stream",
       "kind": "nsis-exe",
       "name": "INTERFACE_1.1.29_x64-setup.exe",
       "sha256": "2cedf695fad1a6200eb1458f56c209506be52240e4181ecfa79b2e9e9dab9ca0",
