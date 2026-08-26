@@ -1,11 +1,27 @@
 {
-  "generated_at": "2026-08-26T01:53:10.476Z",
+  "generated_at": "2026-08-26T02:24:58.439Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
-    "stable": "1.1.29",
+    "stable": "1.1.30",
     "beta": "0.0.4"
   },
   "releases": [
+    {
+      "tag": "v1.1.30",
+      "version": "1.1.30",
+      "title": "v1.1.30",
+      "notes": "# v1.1.30\r\n\r\nfixfast24\r\n\r\n## Cambios\r\n\r\n- fixfast24",
+      "pub_date": "2026-08-26T02:24:49Z",
+      "channel": "stable",
+      "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.1.30",
+      "draft": false,
+      "prerelease": false,
+      "assets_count": 4,
+      "updater_available": true,
+      "updater_asset_name": "INTERFACE_1.1.30_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "3b6a57514850d3ba717c45b72d0aa23b09e4d9962ddc5e8f342b6a12a2f5afe2"
+    },
     {
       "tag": "v1.1.29",
       "version": "1.1.29",
