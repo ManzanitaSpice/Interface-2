@@ -1,11 +1,27 @@
 {
-  "generated_at": "2026-09-19T02:03:53.706Z",
+  "generated_at": "2026-09-19T02:35:42.793Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
-    "stable": "1.1.31",
+    "stable": "1.1.32",
     "beta": "0.0.4"
   },
   "releases": [
+    {
+      "tag": "v1.1.32",
+      "version": "1.1.32",
+      "title": "v1.1.32",
+      "notes": "# v1.1.32\r\n\r\nRoninUpdate\r\n\r\n## Cambios\r\n\r\n- RoninUpdate",
+      "pub_date": "2026-09-19T02:35:38Z",
+      "channel": "stable",
+      "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.1.32",
+      "draft": false,
+      "prerelease": false,
+      "assets_count": 4,
+      "updater_available": true,
+      "updater_asset_name": "INTERFACE_1.1.32_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "d82dd9eb9fa276d408237097a9f7a1fa702f4d2b21e3993473a4530fb209075f"
+    },
     {
       "tag": "v1.1.31",
       "version": "1.1.31",

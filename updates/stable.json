@@ -1,16 +1,16 @@
 {
-  "version": "1.1.31",
-  "notes": "# v1.1.31\r\n\r\nfixfast25\r\n\r\n## Cambios\r\n\r\n- fixfast25",
-  "pub_date": "2026-09-01T00:11:35Z",
+  "version": "1.1.32",
+  "notes": "# v1.1.32\r\n\r\nRoninUpdate\r\n\r\n## Cambios\r\n\r\n- RoninUpdate",
+  "pub_date": "2026-09-19T02:35:38Z",
   "platforms": {
     "windows-x86_64": {
       "content_type": "application/x-msdos-program",
       "kind": "nsis-exe",
-      "name": "INTERFACE_1.1.31_x64-setup.exe",
-      "sha256": "c5b16571fc671c20379ac9ac9a5c195973945274a1e848b9d9ebf99203c30fbb",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVpua3hncnY0cHdkZGs4eHZaZEp2bUpENktPSzhSaEpxeG82NlRaWEozVkh2Mm5jdzViMGpScU9FQ3B5Z3V2K1NwWGUwS1Rlakx0UW5xN2dNWTFPSVFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MjIxNDgxCWZpbGU6SU5URVJGQUNFXzEuMS4zMV94NjQtc2V0dXAuZXhlCjFHbFpVMXIvcTZiT0lQd3hFWlU0K0VMc2FmOUYrdkJyZEtITjdnUG1aTkoxOGc5TGVPbTBML3orMGFxRXp3YXIvSDU2NUR1dXllYnhVWVVTcCtENUJ3PT0K",
-      "signature_name": "INTERFACE_1.1.31_x64-setup.exe.sig",
-      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.1.31/INTERFACE_1.1.31_x64-setup.exe"
+      "name": "INTERFACE_1.1.32_x64-setup.exe",
+      "sha256": "d82dd9eb9fa276d408237097a9f7a1fa702f4d2b21e3993473a4530fb209075f",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTWRSWTRzMGhRNFN2cFYrMTNGaGswM2RNTE12Y3FuZDNnbmlldmQvbFo0VjFwTThLQ1ptRSt3R2R4VHBwZHg3Y1VXYW1DNmRWQ0N1aTY5V3JobzZ0WndzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5Nzg1MzI2CWZpbGU6SU5URVJGQUNFXzEuMS4zMl94NjQtc2V0dXAuZXhlClpIenZjYzR0QTd2M24rYStjVTQ1RXFmNDBPNHpHYVl0MHhpNkVQS3ZzR091V1QyL2xjdVYreGRvZXBNelpZbUF2WldrNHpEYitqNGV4ZTMxTWc5c0F3PT0K",
+      "signature_name": "INTERFACE_1.1.32_x64-setup.exe.sig",
+      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.1.32/INTERFACE_1.1.32_x64-setup.exe"
     }
   }
 }
