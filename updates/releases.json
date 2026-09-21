@@ -1,11 +1,27 @@
 {
-  "generated_at": "2026-09-21T04:38:06.141Z",
+  "generated_at": "2026-09-21T05:09:03.499Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
-    "stable": "1.1.32",
+    "stable": "1.1.33",
     "beta": "0.0.4"
   },
   "releases": [
+    {
+      "tag": "v1.1.33",
+      "version": "1.1.33",
+      "title": "v1.1.33",
+      "notes": "# v1.1.33\r\n\r\nUpdateMajorSkin\r\n\r\n## Cambios\r\n\r\n- UpdateMajorSkin",
+      "pub_date": "2026-09-21T05:08:59Z",
+      "channel": "stable",
+      "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.1.33",
+      "draft": false,
+      "prerelease": false,
+      "assets_count": 4,
+      "updater_available": true,
+      "updater_asset_name": "INTERFACE_1.1.33_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "c502d9a2e37072d1a6b70a6151146564c2ccc0ad73da6a9942f50b853b211ca1"
+    },
     {
       "tag": "v1.1.32",
       "version": "1.1.32",
