@@ -1,16 +1,16 @@
 {
-  "version": "1.1.34",
-  "notes": "# v1.1.34\r\n\r\nUpdateMega\r\n\r\n## Cambios\r\n\r\n- UpdateMega",
-  "pub_date": "2026-09-23T04:23:50Z",
+  "version": "1.1.35",
+  "notes": "# v1.1.35\r\n\r\nUpdateMega2\r\n\r\n## Cambios\r\n\r\n- UpdateMega2",
+  "pub_date": "2026-09-24T00:52:25Z",
   "platforms": {
     "windows-x86_64": {
       "content_type": "application/x-msdos-program",
       "kind": "nsis-exe",
-      "name": "INTERFACE_1.1.34_x64-setup.exe",
-      "sha256": "8a53154ce158d1aab50e3e6a0278971121f5c145c2217a1484fc8c76dcff8607",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVYyelZaNG5TU0c0MGFINWZCUXZGYmcwRmt0MFhBU1REaW1kQkM1UWd0dXppOHMyT1hBcURzaWNMb3hjeVFpS2VpQXJuVVRlWUF1V25TTlFsNTZKa1FZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMTM3NDE2CWZpbGU6SU5URVJGQUNFXzEuMS4zNF94NjQtc2V0dXAuZXhlCnU1RXlmbTNmaWNRWUlIVlBKbGN5WlB1ZFlNRk8yQVFEbWhVaWtOeWgxVVI2TjZ0b1owSjhTdFMxTEtCU1d5UmRCNURHK1JYV3lmUVVKY0Zjd2k1RkRnPT0K",
-      "signature_name": "INTERFACE_1.1.34_x64-setup.exe.sig",
-      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.1.34/INTERFACE_1.1.34_x64-setup.exe"
+      "name": "INTERFACE_1.1.35_x64-setup.exe",
+      "sha256": "fe8aa84a0af62a4173de7780589360a1a88eacd2ba8b0d6d36902352eab560f1",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVpQZXU1UlhkMWczcmlMa0JPamtGWFI5M1d2YW51VnVxNFA5YnIzcEw1UUVhdnZ2UEp4aDJqNVJlQ0lTZmFJMUwzcWdZd0dsQ01QZ1VVZkhFekhjZ3dVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMjExMTMxCWZpbGU6SU5URVJGQUNFXzEuMS4zNV94NjQtc2V0dXAuZXhlCmozNWNLOVFJVWRwK3BUazNZb2RtTENDaWRmR3dxeUJFZWFYKzk2MytNamlQaE5mOEl1MXY2d3liMEQxSzdVVVNEZEFJR1ZmcWVVaHpKcm1wVG81cUF3PT0K",
+      "signature_name": "INTERFACE_1.1.35_x64-setup.exe.sig",
+      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.1.35/INTERFACE_1.1.35_x64-setup.exe"
     }
   }
 }
