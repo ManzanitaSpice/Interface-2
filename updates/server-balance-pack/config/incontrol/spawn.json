@@ -1,0 +1,32 @@
+[
+  {
+    "when": "position",
+    "spawntype": ["natural", "chunk_generation", "patrol"],
+    "mincount": {
+      "amount": 60,
+      "hostile": true,
+      "perplayer": true
+    },
+    "result": "deny"
+  },
+  {
+    "when": "position",
+    "spawntype": ["natural", "chunk_generation"],
+    "mincount": {
+      "amount": 30,
+      "passive": true,
+      "perplayer": true
+    },
+    "result": "deny"
+  },
+  {
+    "when": "position",
+    "spawntype": ["natural", "chunk_generation", "patrol"],
+    "mincount": {
+      "amount": 110,
+      "all": true,
+      "perplayer": true
+    },
+    "result": "deny"
+  }
+]
