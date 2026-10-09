@@ -1,11 +1,27 @@
 {
-  "generated_at": "2026-10-09T02:20:39.118Z",
+  "generated_at": "2026-10-09T02:45:49.585Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
-    "stable": "1.1.37",
+    "stable": "1.1.38",
     "beta": "0.0.4"
   },
   "releases": [
+    {
+      "tag": "v1.1.38",
+      "version": "1.1.38",
+      "title": "v1.1.38",
+      "notes": "# v1.1.38\r\n\r\nUpdateMajor, Mascota ManzanitaChatBot\r\n\r\n## Cambios\r\n\r\n- UpdateMajor, Mascota ManzanitaChatBot",
+      "pub_date": "2026-10-09T02:45:46Z",
+      "channel": "stable",
+      "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.1.38",
+      "draft": false,
+      "prerelease": false,
+      "assets_count": 4,
+      "updater_available": true,
+      "updater_asset_name": "INTERFACE_1.1.38_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "2f903b3efeea5804b561d1002abcda57bae9465dfac451f679ffa4d901b0c32a"
+    },
     {
       "tag": "v1.1.37",
       "version": "1.1.37",

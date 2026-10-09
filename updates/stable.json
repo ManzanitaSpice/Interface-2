@@ -1,16 +1,16 @@
 {
-  "version": "1.1.37",
-  "notes": "# v1.1.37\r\n\r\nUpdateSkins\r\n\r\n## Cambios\r\n\r\n- UpdateSkins",
-  "pub_date": "2026-09-29T19:03:11Z",
+  "version": "1.1.38",
+  "notes": "# v1.1.38\r\n\r\nUpdateMajor, Mascota ManzanitaChatBot\r\n\r\n## Cambios\r\n\r\n- UpdateMajor, Mascota ManzanitaChatBot",
+  "pub_date": "2026-10-09T02:45:46Z",
   "platforms": {
     "windows-x86_64": {
       "content_type": "application/x-msdos-program",
       "kind": "nsis-exe",
-      "name": "INTERFACE_1.1.37_x64-setup.exe",
-      "sha256": "89d27175824f8ad93c4acf17c15bcc458385999ef1df7119bb898f431a028398",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTWY5SjhlYVAwTGt4V1R6K1lmK2NxQUc2RzdkM3RGRG5BdUZ3QnZha2xMK2tNTlpIeUNGT0kzNW5ieVBpY1hObEE0ZkRnaEk5VGlLTzdxUERQeEIwTEEwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwNzA4NTc3CWZpbGU6SU5URVJGQUNFXzEuMS4zN194NjQtc2V0dXAuZXhlCncxZGh6R0prZnJJYzZkQVVoalZWbFUrZDFiMzZkTGFmcEYyZTczZ0hUbGF6eXNMQVE1LzJHRmIrNjhnU004ZjB4c2lpNXkyb1cwaWhsSHF1b2RUV0NnPT0K",
-      "signature_name": "INTERFACE_1.1.37_x64-setup.exe.sig",
-      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.1.37/INTERFACE_1.1.37_x64-setup.exe"
+      "name": "INTERFACE_1.1.38_x64-setup.exe",
+      "sha256": "2f903b3efeea5804b561d1002abcda57bae9465dfac451f679ffa4d901b0c32a",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTWFpQ2tPcXByNCs2Zyt0OVU4SVRlSjBqWmpqcG1nUnJnZHRoWGJ2Q3h3YkpyTm1rNERoSm9xSWNKZUpxQ2sxZWxXblBqWFdqNWVJc2d1TGpzVG9EemdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxNTEzOTMyCWZpbGU6SU5URVJGQUNFXzEuMS4zOF94NjQtc2V0dXAuZXhlClFCT1J0cjZkejVoUy8yejVKZVpESG1sMlFnRVZQV0JtTzFDdDNRSmRjaHlJVmx3Mk53NEFSTWlCeXZKTHlRbUxDdHp2ekR6TlBUTkViMEM5RUFSQkRRPT0K",
+      "signature_name": "INTERFACE_1.1.38_x64-setup.exe.sig",
+      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.1.38/INTERFACE_1.1.38_x64-setup.exe"
     }
   }
 }
