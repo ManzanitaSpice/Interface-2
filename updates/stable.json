@@ -1,16 +1,16 @@
 {
-  "version": "1.1.38",
-  "notes": "# v1.1.38\r\n\r\nUpdateMajor, Mascota ManzanitaChatBot\r\n\r\n## Cambios\r\n\r\n- UpdateMajor, Mascota ManzanitaChatBot",
-  "pub_date": "2026-10-09T02:45:46Z",
+  "version": "1.1.39",
+  "notes": "# v1.1.39\r\n\r\nUpdateMajor, Mascota v3.5Core\r\n\r\n## Cambios\r\n\r\n- UpdateMajor, Mascota v3.5Core",
+  "pub_date": "2026-10-11T08:07:40Z",
   "platforms": {
     "windows-x86_64": {
       "content_type": "application/x-msdos-program",
       "kind": "nsis-exe",
-      "name": "INTERFACE_1.1.38_x64-setup.exe",
-      "sha256": "2f903b3efeea5804b561d1002abcda57bae9465dfac451f679ffa4d901b0c32a",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTWFpQ2tPcXByNCs2Zyt0OVU4SVRlSjBqWmpqcG1nUnJnZHRoWGJ2Q3h3YkpyTm1rNERoSm9xSWNKZUpxQ2sxZWxXblBqWFdqNWVJc2d1TGpzVG9EemdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxNTEzOTMyCWZpbGU6SU5URVJGQUNFXzEuMS4zOF94NjQtc2V0dXAuZXhlClFCT1J0cjZkejVoUy8yejVKZVpESG1sMlFnRVZQV0JtTzFDdDNRSmRjaHlJVmx3Mk53NEFSTWlCeXZKTHlRbUxDdHp2ekR6TlBUTkViMEM5RUFSQkRRPT0K",
-      "signature_name": "INTERFACE_1.1.38_x64-setup.exe.sig",
-      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.1.38/INTERFACE_1.1.38_x64-setup.exe"
+      "name": "INTERFACE_1.1.39_x64-setup.exe",
+      "sha256": "7c17b7acd09cc29b420093ac7e119c87992d6fc94da1f128d2f0576776230b38",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTWZtbkYvQ1k2KzZxWEZoc2crVUlZODNpMGVNeUFXRUh0OXI5NXNzdGxZOG03UUpqc2tqSkdudGJHV1A4WVBNQmxEUXNIMXZ5TkxDRGYyWnVHbzQxWHdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxNzA2MDQxCWZpbGU6SU5URVJGQUNFXzEuMS4zOV94NjQtc2V0dXAuZXhlCnh5ZnhyM2ZrblJ5UzBFLzZFSXBnbUVFZzRsdytQQ1dHNFduUUhKOUtEUUVzNHRSNEN1RU9IMzQyVUhWOUJibklDSDA1dGIzaUUybjFQT3hweWpGYkN3PT0K",
+      "signature_name": "INTERFACE_1.1.39_x64-setup.exe.sig",
+      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.1.39/INTERFACE_1.1.39_x64-setup.exe"
     }
   }
 }
