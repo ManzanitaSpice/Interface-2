@@ -1,10 +1,10 @@
 {
   "version": "1.1.39",
   "notes": "# v1.1.39\r\n\r\nUpdateMajor, Mascota v3.5Core\r\n\r\n## Cambios\r\n\r\n- UpdateMajor, Mascota v3.5Core",
-  "pub_date": "2026-10-11T08:07:40Z",
+  "pub_date": "2026-10-11T17:26:49Z",
   "platforms": {
     "windows-x86_64": {
-      "content_type": "application/x-msdos-program",
+      "content_type": "application/octet-stream",
       "kind": "nsis-exe",
       "name": "INTERFACE_1.1.39_x64-setup.exe",
       "sha256": "7c17b7acd09cc29b420093ac7e119c87992d6fc94da1f128d2f0576776230b38",
