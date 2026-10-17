@@ -1,0 +1,9 @@
+{
+  "is_enabled": true,
+  "night_trigger_chance__comment": "0.0 - 1.0, where 0.1 means a 10% chance each night",
+  "night_trigger_chance": 0.0,
+  "spawn_rate_multiplier__comment": "1.0 - 10.0 times the normal spawn rate while a Blood Moon is active, where 2.0 means twice as many mobs",
+  "spawn_rate_multiplier": 1.25,
+  "crd_penalty__comment": "0.0 - 1.0 of the area's regional difficulty removed when a Blood Moon ends, where 0.5 means half of it",
+  "crd_penalty": 0.5
+}

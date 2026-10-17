@@ -4,8 +4,8 @@ Este paquete es exclusivamente del servidor. Los jugadores no necesitan instalar
 
 ## Instalación
 
-1. Copia `kubejs/server_scripts/max_session.js` y `kubejs/startup_scripts/max_iron_spell_events.js` dentro de las carpetas equivalentes de la instancia del servidor.
-2. Copia `config/incontrol/spawn.json` dentro del mismo directorio de la instancia del servidor.
+1. Copia `kubejs/server_scripts/max_session.js`, `kubejs/server_scripts/atmosphere_bloodmoon.js` y `kubejs/startup_scripts/max_iron_spell_events.js` dentro de las carpetas equivalentes de la instancia del servidor.
+2. Copia `config/incontrol/spawn.json` y `config/majruszsdifficulty/blood_moon.json` dentro de las carpetas equivalentes de la instancia del servidor.
 3. Reinicia el servidor. Para retocar solamente InControl también puedes usar `/incontrol reload`.
 
 ## Comando `/max`
@@ -21,6 +21,10 @@ El comando sólo modifica tres categorías: regeneración de maná, velocidad de
 Al migrar desde una versión anterior, el script restaura automáticamente el maná máximo y los atributos ofensivos o defensivos que aquella versión hubiera guardado. También elimina una Fortificación antigua al activar `/max`, para que no permanezcan corazones creados con el poder mágico anterior; después se puede volver a lanzar normalmente.
 
 Al activar `/max`, los cooldowns existentes de Iron's Spells se limpian. Mientras siga activo, el evento de cooldown se cancela antes de que el mod lo registre. La reducción de casteo permanece en el máximo admitido por Iron's Spells y se aplica a los nuevos lanzamientos. El archivo de `startup_scripts` requiere reiniciar completamente el servidor; `/reload` no basta para registrar ese evento.
+
+## Blood Moon del bloque de atmósfera
+
+`atmosphere_bloodmoon.js` ejecuta `/HMdayreset true` una sola vez al iniciar el servidor, para limpiar un estado deshabilitado anterior que causaba mensajes repetidos. Cuando cambia la señal de redstone del bloque, el script restaura la hora del mundo en el siguiente tick y conserva el ciclo normal. Solo inicia la Blood Moon si detecta una interacción reciente de un jugador cerca del bloque; una señal natural no la inicia. También admite el uso directo del bloque. Mientras Majrusz reporta una Blood Moon activa, descarta nuevas señales; al terminar, aplica cinco minutos de cooldown. Si Majrusz todavía no acepta el inicio, la activación queda pendiente hasta su ventana válida. Al iniciar, muestra el nick del jugador. `blood_moon.json` deja en cero la probabilidad de inicio natural de Majrusz, manteniendo habilitado el evento para el inicio manual del bloque. El bloque conserva sus drops normales.
 
 ## InControl
 
