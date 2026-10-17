@@ -1,11 +1,27 @@
 {
-  "generated_at": "2026-10-17T20:57:32.824Z",
+  "generated_at": "2026-10-17T21:29:48.472Z",
   "repository": "ManzanitaSpice/Interface-2",
   "latest": {
-    "stable": "1.1.40",
+    "stable": "1.1.43",
     "beta": ""
   },
   "releases": [
+    {
+      "tag": "v1.1.43",
+      "version": "1.1.43",
+      "title": "v1.1.43",
+      "notes": "# v1.1.43\r\n\r\nFixPkgHangWorkflow\r\n\r\n## Cambios\r\n\r\n- FixPkgHangWorkflow",
+      "pub_date": "2026-10-17T21:29:46Z",
+      "channel": "stable",
+      "release_url": "https://github.com/ManzanitaSpice/Interface-2/releases/tag/v1.1.43",
+      "draft": false,
+      "prerelease": false,
+      "assets_count": 4,
+      "updater_available": true,
+      "updater_asset_name": "INTERFACE_1.1.43_x64-setup.exe",
+      "updater_asset_kind": "nsis-exe",
+      "updater_asset_sha256": "9ed7e227d0483f22e993ec392b20444ea4d8c7e6514a4ed19c6b0447a60a6256"
+    },
     {
       "tag": "v1.1.40",
       "version": "1.1.40",

@@ -1,16 +1,16 @@
 {
-  "version": "1.1.40",
-  "notes": "# v1.1.40\r\n\r\nUpdateFixes\r\n\r\n## Cambios\r\n\r\n- UpdateFixes",
-  "pub_date": "2026-10-17T01:06:08Z",
+  "version": "1.1.43",
+  "notes": "# v1.1.43\r\n\r\nFixPkgHangWorkflow\r\n\r\n## Cambios\r\n\r\n- FixPkgHangWorkflow",
+  "pub_date": "2026-10-17T21:29:46Z",
   "platforms": {
     "windows-x86_64": {
       "content_type": "application/x-msdos-program",
       "kind": "nsis-exe",
-      "name": "INTERFACE_1.1.40_x64-setup.exe",
-      "sha256": "4c03cf8ddced8d75d2982498a0e2131788975eeef6e2c755004ee554e94a97fe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVVJTTNwRFJFWTBFSEt5cFlvYysva2lEdEJMN3N2NGtBQU1zdTBLeTBnUEZmQVN2U3ZLOGdjWStPR2hjbFM2d1BkamtIWGpSOWpPZmllRm4vWTVoSXdZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMTk5MTU3CWZpbGU6SU5URVJGQUNFXzEuMS40MF94NjQtc2V0dXAuZXhlClE4cTF4SmFxaTI4bjZERGI0WTZBcnJuaFFtdHVTYThmWU1DOFNCbUJoRzZQS3NxTlY3S0xoWm8vUWVUTStmdy9oM2JsK3VTWWs3bnN6WHpNamc5Q0N3PT0K",
-      "signature_name": "INTERFACE_1.1.40_x64-setup.exe.sig",
-      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.1.40/INTERFACE_1.1.40_x64-setup.exe"
+      "name": "INTERFACE_1.1.43_x64-setup.exe",
+      "sha256": "9ed7e227d0483f22e993ec392b20444ea4d8c7e6514a4ed19c6b0447a60a6256",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVdXTXI5Z1B2NHFRL3o5Y0ZiWXRtekZWU1dsQXltaEFWK3o1ZWg5Z015N3VveGFHVmdLeVd0Kzc2Z2lkZUdTTDBKdXpIWGh1KytzMHRaVTA0SGNVc1FrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMjcyNTc1CWZpbGU6SU5URVJGQUNFXzEuMS40M194NjQtc2V0dXAuZXhlCnpXcUR2RWV5dUp6U3ZubVRna3FuamNtLytIR3lsSmZhNVR1aXAvbTdhYTlTOWVpSVpWT2Q4dVlHOUk4VkQzVGpwcnRjeEJvME5VeXJWcm53YnRDcUFRPT0K",
+      "signature_name": "INTERFACE_1.1.43_x64-setup.exe.sig",
+      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.1.43/INTERFACE_1.1.43_x64-setup.exe"
     }
   }
 }
