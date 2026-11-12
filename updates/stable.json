@@ -1,16 +1,16 @@
 {
-  "version": "1.1.46",
-  "notes": "# v1.1.46\r\n\r\nUpdateFixes5\r\n\r\n## Cambios\r\n\r\n- UpdateFixes5",
-  "pub_date": "2026-10-21T21:44:56Z",
+  "version": "1.3.0",
+  "notes": "# v1.3.0\r\n\r\nGran actualización de Interface\r\n\r\n## Cambios\r\n\r\n- Nuevo centro de creación y home editorial\r\n- Editor de instancias con mejoras en mods, archivos y flujos de importación/exportación\r\n- Renovación de skins con previsualización y gestión ampliadas\r\n- Mejoras de rendimiento, seguridad y mecánicas musicales",
+  "pub_date": "2026-11-12T20:36:31Z",
   "platforms": {
     "windows-x86_64": {
       "content_type": "application/x-msdos-program",
       "kind": "nsis-exe",
-      "name": "INTERFACE_1.1.46_x64-setup.exe",
-      "sha256": "5922c571d815a6ae0c9452495c5f69fe713c24c775bc06127a443ad629048abe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTWNBdDNEcVRKWFJBVS93a2o2OG1XTEFMWE9vUzNYTUdIZU83WU9nNVlEaUlJczVnWGt6WXIzVWVsYmtQMEFoeUpGdHBNK0tiTVI3WXBrL2NTQkZrNkE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNjE5MDg1CWZpbGU6SU5URVJGQUNFXzEuMS40Nl94NjQtc2V0dXAuZXhlCm9VT2N4ZGJZM2tHMnVUWVJ3YVF4V0xxWkc3L083VDBpZWRuQ1JJaGVBcWtoVHpsSWJVNU5jVmQ0UnU4KzluTXJRN0VTYjI2NWtRaGUwdFpOVHJkaUN3PT0K",
-      "signature_name": "INTERFACE_1.1.46_x64-setup.exe.sig",
-      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.1.46/INTERFACE_1.1.46_x64-setup.exe"
+      "name": "INTERFACE_1.3.0_x64-setup.exe",
+      "sha256": "ed54b9a80281d24ea8dea72a024cada699ea8e96c42e7c88bc9a9201a6809726",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTWF2YW96THUzN29UbDJKKzdXNHRWeW5vMWR4YTAwS0VHTlp5eXFFbVNPZlJwQ0ZESTV1dGVsOUlFQ214bmRHYmJCWGN3enZPSS9iZVhGdlhjYTEzb3dnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NTE1Nzg0CWZpbGU6SU5URVJGQUNFXzEuMy4wX3g2NC1zZXR1cC5leGUKZkRObG9TMmJDamVZOVJUa01TVjhKSXJnOEtjVVZKWXd1VmdISmFrY0xYb1VDbjFmTEhoTGxqSEJOeitRcnduWk81bk84MDV1QmFzWXpWaVFFY3ovQkE9PQo=",
+      "signature_name": "INTERFACE_1.3.0_x64-setup.exe.sig",
+      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.3.0/INTERFACE_1.3.0_x64-setup.exe"
     }
   }
 }
