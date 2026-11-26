@@ -1,16 +1,16 @@
 {
-  "version": "1.3.4",
-  "notes": "# v1.3.4\r\n\r\nContador global de instalaciones\r\n\r\n## Cambios\r\n\r\n- Corrección: muestra el contador emergente en Inicio cuando el servicio está disponible.\r\n- Registro: cuenta instalaciones únicas sin duplicarlas.\r\n- Infraestructura: añade el endpoint y la tabla D1, separados de los códigos de modpack.",
-  "pub_date": "2026-11-22T20:53:01Z",
+  "version": "1.3.5",
+  "notes": "# v1.3.5\r\n\r\nEspacio acoplable, responsive y protección del launcher\r\n\r\n## Cambios\r\n\r\n- Acopla instancias y secciones en paneles anidados, conserva la sección original al abrir contenido en otra mitad y permite redimensionar y reordenar paneles.\r\n- Hace más fluido el arrastre con zonas de destino visibles, auto-desplazamiento y cancelación con Escape; muestra una tarjeta flotante con icono y nombre para mods, carpetas y archivos.\r\n- Añade selección múltiple de instancias, mods y archivos para mover o gestionar grupos, separando el arrastre de pestañas de la selección de elementos.\r\n- Reorganiza el espacio y el editor según el ancho disponible, mejora la lectura de tarjetas y nombres largos y adapta controles y listas comprimidas.\r\n- Reestructura Skins para pantallas estrechas y compactas, manteniendo accesibles la búsqueda, las categorías, la vista previa y la biblioteca; añade escenarios visuales en Storybook.\r\n- Mejora el editor de instancia con barra lateral compactable, cierre de paneles, listas virtualizadas, notas locales sincronizadas entre paneles y reinicio correcto de controles por sección.\r\n- Unifica filtros del Explorador y mejora la carga de versiones de Minecraft con caché y respaldo si no está disponible el manifiesto.\r\n- Mejora la presentación de estados y errores del catálogo de descargas y ajusta la gestión de secciones, el creador y el catálogo global de servidores locales.\r\n- Verifica el version.json oficial de Minecraft antes de usarlo y valida la integridad de sus datos y artefactos descargados.\r\n- Endurece el arranque y la gestión de contenido: sanea argumentos de Java, valida artefactos de NeoForge y dependencias FreeType vulnerables y protege la descarga de server.jar vanilla con HTTPS y SHA-1.\r\n- Añade los documentos de diseño y planes del espacio acoplable y los filtros del Explorador, y actualiza los datos del índice GitNexus en la documentación del proyecto.",
+  "pub_date": "2026-11-26T03:12:25Z",
   "platforms": {
     "windows-x86_64": {
       "content_type": "application/x-msdos-program",
       "kind": "nsis-exe",
-      "name": "INTERFACE_1.3.4_x64-setup.exe",
-      "sha256": "aa3d1c3bf36ad662ba05dae79d293192e5651f9f22bcd4cc2ef34b831607ad03",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTWRsMDNjMHRMMmNYVkQ5ZkJBaVFsVW1VWjhLbE8zV1BJK1R4YVQrUWV6R05xZnR3QmRtVS9XaHRBRVRGWjZzQXE1WGtpVDZYWVhEUXlPZ25yWi9GZ1FvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MzgwNzc0CWZpbGU6SU5URVJGQUNFXzEuMy40X3g2NC1zZXR1cC5leGUKL3lhUm9USEt6N0tXYTJPRnhSbkRCYk9jb2xvWWkxSDF4RlA3MXh6cjc2NjNlalArN0RJU0VRZFdSalA2Rm03eTdRUEx5N01vNnNMMnY2WTdsSTl5REE9PQo=",
-      "signature_name": "INTERFACE_1.3.4_x64-setup.exe.sig",
-      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.3.4/INTERFACE_1.3.4_x64-setup.exe"
+      "name": "INTERFACE_1.3.5_x64-setup.exe",
+      "sha256": "49f33ddb6214cf33473779f791ad3bb50279e78ada5abdc581e9b3dcb06f30a2",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRNlR3OXFQSmhvTVYrMmZ4ekdYTGJaSDZBc21Wc040VFJNRFAySkI5MExtaDY0bndQVE1BL2VBc2c3MmVNR2tiRk5NYTI4K3lCUm9pM1VIbjY5SlZTbk9Cb2thZXM2UUFFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NjYyNzM2CWZpbGU6SU5URVJGQUNFXzEuMy41X3g2NC1zZXR1cC5leGUKVnoyOUhwbHp1NW5ROW5FV1dSQzI4VTV1NFlkOVN6SENlWFlyUXlvendOVTZvb0FSSm80WkJnWU81YjRqQkZ5YTEyV2U1WlhTMkNYYnRrMkIrMWhGRFE9PQo=",
+      "signature_name": "INTERFACE_1.3.5_x64-setup.exe.sig",
+      "url": "https://github.com/ManzanitaSpice/Interface-2/releases/download/v1.3.5/INTERFACE_1.3.5_x64-setup.exe"
     }
   }
 }
